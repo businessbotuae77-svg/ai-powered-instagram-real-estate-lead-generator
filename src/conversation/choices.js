@@ -80,7 +80,16 @@ export function applyChoiceFacts(message, facts = {}) {
   if (property && property.value) next.propertyType = property.value;
 
   const financing = resolveChoice("financing", message);
-  if (financing && financing.value) next.financing = financing.value;
+  if (financing && financing.value) {
+    const text = String(message || "");
+    const cashAsDownPayment =
+      financing.value === "cash" &&
+      /\b(cash\s+available|available\s+(?:now\s+)?cash|cash\s+ready|\d[\d,]*.{0,12}cash|cash.{0,12}\d|initial|down|deposit)\b/i.test(
+        text
+      ) &&
+      !/\b(all\s+cash|full\s+cash|cash\s+buyer|pay(?:ing)?\s+(in\s+)?cash|100%\s+cash)\b/i.test(text);
+    if (!cashAsDownPayment) next.financing = financing.value;
+  }
 
   const area = resolveChoice("preferredAreas", message);
   if (area && area.value) next.area = area.value;

@@ -35,6 +35,10 @@ export function mergeBuyer(existing, patch) {
       next.followUpStatus = value;
       continue;
     }
+    if (key === "cashAvailableAed" && (value === null || value === 0 || value === "0")) {
+      next.cashAvailableAed = value === null ? null : Number(value);
+      continue;
+    }
     if (!hasValue(value)) continue;
     next[key] = value;
   }
@@ -72,7 +76,9 @@ function uniqueNumbers(values) {
 export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   const patch = { instagramUserId };
   if (facts.budget !== undefined) patch.budgetAed = parseMoney(facts.budget);
-  if (facts.cash !== undefined) patch.cashAvailableAed = parseMoney(facts.cash);
+  if (facts.cash !== undefined) {
+    patch.cashAvailableAed = facts.cash === null ? null : parseMoney(facts.cash);
+  }
   if (facts.area) patch.preferredAreas = [normalizeArea(facts.area)].filter(Boolean);
   if (facts.areas) patch.preferredAreas = facts.areas.map(normalizeArea).filter(Boolean);
   if (facts.openToOtherAreas === true) patch.openToOtherAreas = true;

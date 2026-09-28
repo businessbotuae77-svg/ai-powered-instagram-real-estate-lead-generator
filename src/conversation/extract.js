@@ -75,8 +75,17 @@ export function extractFactsFromMessage(message) {
   const budget = extractBudget(text);
   if (budget !== null) facts.budget = budget;
 
-  const cash = extractCash(text);
-  if (cash !== null) facts.cash = cash;
+  if (isNoCashYet(text)) {
+    facts.cash = 0;
+  } else {
+    const cash = extractCash(text);
+    if (cash !== null) facts.cash = cash;
+  }
+
+  // "no cash" must never count as a cash-purchase financing choice.
+  if (isNoCashYet(text) && facts.financing === "cash") {
+    delete facts.financing;
+  }
 
   const area = extractArea(text);
   if (area) facts.area = area;
@@ -229,6 +238,12 @@ function extractBudget(text) {
   return null;
 }
 
+function isNoCashYet(text) {
+  return /\b(no cash|don'?t have (any )?cash|do not have (any )?cash|without cash|zero cash|no money (now|yet)|not ready with cash|no cash yet)\b/i.test(
+    String(text || "")
+  );
+}
+
 function extractCash(text) {
   const maxDown = text.match(
     /\b(?:no more than|not more than|max(?:imum)?|up to|under|less than)\s*(?:AED|Dhs|Dh)?\s*(\d[\d,]*(?:\.\d+)?\s*[MmKk]?)\s*(?:down|deposit|initial|cash)?\b/i
@@ -247,7 +262,11 @@ function extractCash(text) {
     ),
     new RegExp(`${MONEY_TOKEN}\\s*(?:cash|down|ready\\s+now|available\\s+now)`, "i"),
     new RegExp(`\\b(\\d[\\d,]*(?:\\.\\d+)?\\s*[Kk])\\b(?=.*\\b(?:cash|down|now|ready|available|put\\s+down|deposit)\\b)`, "i"),
-    new RegExp(`\\b(?:i\\s+have|with|i\\s+can\\s+put\\s+down)\\s+(?:about\\s+|around\\s+)?(?:AED|Dhs|Dh)?\\s*${MONEY_TOKEN}\\s*(?:available now|ready now|cash)?`, "i")
+    // Require an explicit cash/down marker so "I have about 3 million" stays budget-only.
+    new RegExp(
+      `\\b(?:i\\s+have|with|i\\s+can\\s+put\\s+down)\\s+(?:about\\s+|around\\s+)?(?:AED|Dhs|Dh)?\\s*${MONEY_TOKEN}\\s*(?:available now|ready now|cash|down|deposit|now)\\b`,
+      "i"
+    )
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);

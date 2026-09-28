@@ -82,6 +82,36 @@ export class ConversationEngine {
       delete facts.budget;
       facts.cash = localUnderstanding.facts.cash;
     }
+    // Budget phrasing like "I have about 3 million" must not invent matching cash.
+    const cashMarker =
+      /\b(cash|down\s*payment|deposit|initial(?:\s+payment)?|available now|ready now|put\s+down|have\s+now)\b/i.test(
+        text
+      );
+    if (
+      facts.cash != null &&
+      facts.budget != null &&
+      Number(facts.cash) === Number(facts.budget) &&
+      !cashMarker &&
+      base.facts?.cash === undefined
+    ) {
+      delete facts.cash;
+    }
+    // "500k cash available" is initial cash, not a full-cash purchase.
+    if (
+      facts.financing === "cash" &&
+      /\b(cash\s+available|available\s+(?:now\s+)?cash|\d[\d,]*.{0,20}cash|cash.{0,20}\d|initial|down|deposit)\b/i.test(
+        text
+      ) &&
+      !/\b(all\s+cash|cash\s+buyer|full\s+cash|pay(?:ing)?\s+(in\s+)?cash|100%\s+cash)\b/i.test(text)
+    ) {
+      delete facts.financing;
+    }
+    // Keep explicit "no cash yet" even if Claude marks cash as unsure.
+    if (/\b(no cash|don'?t have (any )?cash|do not have (any )?cash|without cash|zero cash|no money (now|yet)|not ready with cash|no cash yet)\b/i.test(text)) {
+      facts.cash = 0;
+      delete facts.financing;
+      unsure = unsure.filter((field) => field !== "cash");
+    }
     // "I don't know" after an area question means area-flexible, not "ask area again".
     // Enforce this in code even if the optional model omits openToOtherAreas.
     if (unsure.includes("area") && !(facts.area || facts.areas)) {
@@ -271,7 +301,8 @@ export class ConversationEngine {
 
     this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
 
-    if (this.llm && options.useLlm !== false) {
+    // Keep call handoff copy exact — polish must not turn it back into a sales pitch.
+    if (this.llm && options.useLlm !== false && draft.stage !== "call_requested") {
       const polished = await polishReplyWithModel(this.llm, {
         buyer,
         packs,

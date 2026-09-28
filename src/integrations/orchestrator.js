@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { IntegrationLog } from "./integration-log.js";
 import { ProcessedEventStore } from "./processed-events.js";
 import { AlertLedger, CallRequestStore, sendWhatsAppAlert } from "./whatsapp.js";
@@ -10,6 +11,18 @@ export function messageEventAgeMs(event, now = Date.now()) {
   if (!Number.isFinite(raw) || raw <= 0) return null;
   const timestampMs = raw < 1_000_000_000_000 ? raw * 1000 : raw;
   return Math.max(0, now - timestampMs);
+}
+
+/** Blocks webhook+poller double replies when Meta message ids differ. */
+export function contentDedupKey(event) {
+  const senderId = String(event?.senderId || "").trim();
+  const text = String(event?.text || "").trim().toLowerCase();
+  if (!senderId || !text) return null;
+  const ageMs = messageEventAgeMs(event);
+  const bucketMs = ageMs === null ? Date.now() : Date.now() - ageMs;
+  const minute = Math.floor(bucketMs / 60_000);
+  const hash = createHash("sha1").update(text).digest("hex").slice(0, 12);
+  return `content:${senderId}:${hash}:${minute}`;
 }
 
 /**
@@ -106,15 +119,31 @@ export class IntegrationOrchestrator {
 
   async processMessageEvent(event, options = {}) {
     const mid = event.mid;
+    const dedupe = contentDedupKey(event);
+    if (dedupe) {
+      const contentClaimed = await this.events.claim(dedupe, {
+        mid,
+        senderId: event.senderId,
+        source: event.source || "webhook"
+      });
+      if (!contentClaimed) {
+        await this.events.claim(mid, { duplicateOf: dedupe, senderId: event.senderId });
+        await this.events.complete(mid, { skipped: true, skipReason: "content_duplicate" });
+        return { duplicate: true, mid, reason: "content_duplicate" };
+      }
+    }
+
     const claimed = await this.events.claim(mid, {
       senderId: event.senderId,
-      text: String(event.text || "").slice(0, 120)
+      text: String(event.text || "").slice(0, 120),
+      source: event.source || "webhook"
     });
     if (!claimed) {
       return { duplicate: true, mid };
     }
 
-    const maxAgeMs = Number(this.env.META_MAX_EVENT_AGE_MS || 5 * 60 * 1000);
+    const defaultMaxAge = event.source === "poller" ? 15 * 60 * 1000 : 5 * 60 * 1000;
+    const maxAgeMs = Number(this.env.META_MAX_EVENT_AGE_MS || defaultMaxAge);
     const ageMs = messageEventAgeMs(event);
     if (ageMs !== null && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && ageMs > maxAgeMs) {
       await this.events.complete(mid, {

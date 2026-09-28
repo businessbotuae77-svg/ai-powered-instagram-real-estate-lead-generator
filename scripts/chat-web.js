@@ -12,6 +12,7 @@ import { createAnthropicClient } from "../src/conversation/llm.js";
 import { DurableConversationMemory } from "../src/integrations/durable-memory.js";
 import { IntegrationOrchestrator } from "../src/integrations/orchestrator.js";
 import { IntegrationLog } from "../src/integrations/integration-log.js";
+import { InstagramConversationPoller } from "../src/integrations/instagram-poller.js";
 import { runtimeRoot } from "../src/integrations/json-store.js";
 import { getInstagramAccountIdentity, subscribeInstagramMessaging } from "../src/integrations/meta.js";
 
@@ -40,6 +41,11 @@ const orchestrator = new IntegrationOrchestrator({
   buyers,
   env: process.env,
   rootDir: runtimeRoot(),
+  log: integrationLog
+});
+const instagramPoller = new InstagramConversationPoller({
+  orchestrator,
+  env: process.env,
   log: integrationLog
 });
 
@@ -127,6 +133,8 @@ const server = http.createServer(async (req, res) => {
       milestone: 3,
       integrations: {
         metaConfigured: Boolean(process.env.META_PAGE_ACCESS_TOKEN && process.env.META_APP_SECRET),
+        instagramPoller:
+          String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() !== "false",
         hubspotConfigured: Boolean(process.env.HUBSPOT_ACCESS_TOKEN),
         whatsappConfigured: Boolean(
           process.env.WHATSAPP_ACCESS_TOKEN &&
@@ -171,6 +179,60 @@ const server = http.createServer(async (req, res) => {
     }
     const rows = await integrationLog.list(100);
     return sendJson(res, 200, { errors: rows });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/call-requests") {
+    if (IS_PRODUCTION && process.env.ALLOW_INTEGRATION_ERROR_READ !== "true") {
+      return sendJson(res, 404, { error: "Not found" });
+    }
+    const rows = await orchestrator.callRequests.list(100);
+    return sendJson(res, 200, { callRequests: rows });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/meta/diagnostics") {
+    if (IS_PRODUCTION && process.env.ALLOW_INTEGRATION_ERROR_READ !== "true") {
+      return sendJson(res, 404, { error: "Not found" });
+    }
+    try {
+      const { listRecentInboundMessages, fetchOwnInstagramIdentity } = await import(
+        "../src/integrations/instagram-poller.js"
+      );
+      const identity = await fetchOwnInstagramIdentity({ env: process.env });
+      const listed = await listRecentInboundMessages({
+        env: process.env,
+        conversationLimit: 5,
+        messageLimit: 5
+      });
+      const now = Date.now();
+      let pollCycle = null;
+      try {
+        pollCycle = await instagramPoller.pollOnce();
+      } catch (error) {
+        pollCycle = { error: error.message || String(error) };
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        identity,
+        pollerEnabled:
+          String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() !== "false",
+        graphReachableFromServer: !identity?.skipped && Boolean(identity?.id),
+        scanned: listed.events?.length || 0,
+        skipped: listed.skipped || false,
+        reason: listed.reason || null,
+        pollCycle,
+        recentInbound: (listed.events || []).slice(-8).map((event) => ({
+          mid: event.mid,
+          senderId: event.senderId,
+          ageMinutes:
+            event.timestamp && Number.isFinite(event.timestamp)
+              ? Number(((now - event.timestamp) / 60000).toFixed(1))
+              : null,
+          text: String(event.text || "").slice(0, 80)
+        }))
+      });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/llm") {
@@ -221,6 +283,15 @@ const server = http.createServer(async (req, res) => {
       if (!message) return sendJson(res, 400, { error: "message is required" });
       const useLlm = body.useLlm === undefined ? true : Boolean(body.useLlm);
       const result = await engine.handleMessage(userId, message, { useLlm });
+      if (result.callRequestSubmitted && result.buyer?.phone) {
+        await orchestrator.callRequests.record({
+          instagramUserId: result.buyer.instagramUserId || userId,
+          phone: result.buyer.phone,
+          summary: result.callSummary,
+          match: result.matches?.[0]?.project?.name || null,
+          source: "chat_api"
+        });
+      }
       return sendJson(res, 200, {
         reply: result.reply,
         stage: result.stage,
@@ -339,4 +410,11 @@ server.listen(PORT, HOST, () => {
     .catch((error) => {
       console.warn(`Instagram token identity lookup failed: ${error.message}`);
     });
+
+  instagramPoller.start();
+  console.log(
+    String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() === "false"
+      ? "Instagram conversation poller disabled"
+      : "Instagram conversation poller started"
+  );
 });
