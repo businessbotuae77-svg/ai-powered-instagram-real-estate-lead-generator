@@ -114,6 +114,7 @@ export async function sendInstagramText({
 
   const response = await fetchImpl(url, {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${config.pageAccessToken}`
@@ -125,9 +126,10 @@ export async function sendInstagramText({
     const detail = body?.error?.message || response.statusText || "Instagram send failed";
     const error = new Error(detail);
     error.status = response.status;
-    error.retryable = response.status >= 500;
+    error.retryable = response.status >= 500 || response.status === 429;
     throw error;
   }
+  if (!body.message_id && !body.id) throw new Error("Instagram response did not confirm a message id");
   return {
     recipientId: body.recipient_id || recipientId,
     messageId: body.message_id || body.id || null
@@ -154,6 +156,7 @@ export async function subscribeInstagramMessaging({
   const url = `${igBase}/${config.graphVersion}/me/subscribed_apps?subscribed_fields=${encodeURIComponent(fields.join(","))}`;
   const response = await fetchImpl(url, {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: {
       authorization: `Bearer ${config.pageAccessToken}`
     }
@@ -163,7 +166,7 @@ export async function subscribeInstagramMessaging({
     const detail = body?.error?.message || response.statusText || "subscribe failed";
     const error = new Error(detail);
     error.status = response.status;
-    error.retryable = response.status >= 500;
+    error.retryable = response.status >= 500 || response.status === 429;
     throw error;
   }
   return { skipped: false, ok: Boolean(body.success ?? true), body };

@@ -1,3 +1,4 @@
+import { safeCatalog } from "../facts/freshness.js";
 import { criteriaFromBuyer, matchInventory } from "../matching/matcher.js";
 import { retrieveFacts } from "../facts/retrieval.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
@@ -13,7 +14,11 @@ export class PropertyService {
     const projects = this.store.listProjects();
     const liveProjectIds = new Set(projects.map((row) => row.id));
     const units = this.store.listUnits().filter((row) => liveProjectIds.has(row.projectId));
-    return { developers, projects, units };
+    return safeCatalog({ developers, projects, units });
+  }
+
+  async refresh() {
+    if (this.store.refreshCatalog) await this.store.refreshCatalog();
   }
 
   match(criteria) {

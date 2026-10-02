@@ -24,11 +24,11 @@ export function answerFactQuestion(message, packs = []) {
 
 export function detectFactTopic(message) {
   const text = String(message || "").toLowerCase();
-  if (/payment\s*plan|instal+ments?|80\s*\/\s*20|split/i.test(text)) return "paymentPlan";
-  if (/handover|completion|ready date/i.test(text)) return "handover";
-  if (/price|cost|how much|starting/i.test(text)) return "price";
-  if (/initial|down\s*payment|booking\s*amount/i.test(text)) return "initial";
-  if (/availab|sold out|units left|remaining/i.test(text)) return "availability";
+  if (/خطة السداد|خطة سداد|payment\s*plan|instal+ments?|80\s*\/\s*20|split/i.test(text)) return "paymentPlan";
+  if (/تسليم|handover|completion|ready date/i.test(text)) return "handover";
+  if (/سعر|السعر|تكلفة|price|cost|how much|starting/i.test(text)) return "price";
+  if (/دفعة أولى|الدفعة الأولى|initial|down\s*payment|booking\s*amount/i.test(text)) return "initial";
+  if (/متاح|متوفر|availab|sold out|units left|remaining/i.test(text)) return "availability";
   return null;
 }
 

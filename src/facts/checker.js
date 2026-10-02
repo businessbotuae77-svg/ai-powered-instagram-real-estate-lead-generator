@@ -88,8 +88,15 @@ export function validateMessage(message, packs, options = {}) {
       allowed.amounts.add(Math.round(Number(amount)));
     }
   }
+  if (options.educationalSplit && /^\d{1,2}\/\d{1,2}$/.test(options.educationalSplit)) {
+    const parts = options.educationalSplit.split("/").map(Number);
+    if (parts[0] + parts[1] === 100) allowed.phrases.add(options.educationalSplit);
+  }
   const claims = extractCommercialClaims(message);
   const violations = claims.filter((claim) => !claimAllowed(claim, allowed));
+  if (/perfect match|no compromises|guaranteed (?:returns?|roi)|reservation confirmed|reserved for you|advisor (?:was |has been )?notified|saved (?:to|in) HubSpot/i.test(String(message))) {
+    violations.push({ type: "unsupported_assurance" });
+  }
   const missing = packs.flatMap(missingCommercialFields);
   const handoffRequired = Boolean(options.handoffRequested);
   return {

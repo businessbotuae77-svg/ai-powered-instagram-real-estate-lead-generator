@@ -1,3 +1,4 @@
+import { POLICY_VERSION } from "../src/conversation/policy.js";
 import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -58,6 +59,8 @@ function llmStatus() {
   const enabled = Boolean(llm?.apiKey);
   const key = llm?.apiKey || "";
   return {
+    policyVersion: POLICY_VERSION,
+    promptSource: "prompts/conversation-policy.md",
     claudeEnabled: enabled,
     model: enabled ? llm.model : null,
     keyHint: enabled && key.length >= 4 ? `…${key.slice(-4)}` : null,
@@ -346,6 +349,7 @@ const server = http.createServer(async (req, res) => {
       const outcome = await orchestrator.processCallRequest({
         userId,
         phone,
+        messageId: body.requestId || null,
         useLlm: false
       });
       const result = outcome.result;
@@ -353,7 +357,7 @@ const server = http.createServer(async (req, res) => {
         reply: result.reply,
         stage: result.stage,
         alertRecommended: Boolean(result.alertRecommended),
-        callRequestSubmitted: true,
+        callRequestSubmitted: Boolean(result.callRequestSubmitted),
         callSummary: result.callSummary || null,
         notification: outcome.alert,
         buyer: {
@@ -411,6 +415,9 @@ server.listen(PORT, HOST, () => {
       console.warn(`Instagram token identity lookup failed: ${error.message}`);
     });
 
+  const retryTimer = setInterval(() => orchestrator.retryPending().catch(error => console.warn(`Integration retry failed: ${error.message}`)), 30000);
+  retryTimer.unref();
+  orchestrator.retryPending().catch(error => console.warn(`Integration recovery failed: ${error.message}`));
   instagramPoller.start();
   console.log(
     String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() === "false"

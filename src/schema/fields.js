@@ -49,6 +49,8 @@ export const UNIT_FIELDS = [
 export const BUYER_FIELDS = [
   "instagramUserId",
   "name",
+  "language",
+  "requestedAction",
   "phone",
   "budgetAed",
   "cashAvailableAed",
@@ -82,6 +84,8 @@ export function emptyBuyer(instagramUserId) {
   return {
     instagramUserId: String(instagramUserId),
     name: null,
+    language: "en",
+    requestedAction: null,
     phone: null,
     budgetAed: null,
     cashAvailableAed: null,

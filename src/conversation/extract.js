@@ -1,3 +1,4 @@
+import { normalizeBuyerText } from "./text.js";
 import {
   normalizeArea,
   normalizeBedrooms,
@@ -62,16 +63,20 @@ const PROJECT_HINTS = {
  * Matching still happens in code; this only fills the buyer card.
  */
 export function extractFactsFromMessage(message) {
-  const text = String(message || "").trim();
+  const text = normalizeBuyerText(message).trim();
   let facts = {};
   const signals = [];
   if (!text) return { facts, signals, intents: ["empty"] };
 
   const intents = detectIntents(text);
+  if (/سعر|تكلفة|تسليم|متاح|متوفر|خطة السداد|خطة سداد/.test(text)) intents.push("ask_facts");
 
   // Editable quick-reply / choice aliases first, then free-text extractors.
   facts = applyChoiceFacts(text, facts);
 
+  const arabicBudget = text.match(/ميزانيتي\s*(\d+(?:\.\d+)?\s*[MK]?)/i);
+  if (arabicBudget) facts.budget = parseMoney(arabicBudget[1]);
+  if (/عائد|\broi\b/i.test(text)) facts.useType = "investment";
   const budget = extractBudget(text);
   if (budget !== null) facts.budget = budget;
 
@@ -283,6 +288,8 @@ function extractCash(text) {
 }
 
 function extractArea(text) {
+  const arabic = [["ياس", "Yas Island"], ["السعديات", "Saadiyat Island"], ["الريم", "Al Reem Island"]].find(([name]) => text.includes(name));
+  if (arabic) return arabic[1];
   const forgottenPattern = new RegExp(
     `\\b(?:forget|ignore|skip|not|no more)\\s+(?:about\\s+)?(${AREA_SOURCE})\\b`,
     "gi"
@@ -370,7 +377,7 @@ function extractProject(text) {
     if (lower.includes(hint)) return label;
   }
   const named = text.match(/\bproject\s+([A-Za-z0-9][A-Za-z0-9\s]{2,40})/i);
-  if (named) return named[1].trim();
+  if (named && !/^(do|are|is|can|would|should|know|have)\b/i.test(named[1])) return named[1].trim();
   return null;
 }
 
@@ -392,7 +399,7 @@ function extractUseType(text) {
   ) {
     return "end_use";
   }
-  if (/\binvest(ment|or)?\b/i.test(text) || /\brental\s+yield\b/i.test(text)) return "investment";
+  if (/\binvest(ment|or|ing)?\b/i.test(text) || /\brental\s+yield\b/i.test(text)) return "investment";
   return USE_TYPES.includes(text) ? text : null;
 }
 

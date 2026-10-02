@@ -67,3 +67,9 @@ Docs:
 ## Next milestone
 
 - Milestone 4: acceptance tests, production deploy, docs, handover
+
+## Conversation-first Milestone 3/4 enhancements
+
+The [2 October specification](https://docs.google.com/document/d/1u9VLg6DFU0ofDrS8tW5tizsrykP-I0LroPeFsUVWT8Q/edit) supersedes the earlier call-only handoff rules. Knowledge and exploration answers run before qualification; follow-up uses the chosen channel and persistent permissions. Commercial claims are freshness-gated, and failed integrations retain durable retry progress.
+
+Read [handover](docs/HANDOVER.md) for runtime prompt, configuration, recovery and rollback, and [acceptance](docs/ACCEPTANCE.md) for the 30 live cases. Run `npm test` and `npm run verify:spec`. Local tests do not certify production acceptance.

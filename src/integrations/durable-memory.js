@@ -10,10 +10,15 @@ export class DurableConversationMemory extends ConversationMemory {
     super();
     this.store = new JsonFileStore(path.join(rootDir || runtimeRoot(), "conversation-memory.json"));
     this.ready = this.#hydrate();
+    this.pendingWrite = Promise.resolve();
   }
 
   async ensureReady() {
     await this.ready;
+  }
+
+  async flush() {
+    await this.pendingWrite;
   }
 
   addTurn(instagramUserId, turn) {
@@ -52,6 +57,8 @@ export class DurableConversationMemory extends ConversationMemory {
       pending: Object.fromEntries(this.pending),
       lastAsked: Object.fromEntries(this.lastAsked || [])
     };
-    this.store.write(payload).catch(() => {});
+    this.pendingWrite = this.store.write(structuredClone(payload));
+    // Keep synchronous memory methods safe until the engine awaits flush().
+    this.pendingWrite.catch(() => {});
   }
 }

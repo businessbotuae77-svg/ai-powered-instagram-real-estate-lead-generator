@@ -10,6 +10,8 @@ import { ConversationMemory } from "../src/conversation/memory.js";
 export async function setupServices() {
   const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "m1-buyers-"));
   const store = await createLocalStore({ runtimeDir });
+  // Synthetic fixtures are verified today; production seed dates remain unchanged.
+  store.projects = store.projects.map(p => ({ ...p, lastVerified: new Date().toISOString() }));
   return {
     store,
     buyers: new BuyerService(store),

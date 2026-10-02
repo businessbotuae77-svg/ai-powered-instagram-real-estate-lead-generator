@@ -62,6 +62,7 @@ export async function upsertHubSpotContact({
   const properties = buyerToHubSpotProperties(buyer, { matches, lastMessage, alertReason });
   const response = await fetchImpl(`${env.HUBSPOT_BASE_URL || DEFAULT_BASE}/crm/v3/objects/contacts/batch/upsert`, {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${env.HUBSPOT_ACCESS_TOKEN}`
@@ -81,10 +82,11 @@ export async function upsertHubSpotContact({
     const detail = body?.message || body?.error || response.statusText || "HubSpot upsert failed";
     const error = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
     error.status = response.status;
-    error.retryable = response.status >= 500;
+    error.retryable = response.status >= 500 || response.status === 429;
     throw error;
   }
   const result = body.results?.[0] || {};
+  if (!result.id || body.errors?.length) throw new Error("HubSpot response did not confirm a contact id");
   return {
     skipped: false,
     contactId: result.id || null,
@@ -112,6 +114,7 @@ export async function ensureHubSpotProperties({ env = process.env, fetchImpl = f
     }
     const createRes = await fetchImpl(`${env.HUBSPOT_BASE_URL || DEFAULT_BASE}/crm/v3/properties/contacts`, {
       method: "POST",
+    signal: AbortSignal.timeout(15000),
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${env.HUBSPOT_ACCESS_TOKEN}`

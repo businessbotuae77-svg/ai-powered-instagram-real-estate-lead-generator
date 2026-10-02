@@ -1,3 +1,4 @@
+import { approvedFresh, factPolicy } from "./freshness.js";
 import { formatAed } from "../matching/normalize.js";
 
 function field(value) {
@@ -8,8 +9,12 @@ function field(value) {
   };
 }
 
-export function buildFactPack(match) {
+export function buildFactPack(match, options = {}) {
   const { project, unit, downPaymentAed, bedroomLabel, fit = null } = match;
+  const policy = options.policy || factPolicy();
+  const fresh = approvedFresh(project, { now: options.now, maxAgeDays: policy.commercialDays });
+  const available = approvedFresh(project, { now: options.now, maxAgeDays: policy.availabilityDays });
+  const commercial = value => field(fresh ? value : null);
   return {
     fit,
     projectId: project.id,
@@ -21,18 +26,18 @@ export function buildFactPack(match) {
     propertyType: field(unit.propertyType),
     bedrooms: field(unit.bedrooms),
     bedroomLabel: field(bedroomLabel),
-    startingPriceAed: field(unit.startingPriceAed),
-    startingPriceText: field(formatAed(unit.startingPriceAed)),
+    startingPriceAed: commercial(unit.startingPriceAed),
+    startingPriceText: commercial(formatAed(unit.startingPriceAed)),
     sizeSqftFrom: field(unit.sizeSqftFrom),
     sizeSqftTo: field(unit.sizeSqftTo),
-    downPaymentAed: field(downPaymentAed),
-    downPaymentText: field(formatAed(downPaymentAed)),
-    paymentPlanAvailable: field(project.paymentPlanAvailable),
-    paymentPlanSummary: field(project.paymentPlanSummary),
-    handover: field(project.handover),
+    downPaymentAed: commercial(downPaymentAed),
+    downPaymentText: commercial(formatAed(downPaymentAed)),
+    paymentPlanAvailable: commercial(project.paymentPlanAvailable),
+    paymentPlanSummary: commercial(project.paymentPlanSummary),
+    handover: commercial(project.handover),
     status: field(project.status),
-    availability: field(unit.availability),
-    availabilityNotes: field(project.availabilityNotes),
+    availability: field(available && unit.availability !== "Unknown" ? unit.availability : null),
+    availabilityNotes: field(available ? project.availabilityNotes : null),
     description: field(project.description),
     features: field(project.features),
     source: field(project.source),

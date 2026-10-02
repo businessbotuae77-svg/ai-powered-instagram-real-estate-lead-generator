@@ -28,12 +28,13 @@ export class JsonFileStore {
   }
 
   async update(mutator, fallback) {
-    this.writeQueue = this.writeQueue.then(async () => {
+    const operation = async () => {
       const current = await this.read(fallback);
       const next = await mutator(current);
       await this.#writeNow(next);
       return next;
-    });
+    };
+    this.writeQueue = this.writeQueue.then(operation, operation);
     return this.writeQueue;
   }
 

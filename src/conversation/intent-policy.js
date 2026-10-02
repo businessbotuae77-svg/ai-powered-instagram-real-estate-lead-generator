@@ -1,7 +1,8 @@
+import { normalizeBuyerText } from "./text.js";
 /**
  * Buyer intent and call-request policy for Milestone 3.
- * High buying interest stays in the AI conversation.
- * A human handoff starts only after Request a Call + phone submit.
+ * Buying interest is distinct from call permission.
+ * Channel-aware follow-up is handled by contact.js.
  */
 
 const HIGH_INTENT_SIGNALS = [
@@ -16,7 +17,7 @@ const HIGH_INTENT_SIGNALS = [
  * Normalize intents/signals for one message.
  */
 export function refineTurnIntent({ intents = [], signals = [], facts = {}, message = "" } = {}) {
-  const text = String(message || "");
+  const text = normalizeBuyerText(message);
   let nextIntents = [...intents];
   let nextSignals = [...signals];
   const nextFacts = { ...facts };
@@ -28,6 +29,11 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextSignals.push("informational_eoi");
   }
 
+  if (/\b(stop contacting|stop messaging|stop asking|leave me alone|do not contact|don't contact)\b/i.test(text) || /^(i'm good|im good|i am good|all good|stop|that's all|no thanks|no thank you)[.!?]*$/i.test(text.trim())) {
+    nextIntents.push("stop");
+    nextFacts.salesPathStopped = true;
+  }
+  if (/follow[ -]?up|whatsapp me|contact me|متابعة|واتساب/i.test(text)) nextIntents.push("follow_up");
   if (isNegatedReserve(text)) {
     nextIntents = without(nextIntents, ["reserve", "high_intent", "request_call"]);
     nextSignals = without(nextSignals, ["reserve_interest", "high_intent", "request_call"]);
@@ -63,6 +69,7 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
   }
   if (contactPrefs.noCalls === true) {
     nextFacts.noCalls = true;
+    nextIntents.push("no_calls");
   }
   if (contactPrefs.whatsappOnly === true) {
     nextFacts.preferredContactChannel = "whatsapp";
@@ -72,6 +79,11 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextIntents = without(nextIntents, ["decline_contact"]);
     nextSignals = without(nextSignals, ["contact_declined"]);
     delete nextFacts.contactDeclined;
+  }
+
+  if (isProcessQuestionOnly(text)) {
+    nextIntents = without(nextIntents, ["reserve", "viewing", "high_intent"]);
+    nextSignals = without(nextSignals, ["reserve_interest", "viewing_request", "high_intent"]);
   }
 
   // Buying interest is conversational only. It never becomes an alert by itself.
@@ -106,28 +118,20 @@ export function hasBuyingInterest(intents = [], signals = [], message = "") {
 }
 
 /**
- * Explicit request for human help. This offers Request a Call, but does not notify yet.
+ * Explicit call permission only. Human help and reservations do not imply a call.
  */
 export function wantsCallRequest(text) {
-  const value = String(text || "").trim();
+  const value = normalizeBuyerText(text).trim();
   if (!value) return false;
   if (isDeclineCallOffer(value)) return false;
   if (isProcessQuestionOnly(value)) return false;
 
-  return (
-    /\b(call me|phone me|ring me|can you call|please call|request a call|want a call)\b/i.test(value) ||
-    /\b(speak to|talk to)\b.+\b(someone|anybody|advisor|agent|human|person|sales)\b/i.test(value) ||
-    /\b(speak to someone|talk to someone|speak with (an? )?advisor|human help)\b/i.test(value) ||
-    /\b(i want to proceed|ready to proceed|want to close|close this)\b/i.test(value) ||
-    /\b(i want to reserve|want to reserve this|reserve this|make an eoi|submit an eoi|place an eoi)\b/i.test(value) ||
-    /\b(i want to buy this|ready to buy this|i want this unit|buy this one)\b/i.test(value) ||
-    /\b(more information from a person|explain this to me|someone explain)\b/i.test(value) ||
-    /\b(can someone|could someone)\b.+\b(call|help|explain|contact)\b/i.test(value)
-  );
+  return /\b(call me|phone me|ring me|can you call|please call|request a call|want a call)\b/i.test(value);
+
 }
 
 export function isProcessQuestionOnly(text) {
-  const value = String(text || "");
+  const value = normalizeBuyerText(text);
   return (
     /\b(what|how|which|when|tell me)\b/i.test(value) &&
     /\b(reserve|reservation|eoi|payment plan|need to|required|documents?|process)\b/i.test(value) &&
@@ -141,7 +145,7 @@ export function isProcessQuestionOnly(text) {
 export function shouldSendAdvisorAlert({ callRequestSubmitted = false, buyer = null } = {}) {
   if (!callRequestSubmitted) return false;
   if (!buyer?.phone) return false;
-  if (buyer.salesPathStopped) return false;
+  if (buyer.salesPathStopped || buyer.noCalls || buyer.preferredContactChannel === "whatsapp") return false;
   return true;
 }
 
@@ -154,7 +158,7 @@ export function alertReasonFromTurn(intents = [], signals = []) {
 }
 
 export function isInformationalEoi(text) {
-  const value = String(text || "");
+  const value = normalizeBuyerText(text);
   return (
     /\b(expression of interest|eoi)\b/i.test(value) && /\b(info|information|about|what is|tell me)\b/i.test(value) ||
     (/\b(just\s+)?(interested|looking)\b/i.test(value) &&
@@ -164,11 +168,11 @@ export function isInformationalEoi(text) {
 }
 
 export function isNegatedReserve(text) {
-  return /\b(don'?t|do not|not|never)\s+(want to\s+)?(reserve|book|hold|secure)\b/i.test(String(text || ""));
+  return /\b(don'?t|do not|not|never)\s+(want to\s+)?(reserve|book|hold|secure|submit\s+(?:an?\s+)?eoi|place\s+(?:an?\s+)?eoi)\b/i.test(normalizeBuyerText(text));
 }
 
 export function isDeclineCallOffer(text) {
-  const value = String(text || "").trim();
+  const value = normalizeBuyerText(text).trim();
   return (
     /^(i'?m good|im good|i am good|all good|that'?s all|thats all|no thanks|no thank you)([.!?]*)$/i.test(value) ||
     /\b(i'?m good|im good|i am good)\b/i.test(value) && value.length < 48 ||
@@ -186,7 +190,7 @@ export function isStopSales(text) {
 }
 
 export function extractContactPreferences(text) {
-  const value = String(text || "");
+  const value = normalizeBuyerText(text);
   const prefs = {};
   if (
     /\b(whatsapp only|only whatsapp|prefer whatsapp|whatsapp me|message me on whatsapp|wa only)\b/i.test(value)
@@ -207,7 +211,9 @@ export function extractContactPreferences(text) {
 }
 
 export function buildCallRequestSummary(buyer, { matches = [], reason = "Requested a call" } = {}) {
-  const lines = ["CALL REQUEST"];
+  const lines = [buyer.preferredContactChannel && buyer.preferredContactChannel !== "phone" ? "FOLLOW-UP REQUEST" : "CALL REQUEST"];
+  lines.push(`Instagram ID: ${buyer.instagramUserId || "unknown"}`);
+  lines.push(`Channel: ${buyer.preferredContactChannel || "phone"}; No calls: ${buyer.noCalls ? "yes" : "no"}`);
   if (buyer.phone) lines.push(`Phone: ${buyer.phone}`);
   if (buyer.name) lines.push(`Name: ${buyer.name}`);
   if (buyer.budgetAed) lines.push(`Budget: AED ${Number(buyer.budgetAed).toLocaleString("en-US")}`);
@@ -226,6 +232,7 @@ export function buildCallRequestSummary(buyer, { matches = [], reason = "Request
   if (buyer.useType && buyer.useType !== "unknown") lines.push(`Use: ${buyer.useType}`);
   const project = matches[0]?.project?.name || buyer.projectInterest;
   if (project) lines.push(`Interested in: ${project}`);
+  lines.push(`Requested action: ${buyer.requestedAction || reason}`);
   lines.push(`Reason: ${reason}`);
   if (buyer.conversationSummary) lines.push(`Summary: ${buyer.conversationSummary}`);
   return lines.join("\n");

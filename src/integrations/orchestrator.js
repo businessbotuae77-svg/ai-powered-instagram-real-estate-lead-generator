@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { POLICY_VERSION } from "../conversation/policy.js";
+import { createHash, randomUUID } from "node:crypto";
 import { IntegrationLog } from "./integration-log.js";
 import { ProcessedEventStore } from "./processed-events.js";
 import { AlertLedger, CallRequestStore, sendWhatsAppAlert } from "./whatsapp.js";
@@ -27,7 +28,7 @@ export function contentDedupKey(event) {
 
 /**
  * Milestone 3 orchestrator: webhook -> engine -> HubSpot -> IG reply.
- * WhatsApp alerts fire only after Request a Call + phone submit.
+ * Advisor alerts follow explicit channel-aware requests. Each integration has durable progress.
  */
 export class IntegrationOrchestrator {
   constructor({
@@ -52,6 +53,7 @@ export class IntegrationOrchestrator {
     this.alerts = alerts || new AlertLedger({ rootDir: this.rootDir });
     this.callRequests = callRequests || new CallRequestStore({ rootDir: this.rootDir });
     this.queue = Promise.resolve();
+    this.processing = Promise.resolve();
   }
 
   handleVerify(query) {
@@ -104,6 +106,8 @@ export class IntegrationOrchestrator {
       }
     });
 
+    for (const event of messages) await this.events.enqueue(event);
+
     this.queue = this.queue.then(() => this.#processMessages(messages)).catch(async (error) => {
       await this.log.record({
         integration: "orchestrator",
@@ -117,15 +121,34 @@ export class IntegrationOrchestrator {
     return { ok: true, status: 200, accepted: messages.length };
   }
 
-  async processMessageEvent(event, options = {}) {
+  processMessageEvent(event, options = {}) {
+    const task = () => this.#processMessageEvent(event, options);
+    const result = this.processing.then(task, task);
+    this.processing = result.catch(() => {});
+    return result;
+  }
+
+  async retryPending() {
+    for (const row of await this.events.pending()) await this.processMessageEvent(row.event, { retry: true });
+  }
+
+  async #processMessageEvent(event, options = {}) {
     const mid = event.mid;
+    if (!mid || !event.senderId) throw new Error("Message event requires id and sender");
+    const saved = await this.events.get(mid);
+    if (saved?.status === "completed") return { duplicate: true, mid };
+    const resuming = saved && saved.status !== "queued";
+    if (resuming && !options.retry) return { duplicate: true, mid, pending: true };
     const dedupe = contentDedupKey(event);
-    if (dedupe) {
-      const contentClaimed = await this.events.claim(dedupe, {
+    if (dedupe && !resuming) {
+      const priorContent = await this.events.get(dedupe);
+      const sameTransport = priorContent && priorContent.source === (event.source || "webhook");
+      const contentClaimed = sameTransport || await this.events.claim(dedupe, {
         mid,
         senderId: event.senderId,
         source: event.source || "webhook"
       });
+      if (contentClaimed && !sameTransport) await this.events.complete(dedupe);
       if (!contentClaimed) {
         await this.events.claim(mid, { duplicateOf: dedupe, senderId: event.senderId });
         await this.events.complete(mid, { skipped: true, skipReason: "content_duplicate" });
@@ -133,7 +156,7 @@ export class IntegrationOrchestrator {
       }
     }
 
-    const claimed = await this.events.claim(mid, {
+    const claimed = resuming || await this.events.claim(mid, {
       senderId: event.senderId,
       text: String(event.text || "").slice(0, 120),
       source: event.source || "webhook"
@@ -142,10 +165,13 @@ export class IntegrationOrchestrator {
       return { duplicate: true, mid };
     }
 
+    const previous = saved || {};
+    await this.events.save(mid, { event, status: "processing", attempts: (previous.attempts || 0) + 1 });
+
     const defaultMaxAge = event.source === "poller" ? 15 * 60 * 1000 : 5 * 60 * 1000;
     const maxAgeMs = Number(this.env.META_MAX_EVENT_AGE_MS || defaultMaxAge);
-    const ageMs = messageEventAgeMs(event);
-    if (ageMs !== null && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && ageMs > maxAgeMs) {
+    const ageMs = messageEventAgeMs(event, saved?.at ? Date.parse(saved.at) : Date.now());
+    if (!resuming && ageMs !== null && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && ageMs > maxAgeMs) {
       await this.events.complete(mid, {
         skipped: true,
         skipReason: "stale_message",
@@ -164,30 +190,40 @@ export class IntegrationOrchestrator {
     }
 
     try {
-      const result = await this.engine.handleMessage(event.senderId, event.text, {
-        useLlm: options.useLlm
-      });
-
-      const hubspot = await this.#safeHubSpot(result, event);
-      const send = await this.#safeInstagramSend(event.senderId, result.reply, mid, result.callRequest);
-      const alert = await this.#safeCallRequestAlert(result, event);
-
-      await this.events.complete(mid, {
-        hubspotContactId: hubspot.contactId || null,
-        outboundMessageId: send.messageId || null,
-        alertKey: alert.key || null
-      });
-
-      return {
-        duplicate: false,
-        mid,
-        result,
-        hubspot,
-        send,
-        alert
-      };
+      const result = previous.result || (event.callRequest
+        ? await this.engine.submitCallRequest(event.senderId, event.phone, { useLlm: false })
+        : await this.engine.handleMessage(event.senderId, event.text, { useLlm: options.useLlm }));
+      await this.events.save(mid, { result });
+      const hubspot = previous.hubspot || await this.#safeHubSpot(result, event);
+      if (!hubspot.error && !hubspot.skipped) await this.events.save(mid, { hubspot });
+      const alert = previous.alert || await this.#safeCallRequestAlert(result, event);
+      const needsAlert = result.alertRecommended;
+      const revoked = alert.reason === "permission_revoked";
+      const alertOk = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert" || revoked);
+      if (alertOk || !needsAlert) await this.events.save(mid, { alert });
+      let send = previous.send;
+      if (!send && (!needsAlert || alertOk)) {
+        const reply = revoked ? "Your contact preferences changed, so the earlier follow-up request was cancelled." : needsAlert
+          ? result.buyer.language === "ar"
+            ? "وصل طلب المتابعة إلى المستشار. سيتابع معك عبر القناة التي اخترتها."
+            : `Your follow-up request has reached the advisor. They will follow up ${result.buyer.preferredContactChannel === "phone" ? "by phone" : result.buyer.preferredContactChannel === "whatsapp" ? "on WhatsApp" : "here on Instagram"}.`
+          : result.reply;
+        send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(event.senderId, reply, mid, result.callRequest);
+        if (!send.error && !send.skipped) await this.events.save(mid, { send });
+        if (needsAlert && alertOk) result.reply = reply;
+      }
+      const failed = hubspot.error || hubspot.skipped || (needsAlert && !alertOk) || !send || send.error || send.skipped;
+      if (failed) {
+        await this.events.save(mid, { status: "failed", nextAttemptAt: Date.now() + Math.min(3600000, 30000 * 2 ** (previous.attempts || 0)) });
+      } else {
+        await this.events.complete(mid, { hubspotContactId: hubspot.contactId || null, outboundMessageId: send.messageId || null, alertKey: alert.key || null });
+      }
+      await this.log.record({ correlationId: mid, integration: "conversation", operation: "decision", status: failed ? "pending" : "ok",
+        meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, handoffRequired: result.handoffRequired, catalogError: result.catalogError, buyerState: { budget: result.buyer?.budgetAed, areas: result.buyer?.preferredAreas, bedrooms: result.buyer?.bedrooms, channel: result.buyer?.preferredContactChannel, noCalls: result.buyer?.noCalls }, projectIds: result.matches?.map(m => m.project.id), reply: result.reply } });
+      return { duplicate: false, mid, result, hubspot, send, alert, pending: Boolean(failed) };
     } catch (error) {
       await this.events.fail(mid, { message: error.message });
+      await this.events.save(mid, { nextAttemptAt: Date.now() + 30000 });
       await this.log.record({
         correlationId: mid,
         integration: "orchestrator",
@@ -201,12 +237,14 @@ export class IntegrationOrchestrator {
     }
   }
 
-  async processCallRequest({ userId, phone, messageId = null, useLlm = false } = {}) {
-    const result = await this.engine.submitCallRequest(userId, phone, { useLlm });
-    const event = { mid: messageId || `call_${userId}_${Date.now()}`, senderId: userId, text: "Request a Call" };
-    const hubspot = await this.#safeHubSpot(result, event);
-    const alert = await this.#safeCallRequestAlert(result, event);
-    return { result, hubspot, alert };
+  async processCallRequest({ userId, phone, messageId = null } = {}) {
+    const event = { mid: messageId || `call_${userId}_${randomUUID()}`, senderId: userId, text: "Request a Call", phone, callRequest: true };
+    const output = await this.processMessageEvent(event, { useLlm: false });
+    if (output.duplicate) {
+      const saved = await this.events.get(event.mid);
+      return { ...output, result: saved.result, alert: { skipped: true, reason: "duplicate_alert" } };
+    }
+    return output;
   }
 
   async #processMessages(messages) {
@@ -219,11 +257,12 @@ export class IntegrationOrchestrator {
 
   async #safeHubSpot(result, event) {
     try {
+      const latest = await this.buyers?.getOrCreate?.(result.buyer.instagramUserId);
       const sync = await upsertHubSpotContact({
-        buyer: result.buyer,
+        buyer: latest || result.buyer,
         matches: result.matches,
         lastMessage: event.text,
-        alertReason: result.callRequestSubmitted ? "call_request" : null,
+        alertReason: result.alertReason || null,
         env: this.env,
         fetchImpl: this.fetchImpl
       });
@@ -274,12 +313,15 @@ export class IntegrationOrchestrator {
   }
 
   async #safeCallRequestAlert(result, event) {
-    if (!result.callRequestSubmitted || !result.alertRecommended || !result.buyer?.phone) {
+    if ((!result.callRequestSubmitted && !result.followUpSubmitted) || !result.alertRecommended) {
       return { skipped: true, reason: "not_a_submitted_call_request" };
     }
 
     try {
+      const latest = await this.buyers?.getOrCreate?.(result.buyer.instagramUserId);
+      if (latest?.salesPathStopped || (latest?.preferredContactChannel && latest.preferredContactChannel !== result.buyer.preferredContactChannel) || (result.buyer.preferredContactChannel === "phone" && latest?.noCalls)) return { skipped: true, reason: "permission_revoked" };
       await this.callRequests.record({
+        requestKey: event.mid,
         instagramUserId: result.buyer.instagramUserId,
         phone: result.buyer.phone,
         summary: result.callSummary,
@@ -288,7 +330,7 @@ export class IntegrationOrchestrator {
 
       const alert = await sendWhatsAppAlert({
         buyer: result.buyer,
-        reason: "call_request",
+        reason: result.alertReason || "call_request",
         matchName: result.matches?.[0]?.project?.name || "",
         messageId: event.mid,
         summaryText: result.callSummary || "",
@@ -311,7 +353,7 @@ export class IntegrationOrchestrator {
         status: "error",
         message: error.message,
         retryable: Boolean(error.retryable),
-        meta: { phone: result.buyer.phone }
+        meta: { senderId: result.buyer.instagramUserId }
       });
       return { skipped: true, error: error.message, recorded: true };
     }

@@ -315,7 +315,7 @@ function buildContextualFollowUp(buyer, matches, packs, { lastAskedField = null,
     ["budget", "area", "bedrooms"].includes(field)
   );
   const divertedFromCash =
-    !buyer.cashAvailableAed &&
+    buyer.cashAvailableAed == null &&
     (justCorrectedCore ||
       (lastAskedField === "cashAvailableAed" &&
         updatedFields.some((field) => ["budget", "area", "bedrooms", "financing"].includes(field))));
@@ -386,7 +386,7 @@ function buildContextualFollowUp(buyer, matches, packs, { lastAskedField = null,
     return { text: null, nextQuestion: null, pendingOffer: null };
   }
 
-  if (!buyer.cashAvailableAed) {
+  if (buyer.cashAvailableAed == null) {
     return {
       text: "How much cash can you put in for the initial payment?",
       nextQuestion: {

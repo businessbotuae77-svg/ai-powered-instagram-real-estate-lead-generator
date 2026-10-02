@@ -1,0 +1,75 @@
+import { normalizeBuyerText, buyerLanguage } from "./text.js";
+import { answerFactQuestion } from "./fact-answers.js";
+import { buildFactPack } from "../facts/retrieval.js";
+
+function response(text, stage, field = null, prompt = null) {
+  return { text, stage, nextQuestion: field ? { field, prompt } : null, pendingOffer: null, callRequest: null };
+}
+
+// Answer-first decisions run before commercial qualification. Content comes from
+// the approved catalogue, or clearly identified general education.
+export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null }) {
+  const text = normalizeBuyerText(message);
+  const ar = buyer.language === "ar" || buyerLanguage(message) === "ar";
+  const say = (en, arabic) => ar ? arabic : en;
+  if (intents.includes("stop") || buyer.salesPathStopped) {
+    return response(say("Understood. I'll leave it there. Message me whenever you need help.", "تمام، سأترك الأمر هنا. راسلني متى احتجت للمساعدة."), "paused");
+  }
+  if (intents.includes("decline_call") || intents.includes("no_calls")) {
+    return response(say("Understood — no calls. We can continue here whenever you need help.", "تمام، بدون مكالمات. يمكننا المتابعة هنا متى احتجت للمساعدة."), "permissions_updated");
+  }
+  if (intents.includes("eoi_info")) {
+    return response(say("EOI means expression of interest. It records interest in a property; it is not a confirmed reservation. Any deposit, refund terms, or allocation must be checked for the specific project.", "EOI تعني إبداء الاهتمام بالعقار، وليست حجزاً مؤكداً. يجب التحقق من مبلغ الإيداع وشروط الاسترداد والتخصيص للمشروع المحدد."), "education");
+  }
+  if (intents.includes("decline_reserve")) {
+    return response(say("Understood. I won't submit an EOI or reservation request.", "تمام، لن أرسل طلب إبداء اهتمام أو حجز."), "permissions_updated");
+  }
+  const split = text.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
+  if (split && /mean|explain|what|يعني|معنى/i.test(text) && Number(split[1]) + Number(split[2]) === 100) {
+    // No project numbers in this educational draft; the checker remains strict.
+    const before = Number(split[1]);
+    const after = Number(split[2]);
+    return { ...response(say(`In a ${before}/${after} plan, ${before} percent of the price is generally paid during construction and ${after} percent at handover. The booking amount and instalment dates depend on the project; this is an explanation, not confirmation of a project's terms.`, `في خطة ${before}/${after}، يُدفع عادة ${before} بالمئة أثناء البناء و${after} بالمئة عند التسليم. مبلغ الحجز ومواعيد الأقساط تعتمد على المشروع؛ هذا شرح عام وليس تأكيداً لشروط مشروع معين.`), "education"), educationalSplit: `${before}/${after}` };
+  }
+  if (/\broi\b|rental (yield|income)|capital growth|return on investment|عائد|استثمار/i.test(text)) {
+    return response(say("Rental income and capital growth can favour different properties. I don't have approved evidence to rank areas by future returns, and returns aren't guaranteed. Are you focused on rental income, long-term growth, or a mix?", "دخل الإيجار ونمو رأس المال قد يناسبان عقارات مختلفة. لا أملك بيانات معتمدة لترتيب المناطق حسب العائد المستقبلي، والعوائد غير مضمونة. هل تفضل دخل الإيجار أم النمو على المدى الطويل أم كليهما؟"), "exploring", "investmentObjective", say("Rental income, growth, or both?", "دخل الإيجار أم النمو أم كليهما؟"));
+  }
+  const projects = catalog.projects.filter(p => p.active && p.source && p.developerActive);
+  if (/areas?.*(potential|best|know|recommend)|which areas|مناطق|منطقة.*أفضل/i.test(text)) {
+    const areas = [...new Set(projects.map(p => p.area))].slice(0, 4);
+    const differences = areas.map(area => `${area}: ${[...new Set(projects.filter(p => p.area === area).flatMap(p => p.propertyTypes || []))].join(" and ") || "project details available"}`).join("; ");
+    return response(say(areas.length ? `The approved catalogue covers ${differences}. These are catalogue differences, not an investment ranking; I can't claim one has the highest future return without approved evidence.` : "I don't have an approved area catalogue available right now. I can still explain how to compare rental demand, costs, and investment horizons.", areas.length ? `الكتالوج المعتمد يشمل ${areas.join("، ")}. يمكنني مقارنة معلومات المشاريع، لكن لا يمكنني تأكيد أعلى عائد مستقبلي دون بيانات معتمدة.` : "لا يتوفر كتالوج مناطق معتمد حالياً. يمكنني شرح مقارنة الطلب الإيجاري والتكاليف ومدة الاستثمار."), "knowledge_answer");
+  }
+  if (/what projects|which projects|projects.*(know|have)|مشاريع/i.test(text)) {
+    const groups = new Map();
+    for (const p of projects) groups.set(p.area, [...(groups.get(p.area) || []), p.name]);
+    const names = [...groups].slice(0, 4).map(([area, names]) => `${area}: ${names.slice(0, 3).join(", ")}`).join("; ");
+    return response(say(names ? `The approved catalogue includes ${names}. Current prices and availability need a fresh check.` : "The approved project catalogue is unavailable right now. I can retry the catalogue check.", names ? `الكتالوج المعتمد يشمل ${names}. الأسعار والتوفر الحالي يحتاجان إلى تحقق حديث.` : "كتالوج المشاريع المعتمد غير متاح حالياً. يمكنني إعادة التحقق."), "knowledge_answer");
+  }
+  if (/\bcompare\b|comparison|قارن|مقارنة/i.test(text)) {
+    const selected = projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
+    if (selected.length !== 2) return response(say("Which two projects would you like to compare?", "أي مشروعين تريد مقارنتهما؟"), "comparison", "comparisonProjects", "Which two projects?");
+    const comparisonPacks = [];
+    const rows = selected.map(project => {
+      const unit = catalog.units.find(u => u.projectId === project.id && u.active);
+      if (!unit) return `${project.name}: ${project.area}; commercial details not confirmed.`;
+      const pack = buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) });
+      comparisonPacks.push(pack);
+      return `${project.name}: ${project.area}; ${unit.bedrooms} bedrooms; price ${pack.startingPriceText.value || "not confirmed"}; plan ${pack.paymentPlanSummary.value || "not confirmed"}.`;
+    });
+    return { ...response(`${rows.join("\n")} ${say("Compare location and unit size first; any commercial trade-off needs current verified terms.", "قارن الموقع وحجم الوحدة أولاً؛ أي مفاضلة مالية تحتاج شروطاً حديثة ومعتمدة.")}`, "comparison"), factPacks: comparisonPacks };
+  }
+  if (intents.includes("ask_facts") || /is it available|متاح/i.test(text)) {
+    const answer = answerFactQuestion(text, packs);
+    return { ...response(answer.handled ? answer.text : say("I don't have current confirmed terms for that property yet. Which project are you asking about?", "لا أملك شروطاً حالية مؤكدة لهذا العقار بعد. عن أي مشروع تسأل؟"), "fact_answer"), factTopic: answer.topic };
+  }
+  if (/^(hi|hello|hey|salam|مرحبا|السلام عليكم)[.!?]*$/i.test(text.trim())) {
+    if (buyer.budgetAed || buyer.preferredAreas?.length) return null;
+    return response(say("Hi. Are you buying a home, investing, or just exploring?", "مرحباً. هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟"), "exploring", "useType", say("Home, investment, or exploring?", "سكن أم استثمار أم استكشاف؟"));
+  }
+  if (/^(i (don't|do not) know|not sure|unsure|idk|ما أعرف|لا أعرف)[.!?]*$/i.test(text.trim()) && !buyer.budgetAed) {
+    return response(say("No problem. We can start with what matters most: a home to live in, investment potential, a lower entry price, or an easier payment plan?", "لا مشكلة. ما الذي يهمك أكثر: منزل للسكن أم الاستثمار أم سعر دخول أقل أم خطة سداد أسهل؟"), "exploring", "useType", "What matters most?");
+  }
+  if (catalogError) return response(say("The property catalogue check failed. I've kept your requirements and can retry; I won't guess prices or availability.", "تعذر التحقق من كتالوج العقارات. احتفظت بمتطلباتك ويمكنني إعادة المحاولة؛ لن أخمن الأسعار أو التوفر."), "catalog_unavailable");
+  return null;
+}

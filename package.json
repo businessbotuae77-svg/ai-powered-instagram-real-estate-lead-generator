@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test --test-reporter=spec test/step1-schema.test.js test/step2-buyer-model.test.js test/step3-matching.test.js test/step4-fact-retrieval.test.js test/step5-fact-checker.test.js test/step6-acceptance.test.js test/step7-airtable-adapter.test.js test/step8-extract.test.js test/step9-qualification.test.js test/step10-memory-context.test.js test/step11-anti-hallucination.test.js test/step12-client-scenarios.test.js test/step13-project-led.test.js test/step14-greeting.test.js test/step15-understanding.test.js test/step16-client-corrections.test.js test/step17-advisor-fit.test.js test/step18-natural-area-corrections.test.js test/step19-milestone3-integrations.test.js",
+    "test": "node --test --test-reporter=spec test/*.test.js",
     "verify": "node scripts/verify-milestone1.js",
     "verify:m1": "node scripts/verify-milestone1.js",
     "verify:m2": "node scripts/verify-milestone2.js",
@@ -21,6 +21,7 @@
     "airtable:demo": "node scripts/airtable-demo.js",
     "airtable:provision": "node scripts/provision-airtable.js",
     "airtable:seed": "node scripts/seed-existing-airtable.js",
-    "hubspot:setup": "node scripts/hubspot-setup.js"
+    "hubspot:setup": "node scripts/hubspot-setup.js",
+    "verify:spec": "node --test test/step20-newer-spec.test.js"
   }
 }

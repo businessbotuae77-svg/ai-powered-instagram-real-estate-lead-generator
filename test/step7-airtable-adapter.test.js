@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PropertyService } from "../src/services/property-service.js";
 import { YAS_MATCH_CRITERIA } from "../src/store/airtable-schema.js";
-import { createSeededAirtableStore } from "../src/store/create-store.js";
+import { createSeededAirtableStore as seededStore, loadSeed } from "../src/store/create-store.js";
+async function createSeededAirtableStore() {
+  const seed = await loadSeed();
+  seed.projects.forEach(p => p.lastVerified = new Date().toISOString());
+  return seededStore({ seed });
+}
 import { AirtableStore } from "../src/store/airtable-store.js";
 import { runAirtableMilestoneChecks } from "../scripts/airtable-demo.js";
 

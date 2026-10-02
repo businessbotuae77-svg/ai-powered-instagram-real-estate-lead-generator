@@ -1,3 +1,7 @@
+import { localizeDraft } from "./localize.js";
+import { normalizeBuyerText, buyerLanguage } from "./text.js";
+import { decideConversation } from "./decision.js";
+import { contactDecision } from "./contact.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
 import { extractFactsFromMessage } from "./extract.js";
 import { ConversationMemory } from "./memory.js";
@@ -12,7 +16,6 @@ import {
   buildCallRequestSummary,
   hasBuyingInterest,
   refineTurnIntent,
-  shouldSendAdvisorAlert,
   wantsCallRequest
 } from "./intent-policy.js";
 
@@ -41,10 +44,19 @@ export class ConversationEngine {
     this.properties = properties;
     this.memory = memory || new ConversationMemory();
     this.llm = llm;
+    this.turnQueue = Promise.resolve();
   }
 
-  async handleMessage(instagramUserId, message, options = {}) {
-    const text = String(message || "").trim();
+  handleMessage(instagramUserId, message, options = {}) {
+    const task = () => this.processTurn(instagramUserId, message, options);
+    const result = this.turnQueue.then(task, task);
+    this.turnQueue = result.catch(() => {});
+    return result;
+  }
+
+  async processTurn(instagramUserId, message, options = {}) {
+    const text = normalizeBuyerText(message).trim();
+    if (this.memory.ensureReady) await this.memory.ensureReady();
     const lastAskedField = this.memory.getLastAskedField(instagramUserId);
     const existingBuyer = await this.buyers.getOrCreate(instagramUserId);
     const recentTurns = this.memory.recentContext(instagramUserId, 6);
@@ -71,6 +83,7 @@ export class ConversationEngine {
 
     const merged = mergeUnderstanding(base, understanding);
     let { facts, signals, intents, unsure, ack } = merged;
+    facts.language = buyerLanguage(message) === "ar" ? "ar" : existingBuyer.language || "en";
     const directCashReply =
       (lastAskedField === "cashAvailableAed" || lastAskedField === "cash") &&
       /^\s*(?:AED|Dhs|Dh)?\s*\d[\d,]*(?:\.\d+)?\s*[MmKk]?\s*$/i.test(text);
@@ -125,6 +138,10 @@ export class ConversationEngine {
     facts = refined.facts;
     signals = refined.signals;
     intents = refined.intents;
+    if (intents.includes("reserve")) facts.requestedAction = "Discuss reservation";
+    else if (intents.includes("viewing")) facts.requestedAction = "Arrange viewing";
+    else if (intents.includes("request_call")) facts.requestedAction = "Requested call";
+    else if (intents.includes("follow_up")) facts.requestedAction = existingBuyer.requestedAction || "Requested follow-up";
 
     // A new search or fact update reopens a previously paused sales path.
     if (
@@ -135,13 +152,12 @@ export class ConversationEngine {
       if (!facts.followUpStatus) facts.followUpStatus = "none";
     }
 
-    if (intents.includes("decline_call")) {
-      facts.salesPathStopped = false;
+    if (intents.includes("decline_call") || intents.includes("stop")) {
       facts.followUpStatus = "none";
     }
 
     let callRequestSubmitted = Boolean(options.callRequestSubmitted);
-    if (options.phone) {
+    if (options.phone && !existingBuyer.noCalls && !existingBuyer.salesPathStopped) {
       facts.phone = options.phone;
       callRequestSubmitted = true;
       intents = [...new Set([...intents, "request_call", "call_submitted"])];
@@ -153,12 +169,28 @@ export class ConversationEngine {
     if (
       !callRequestSubmitted &&
       pendingBefore?.type === "call_request" &&
+      !existingBuyer.noCalls && !facts.noCalls && !existingBuyer.salesPathStopped &&
       facts.phone
     ) {
       callRequestSubmitted = true;
       intents = [...new Set([...intents, "request_call", "call_submitted"])];
       signals = [...new Set([...signals, "request_call", "call_submitted"])];
     }
+
+    if (intents.includes("stop")) {
+      facts.salesPathStopped = true;
+      facts.followUpStatus = "paused";
+    }
+    if (intents.includes("stop") || intents.includes("decline_call") || facts.noCalls === true) {
+      callRequestSubmitted = false;
+      this.memory.setPendingOffer(instagramUserId, null);
+    }
+    if (intents.includes("request_call") && !facts.noCalls && !options.callRequestSubmitted) {
+      facts.noCalls = false;
+      facts.contactDeclined = false;
+      facts.preferredContactChannel = "phone";
+    }
+    if (intents.includes("follow_up") && !intents.includes("stop")) facts.contactDeclined = false;
 
     const updatedFields = [];
     if (facts.budget !== undefined) updatedFields.push("budget");
@@ -198,7 +230,7 @@ export class ConversationEngine {
       this.memory.setPendingOffer(instagramUserId, null);
     }
 
-    if (intents.includes("continue") || intents.includes("start_fresh") || intents.includes("decline_call")) {
+    if (intents.includes("continue") || intents.includes("start_fresh") || intents.includes("decline_call") || intents.includes("stop")) {
       this.memory.setPendingOffer(instagramUserId, null);
     }
 
@@ -252,47 +284,47 @@ export class ConversationEngine {
       Boolean(options.offerCallRequest) ||
       intents.includes("request_call") ||
       wantsCallRequest(text);
-    const alertRecommended = shouldSendAdvisorAlert({
-      callRequestSubmitted,
-      buyer: { ...buyer, phone: facts.phone || buyer.phone }
-    });
-    const alertReason = alertRecommended ? "call_request" : null;
-
-    const catalog = this.properties.catalog();
+    let catalogError = null;
+    if (this.properties.refresh) {
+      try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
+    }
+    const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog();
     const matchResult = resolveMatches(catalog, buyer);
-    const packs = retrieveFacts(matchResult.matches);
-
-    let draft;
-    if (callRequestSubmitted && (facts.phone || buyer.phone)) {
-      draft = {
-        text: `Thanks. I have your number${facts.phone || buyer.phone ? ` (${facts.phone || buyer.phone})` : ""}. An advisor will call you back. I have not promised a specific time.`,
-        stage: "call_requested",
-        nextQuestion: null,
-        pendingOffer: null,
-        callRequest: null,
-        handoffRequired: false
-      };
+    let packs = retrieveFacts(matchResult.matches);
+    if (!packs.length && intents.includes("ask_facts") && buyer.projectInterest) {
+      const project = catalog.projects.find(p => p.name.toLowerCase() === buyer.projectInterest.toLowerCase());
+      const unit = project && catalog.units.find(u => u.projectId === project.id);
+      if (unit) packs = retrieveFacts([{ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }]);
+    }
+    const contact = contactDecision({ message: text, buyer,
+      pending: this.memory.getPendingOffer(instagramUserId),
+      explicitCall: intents.includes("request_call"),
+      highIntent: highIntent && !intents.includes("eoi_info"),
+      phoneSubmitted: callRequestSubmitted
+    });
+    const followUpSubmitted = Boolean(contact?.submitted);
+    callRequestSubmitted = followUpSubmitted && contact.channel === "phone";
+    if (contact?.channel) {
+      if (contact.channel === "whatsapp") facts.noCalls = true;
+      buyer = await this.buyers.patchBuyer(instagramUserId, { preferredContactChannel: contact.channel, ...(contact.channel === "whatsapp" ? { noCalls: true } : {}) });
+    }
+    const alertRecommended = followUpSubmitted && !buyer.salesPathStopped &&
+      (contact.channel !== "phone" || !buyer.noCalls);
+    const alertReason = alertRecommended ? (callRequestSubmitted ? "call_request" : "follow_up") : null;
+    let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError });
+    if (contact && draft?.stage === "permissions_updated" && contact.channel === "whatsapp") draft = contact;
+    if (!draft) draft = contact || buildConversationReply({
+      buyer, message: text, intents, packs, matches: matchResult.matches,
+      matchMode: matchResult.mode, mismatches: matchResult.mismatches || [],
+      highIntent, handoffRequested, offerCallRequest,
+      pendingOffer: this.memory.getPendingOffer(instagramUserId), unsure, ack, lastAskedField, updatedFields
+    });
+    if (draft.stage === "paused" || draft.stage === "permissions_updated" || contact?.submitted) {
       this.memory.setPendingOffer(instagramUserId, null);
-    } else {
-      draft = buildConversationReply({
-        buyer,
-        message: text,
-        intents,
-        packs,
-        matches: matchResult.matches,
-        matchMode: matchResult.mode,
-        mismatches: matchResult.mismatches || [],
-        highIntent,
-        handoffRequested,
-        offerCallRequest,
-        pendingOffer: this.memory.getPendingOffer(instagramUserId),
-        unsure,
-        ack,
-        lastAskedField,
-        updatedFields
-      });
     }
 
+    if (draft.factPacks) packs = draft.factPacks;
+    draft = localizeDraft(draft, buyer, packs);
     if (draft.pendingOffer) {
       this.memory.setPendingOffer(instagramUserId, draft.pendingOffer);
     } else if (draft.stage === "matched" || draft.stage === "soft_match") {
@@ -302,13 +334,14 @@ export class ConversationEngine {
     this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
 
     // Keep call handoff copy exact — polish must not turn it back into a sales pitch.
-    if (this.llm && options.useLlm !== false && draft.stage !== "call_requested") {
+    if (this.llm && options.useLlm !== false && !["call_offer", "call_requested", "follow_up_requested", "paused", "permissions_updated", "education", "comparison", "exploring", "knowledge_answer", "follow_up_channel", "follow_up_phone", "catalog_unavailable"].includes(draft.stage)) {
       const polished = await polishReplyWithModel(this.llm, {
         buyer,
         packs,
         draftText: draft.text,
         intents,
-        requiredQuestion: draft.nextQuestion?.prompt || null
+        requiredQuestion: draft.nextQuestion?.prompt || null,
+        language: buyer.language
       });
       if (polished) draft = { ...draft, text: polished, polished: true };
     }
@@ -320,7 +353,8 @@ export class ConversationEngine {
     let check = validateMessage(draft.text, packs, {
       handoffRequested,
       handoffReason: handoffRequested ? "buyer_requested" : null,
-      allowedBuyerAmounts
+      allowedBuyerAmounts,
+      educationalSplit: draft.educationalSplit
     });
 
     let replyText = draft.text;
@@ -342,7 +376,7 @@ export class ConversationEngine {
       conversationSummary: summarizeBuyer(buyer)
     });
 
-    const followUpStatus = callRequestSubmitted
+    const followUpStatus = buyer.salesPathStopped ? "paused" : followUpSubmitted ? (callRequestSubmitted ? "call_requested" : "follow_up_requested") : callRequestSubmitted
       ? "call_requested"
       : intents.includes("decline_call")
         ? "none"
@@ -373,7 +407,7 @@ export class ConversationEngine {
         intents.includes("decline_contact") || intents.includes("decline_call") ? true : undefined,
       preferredContactChannel: facts.preferredContactChannel,
       noCalls: facts.noCalls,
-      salesPathStopped: false,
+      salesPathStopped: buyer.salesPathStopped,
       phone: facts.phone
     });
     buyer = await this.buyers.replaceIntentSignals(instagramUserId, [
@@ -386,13 +420,13 @@ export class ConversationEngine {
       followUpStatus,
       preferredContactChannel: facts.preferredContactChannel || buyer.preferredContactChannel,
       noCalls: facts.noCalls === true ? true : buyer.noCalls,
-      salesPathStopped: false
+      salesPathStopped: buyer.salesPathStopped
     });
 
-    const callSummary = callRequestSubmitted
+    const callSummary = followUpSubmitted
       ? buildCallRequestSummary(buyer, {
           matches: matchResult.matches,
-          reason: options.callReason || "Buyer submitted Request a Call"
+          reason: options.callReason || (callRequestSubmitted ? "Buyer submitted Request a Call" : "Buyer requested follow-up")
         })
       : null;
 
@@ -405,6 +439,7 @@ export class ConversationEngine {
       pendingOffer: this.memory.getPendingOffer(instagramUserId)
     });
 
+    if (this.memory.flush) await this.memory.flush();
     return {
       reply: replyText,
       stage: draft.stage,
@@ -419,6 +454,8 @@ export class ConversationEngine {
       alertRecommended,
       callRequest: draft.callRequest || null,
       callRequestSubmitted,
+      followUpSubmitted,
+      catalogError,
       callSummary,
       criteria: matchResult.criteria,
       matchCount: matchResult.matchCount,
@@ -430,7 +467,7 @@ export class ConversationEngine {
       packs,
       check,
       missingData: missingDataHandoff(packs),
-      handoffRequired: Boolean(callRequestSubmitted),
+      handoffRequired: followUpSubmitted,
       nextQuestion: draft.nextQuestion || null,
       pendingOffer: this.memory.getPendingOffer(instagramUserId),
       context: this.memory.recentContext(instagramUserId)
@@ -438,6 +475,7 @@ export class ConversationEngine {
   }
 
   async submitCallRequest(instagramUserId, phone, options = {}) {
+    if (!/^\+?[1-9]\d{6,14}$/.test(String(phone || "").replace(/[\s()-]/g, ""))) throw new Error("A valid phone number is required");
     return this.handleMessage(instagramUserId, options.message || "Request a Call", {
       ...options,
       phone: String(phone || "").trim(),
@@ -459,7 +497,9 @@ function buyerWouldResume(facts, intents) {
       intents.includes("search") ||
       intents.includes("start_fresh") ||
       intents.includes("continue") ||
-      intents.includes("provide_facts")
+      intents.includes("provide_facts") ||
+      intents.includes("follow_up") ||
+      intents.includes("request_call")
   );
 }
 

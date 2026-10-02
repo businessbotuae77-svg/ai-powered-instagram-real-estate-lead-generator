@@ -53,6 +53,7 @@ export class AirtableStore {
   async request(url, options = {}) {
     const response = await this.fetchFn(url, {
       ...options,
+      signal: options.signal || AbortSignal.timeout(10000),
       headers: { ...headers(this.apiKey), ...(options.headers || {}) }
     });
     const body = await response.json();
@@ -152,12 +153,7 @@ export class AirtableStore {
     if (!this.enabled()) {
       throw new Error("Airtable is not configured");
     }
-    const developerRecords = await this.listTable(this.tables.developers);
-    const projectRecords = await this.listTable(this.tables.projects);
-    const unitRecords = await this.listTable(this.tables.units);
-    this.developers = developerRecords.map((row) => this.mapDeveloper(row));
-    this.projects = projectRecords.map((row) => this.mapProject(row, this.developers));
-    this.units = unitRecords.map((row) => this.mapUnit(row));
+    await this.refreshCatalog(true);
     try {
       const saved = JSON.parse(await readFile(path.join(this.runtimeDir, "buyers.json"), "utf8"));
       this.buyers = new Map(saved.map((buyer) => [buyer.instagramUserId, buyer]));
@@ -165,6 +161,22 @@ export class AirtableStore {
       this.buyers = new Map();
     }
     return this.snapshot();
+  }
+
+  async refreshCatalog(force = false) {
+    const age = Date.now() - (this.catalogLoadedAt || 0);
+    if (!force && age < 60000) return;
+    if (this.catalogRefresh) return this.catalogRefresh;
+    this.catalogRefresh = (async () => {
+      const developerRecords = await this.listTable(this.tables.developers);
+      const projectRecords = await this.listTable(this.tables.projects);
+      const unitRecords = await this.listTable(this.tables.units);
+      this.developers = developerRecords.map((row) => this.mapDeveloper(row));
+      this.projects = projectRecords.map((row) => this.mapProject(row, this.developers));
+      this.units = unitRecords.map((row) => this.mapUnit(row));
+      this.catalogLoadedAt = Date.now();
+    })();
+    try { await this.catalogRefresh; } finally { this.catalogRefresh = null; }
   }
 
   snapshot() {
