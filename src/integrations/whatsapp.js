@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { JsonFileStore, runtimeRoot } from "./json-store.js";
 import { buildCallRequestSummary } from "../conversation/intent-policy.js";
@@ -64,6 +65,7 @@ export class CallRequestStore {
     };
     await this.store.update((current) => {
       const list = Array.isArray(current) ? current : [];
+      if (entry.requestKey && list.some(item => item.requestKey === entry.requestKey)) return list;
       list.push(row);
       return list.slice(-500);
     }, []);
@@ -87,7 +89,7 @@ export function buildAlertTemplateComponents({ buyer, reason, matchName = "", su
         { type: "text", text: String(matchName || buyer.projectInterest || "none").slice(0, 60) },
         {
           type: "text",
-          text: String(summaryText || buyer.conversationSummary || "No summary yet").slice(0, 120)
+          text: String(summaryText || buyer.conversationSummary || "No summary yet").slice(0, 900)
         }
       ]
     }
@@ -110,11 +112,10 @@ export async function sendWhatsAppAlert({
   const key = alertEventKey({
     buyerId: buyer.instagramUserId,
     reason,
-    messageId
+    messageId: createHash("sha256").update(JSON.stringify({ channel: buyer.preferredContactChannel, phone: buyer.phone, budget: buyer.budgetAed, areas: buyer.preferredAreas, bedrooms: buyer.bedrooms, propertyTypes: buyer.propertyTypes, financing: buyer.financing, project: matchName || buyer.projectInterest, action: buyer.requestedAction || reason, noCalls: buyer.noCalls })).digest("hex").slice(0, 24)
   });
   const alertLedger = ledger || new AlertLedger({ rootDir: runtimeRoot(env) });
-  const claimed = await alertLedger.mark(key, { reason, buyerId: buyer.instagramUserId, phone: buyer.phone });
-  if (!claimed) {
+  if (await alertLedger.has(key)) {
     return { skipped: true, reason: "duplicate_alert", key };
   }
 
@@ -138,6 +139,7 @@ export async function sendWhatsAppAlert({
 
   const response = await fetchImpl(url, {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`
@@ -149,10 +151,12 @@ export async function sendWhatsAppAlert({
     const detail = body?.error?.message || response.statusText || "WhatsApp alert failed";
     const error = new Error(detail);
     error.status = response.status;
-    error.retryable = response.status >= 500;
+    error.retryable = response.status >= 500 || response.status === 429;
     error.alertKey = key;
     throw error;
   }
+  if (!body.messages?.[0]?.id) throw new Error("WhatsApp response did not confirm a message id");
+  await alertLedger.mark(key, { reason, buyerId: buyer.instagramUserId, wamid: body.messages[0].id });
   return {
     skipped: false,
     key,

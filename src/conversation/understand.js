@@ -1,3 +1,5 @@
+import { CONVERSATION_POLICY } from "./policy.js";
+import { normalizeBuyerText } from "./text.js";
 /**
  * Claude (or local) understanding → structured buyer updates.
  * Matching, memory persistence, and commercial facts stay in code / Airtable.
@@ -8,7 +10,7 @@ import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 
-const UNDERSTAND_SYSTEM = [
+const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "You extract structured buyer requirements from Abu Dhabi off-plan property chat.",
   "Return ONLY valid JSON with this shape:",
   '{"facts":{"budget":number|null,"cash":number|null,"area":string|null,"areas":string[]|null,"bedrooms":number|number[]|null,"propertyType":string|null,"developer":string|null,"project":string|null,"financing":"cash"|"mortgage"|"payment_plan"|null,"useType":"investment"|"end_use"|null,"contactDeclined":boolean|null,"openToOtherAreas":boolean|null},"unsure":string[],"intents":string[],"signals":string[],"ack":string|null}',
@@ -36,6 +38,10 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
     message,
     lastAskedField,
     buyer: {
+      language: buyer?.language,
+      preferredContactChannel: buyer?.preferredContactChannel,
+      noCalls: buyer?.noCalls,
+      salesPathStopped: buyer?.salesPathStopped,
       budgetAed: buyer?.budgetAed ?? null,
       cashAvailableAed: buyer?.cashAvailableAed ?? null,
       preferredAreas: buyer?.preferredAreas || [],
@@ -50,6 +56,7 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
   try {
     const response = await fetch(`${client.baseUrl}/v1/messages`, {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: {
         "content-type": "application/json",
         "x-api-key": client.apiKey,
@@ -80,7 +87,7 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
  * Local heuristics for imperfect phrasing when Claude is offline (tests / fallback).
  */
 export function understandMessageLocally(message, { buyer = null, lastAskedField = null } = {}) {
-  const text = String(message || "").trim();
+  const text = normalizeBuyerText(message).trim();
   const facts = {};
   const unsure = [];
   const intents = [];

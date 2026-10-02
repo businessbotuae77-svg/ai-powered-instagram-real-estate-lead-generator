@@ -1,3 +1,4 @@
+import { CONVERSATION_POLICY } from "./policy.js";
 /**
  * Optional Anthropic Messages API polish.
  * Never invents commercial facts: the engine fact-checks every polished string.
@@ -18,7 +19,7 @@ export function createAnthropicClient(options = {}) {
 
 export async function polishReplyWithModel(
   client,
-  { buyer, packs, draftText, intents, requiredQuestion = null }
+  { buyer, packs, draftText, intents, requiredQuestion = null, language = "en" }
 ) {
   if (!client?.apiKey) return null;
 
@@ -45,9 +46,10 @@ export async function polishReplyWithModel(
       : null
   }));
 
-  const system = [
+  const system = [CONVERSATION_POLICY,
     "You are a knowledgeable Abu Dhabi property advisor.",
-    "Rewrite the draft reply in short, natural, buyer-focused English without changing its recommendation logic.",
+    `Rewrite the draft reply in short, natural, buyer-focused ${language === "ar" ? "Arabic" : "English"} without changing its recommendation logic.`,
+    "Preserve contact channel and no-call restrictions. Never claim a reservation, CRM save or advisor notification succeeded.",
     "For exact or strong_with_compromise options, lead with why the property fits before explaining the compromise.",
     "Never say there is no exact match when fit.tier is strong_with_compromise.",
     "For nearby options, state the useful fit and the trade-off without making a viable property sound unsuitable.",
@@ -62,6 +64,9 @@ export async function polishReplyWithModel(
   const user = JSON.stringify({
     intents,
     buyer: {
+      language,
+      preferredContactChannel: buyer.preferredContactChannel,
+      noCalls: buyer.noCalls,
       budgetAed: buyer.budgetAed,
       cashAvailableAed: buyer.cashAvailableAed,
       areas: buyer.preferredAreas,
@@ -76,6 +81,7 @@ export async function polishReplyWithModel(
   try {
     const response = await fetch(`${client.baseUrl}/v1/messages`, {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: {
         "content-type": "application/json",
         "x-api-key": client.apiKey,

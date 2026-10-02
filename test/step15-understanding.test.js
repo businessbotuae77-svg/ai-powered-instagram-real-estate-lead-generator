@@ -5,14 +5,14 @@ import { understandMessageLocally, mergeUnderstanding } from "../src/conversatio
 import { extractFactsFromMessage } from "../src/conversation/extract.js";
 import { polishReplyWithModel } from "../src/conversation/llm.js";
 
-test("step 15a not sure on budget offers ranges instead of repeating", async () => {
+test("step 15a unsure buyer explores priorities without a budget form", async () => {
   const { engine } = await setupConversation();
   await engine.handleMessage("ig_m2_u1", "Hi");
   const unsure = await engine.handleMessage("ig_m2_u1", "Not sure");
-  assert.equal(unsure.stage, "qualifying");
+  assert.equal(unsure.stage, "exploring");
   assert.match(unsure.reply, /range|No problem/i);
   assert.doesNotMatch(unsure.reply, /^What budget are you working with\?$/m);
-  assert.ok(unsure.nextQuestion?.choices?.length >= 3);
+  assert.equal(unsure.nextQuestion?.field, "useType");
   assert.ok(unsure.unsure?.includes("budget") || unsure.intents.includes("unsure"));
 });
 

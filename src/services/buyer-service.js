@@ -95,9 +95,11 @@ export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   if (facts.useType && USE_TYPES.includes(facts.useType)) patch.useType = facts.useType;
   if (facts.financing && FINANCING_VALUES.includes(facts.financing)) patch.financing = facts.financing;
   if (facts.timeframe) patch.timeframe = facts.timeframe;
+  if (facts.language) patch.language = facts.language;
+  if (facts.requestedAction) patch.requestedAction = facts.requestedAction;
   if (facts.name) patch.name = facts.name;
   if (facts.phone) patch.phone = facts.phone;
-  if (facts.contactDeclined === true) patch.contactDeclined = true;
+  if (facts.contactDeclined !== undefined) patch.contactDeclined = facts.contactDeclined;
   if (facts.intentSignals) patch.intentSignals = facts.intentSignals;
   if (facts.preferredContactChannel) patch.preferredContactChannel = facts.preferredContactChannel;
   if (facts.noCalls === true) patch.noCalls = true;
@@ -175,6 +177,10 @@ export class BuyerService {
       name: existing.name,
       phone: existing.phone,
       contactDeclined: existing.contactDeclined,
+      preferredContactChannel: existing.preferredContactChannel,
+      noCalls: existing.noCalls,
+      language: existing.language,
+      hubspotContactId: existing.hubspotContactId,
       createdAt: existing.createdAt || nowIso(),
       updatedAt: nowIso(),
       lastSeenAt: nowIso()

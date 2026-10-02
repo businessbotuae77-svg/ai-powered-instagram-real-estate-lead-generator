@@ -1,3 +1,5 @@
+> Historical milestone plan: the 2 October 2026 specification supersedes the call-only rules below. See [current handover](HANDOVER.md) and [current acceptance checklist](ACCEPTANCE.md).
+
 # Milestone 3
 
 Buyer intent stays in the AI conversation. A human handoff starts only when the buyer submits **Request a Call** with a phone number.

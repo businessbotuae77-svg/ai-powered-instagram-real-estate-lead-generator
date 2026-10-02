@@ -45,14 +45,14 @@ test("step 19b Test B availability question has no forced contact capture", asyn
   assert.doesNotMatch(result.reply, /Request a Call|what number works best|Enter the number/i);
 });
 
-test("step 19c Test C human help offers Request a Call", async () => {
+test("step 19c Test C human help offers a choice of follow-up channel", async () => {
   const { engine } = await setupConversation();
   await engine.handleMessage("ig_m3_c", "Budget AED 3M, Yas, 3 bedrooms");
   const result = await engine.handleMessage("ig_m3_c", "I want to speak to someone about this.");
-  assert.ok(result.callRequest?.offered);
+  assert.equal(result.callRequest, null);
   assert.equal(result.alertRecommended, false);
-  assert.match(result.reply, /Request a Call|Enter the number|advisor/i);
-  assert.equal(result.pendingOffer?.type, "call_request");
+  assert.match(result.reply, /Instagram or on WhatsApp/i);
+  assert.equal(result.pendingOffer?.type, "contact_channel");
 });
 
 test("step 19d Test D number submitted creates handoff and alert recommendation", async () => {
@@ -64,7 +64,7 @@ test("step 19d Test D number submitted creates handoff and alert recommendation"
   assert.equal(submitted.alertRecommended, true);
   assert.equal(submitted.buyer.phone, "+971501234567");
   assert.equal(submitted.buyer.leadStatus, "call_requested");
-  assert.match(submitted.reply, /advisor will call|have your number/i);
+  assert.match(submitted.reply, /have your follow-up request/i);
   assert.match(submitted.callSummary, /CALL REQUEST/);
   assert.match(submitted.callSummary, /\+971501234567/);
   assert.match(submitted.callSummary, /3,?000,?000|AED 3/);
@@ -77,7 +77,7 @@ test("step 19e Test E existing buyer context is reused on call request", async (
     "AED 3M, Yas Island, 3 bedrooms, 500k initial cash, payment plan"
   );
   const offered = await engine.handleMessage("ig_m3_e", "I want to speak to someone.");
-  assert.ok(offered.callRequest?.offered);
+  assert.equal(offered.pendingOffer?.type, "contact_channel");
   assert.doesNotMatch(offered.reply, /What budget|Which area|How many bedrooms/i);
   const submitted = await engine.submitCallRequest("ig_m3_e", "+971509998877");
   assert.equal(submitted.buyer.budgetAed, 3_000_000);
@@ -97,7 +97,7 @@ test("step 19f Test F no call wanted continues without notification", async () =
   );
   assert.equal(declined.alertRecommended, false);
   assert.equal(declined.callRequest, null);
-  assert.match(declined.reply, /keep sharing|confirmed details|no problem/i);
+  assert.match(declined.reply, /continue here|confirmed details|no problem/i);
   assert.doesNotMatch(declined.reply, /Enter the number you would like us to call/i);
 });
 
@@ -109,11 +109,11 @@ test("step 19g reserve interest alone does not notify", async () => {
   assert.equal(wantsCallRequest("What do I need to reserve it?"), false);
 });
 
-test("step 19h I want to reserve offers call request but no alert yet", async () => {
+test("step 19h I want to reserve offers channel choice without claiming reservation", async () => {
   const { engine } = await setupConversation();
   await engine.handleMessage("ig_m3_h", "Budget AED 2M, Yas, studio");
   const result = await engine.handleMessage("ig_m3_h", "I want to reserve this.");
-  assert.ok(result.callRequest?.offered);
+  assert.equal(result.pendingOffer?.type, "contact_channel");
   assert.equal(result.alertRecommended, false);
 });
 

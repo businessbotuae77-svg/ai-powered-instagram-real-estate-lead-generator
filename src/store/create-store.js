@@ -37,7 +37,7 @@ export async function createCatalogStore(options = {}) {
     await store.load();
     return store;
   }
-  if (options.requireAirtable) {
+  if (options.requireAirtable || env.NODE_ENV === "production") {
     throw new Error("Airtable is not configured. Set AIRTABLE_API_KEY and AIRTABLE_BASE_ID.");
   }
   return createLocalStore(options);
