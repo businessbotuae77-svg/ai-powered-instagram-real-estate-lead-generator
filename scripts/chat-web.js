@@ -16,6 +16,7 @@ import { IntegrationLog } from "../src/integrations/integration-log.js";
 import { InstagramConversationPoller } from "../src/integrations/instagram-poller.js";
 import { runtimeRoot } from "../src/integrations/json-store.js";
 import { getInstagramAccountIdentity, subscribeInstagramMessaging } from "../src/integrations/meta.js";
+import { webhookResponse } from "../src/integrations/webhook-response.js";
 
 loadEnv();
 
@@ -130,8 +131,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/api/health") {
+    const { keyHint, ...publicLlmStatus } = llmStatus();
     return sendJson(res, 200, {
       ok: true,
+      deploymentCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
       source: store.source || "local",
       milestone: 3,
       integrations: {
@@ -146,7 +149,7 @@ const server = http.createServer(async (req, res) => {
             process.env.WHATSAPP_TEMPLATE_NAME
         )
       },
-      ...llmStatus()
+      ...publicLlmStatus
     });
   }
 
@@ -157,23 +160,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && (url.pathname === "/webhook/meta" || url.pathname === "/api/meta/webhook")) {
-    try {
-      const raw = await readRawBody(req);
-      const outcome = await orchestrator.handleWebhook({
-        rawBody: raw,
-        signatureHeader: req.headers["x-hub-signature-256"]
-      });
-      if (!outcome.ok) return sendJson(res, outcome.status || 400, { error: outcome.error });
-      return sendJson(res, 200, { ok: true, accepted: outcome.accepted });
-    } catch (error) {
-      await integrationLog.record({
-        integration: "meta",
-        operation: "webhook",
-        status: "error",
-        message: error.message
-      });
-      return sendJson(res, 200, { ok: true, accepted: 0, deferredError: true });
-    }
+    const { status, body } = await webhookResponse({
+      readBody: () => readRawBody(req),
+      signatureHeader: req.headers["x-hub-signature-256"],
+      orchestrator,
+      log: integrationLog
+    });
+    return sendJson(res, status, body);
   }
 
   if (req.method === "GET" && url.pathname === "/api/integrations/errors") {
