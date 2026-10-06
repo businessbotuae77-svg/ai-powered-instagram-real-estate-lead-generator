@@ -1,9 +1,16 @@
+import { comparisonEvidence, sourcedCandidatePrice } from "./comparison-evidence.js";
+
 const same = (a, b) => Boolean(a && b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase());
 const numeric = value => typeof value === "number" && Number.isFinite(value);
 
+export const RESEARCH_RELATIONSHIPS = new Set(["same_masterplan", "same_area", "nearby", "direct_competitor",
+  "earlier_phase", "later_phase", "similar_price_band", "similar_product", "ready_alternative", "off_plan_alternative"]);
+export const CROSS_SELL_RELATIONSHIPS = new Set(["similar_product", "similar_price_band", "off_plan_alternative",
+  "ready_alternative", "same_area", "same_masterplan"]);
+
 function provenance(project, field, value = project[field]) {
   return { projectId: project.id, sourceRecordId: project.id, source: project.source,
-    verifiedOn: project.lastVerified, scope: "project_knowledge", field, value };
+    verifiedOn: project.lastVerified, scope: "project_knowledge", confidence: "UNKNOWN", evidenceClass: "FACT", field, value };
 }
 
 function known(project, now) {
@@ -14,10 +21,14 @@ function known(project, now) {
 
 /** Relationships describe documented positioning, never availability or proximity by name. */
 export function buildProjectRelations(projects = [], { units = [], intelligence = {}, factPacks = [], now = Date.now() } = {}) {
-  const nodes = projects.filter(project => known(project, now));
+  const nodes = [...new Map(projects.filter(project => known(project, now)).map(project => [project.id, project])).values()];
   const edges = [];
   const add = (from, to, relationship, evidence, extra = {}) => {
-    if (!edges.some(edge => edge.from === from.id && edge.to === to.id && edge.relationship === relationship)) {
+    const existing = edges.find(edge => edge.from === from.id && edge.to === to.id && edge.relationship === relationship);
+    if (existing) {
+      existing.evidence.push(...evidence.filter(row => !existing.evidence.some(prior => prior.sourceRecordId === row.sourceRecordId && prior.field === row.field)));
+      Object.assign(existing, extra);
+    } else {
       edges.push({ from: from.id, to: to.id, relationship, evidence, ...extra });
     }
   };
@@ -61,37 +72,42 @@ export function buildProjectRelations(projects = [], { units = [], intelligence 
           add(ready, offPlan, "off_plan_alternative", evidenceWithStatus);
         }
       }
-      const aPack = factPacks.find(pack => pack.projectId === a.id && pack.startingPriceAed?.confirmed);
-      const bPack = factPacks.find(pack => pack.projectId === b.id && pack.startingPriceAed?.confirmed);
-      const priceA = aPack?.startingPriceAed.value, priceB = bPack?.startingPriceAed.value;
-      const backed = pack => (pack?.startingPriceAed?.source || pack?.source?.value) &&
-        (pack?.startingPriceAed?.verifiedAt || pack?.lastVerified?.value);
-      if (backed(aPack) && backed(bPack) && numeric(priceA) && numeric(priceB) && priceA > 0 && priceB > 0 && Math.abs(priceA - priceB) / Math.min(priceA, priceB) <= 0.1) {
-        bidirectional(a, b, "same_price_band", [aPack, bPack].map(pack => ({
-          ...(pack.startingPriceAed.provenance || {}), sourceRecordId: pack.startingPriceAed.recordId || pack.unitId, projectId: pack.projectId,
-          unitId: pack.unitId, field: "startingPriceAed", value: pack.startingPriceAed.value,
-          source: pack.startingPriceAed.source || pack.startingPriceAed.provenance?.source || pack.source?.value,
-          verifiedOn: pack.startingPriceAed.verifiedAt || pack.startingPriceAed.provenance?.verifiedOn || pack.lastVerified?.value,
-          scope: pack.startingPriceAed.scope || "unit_type_starting_price"
-        })), { basis: "documented_starting_prices_within_10_percent_not_comparable_valuation" });
+      const pricesFor = project => factPacks.filter(pack => pack.projectId === project.id).map(pack =>
+        sourcedCandidatePrice({ project, factPack: pack, unit: units.find(unit => unit.id === pack.unitId) }, { now })).filter(Boolean);
+      const pricePair = pricesFor(a).flatMap(left => pricesFor(b).filter(right =>
+        Math.abs(left.value - right.value) / Math.min(left.value, right.value) <= 0.1).map(right => [left, right]))[0];
+      if (pricePair) {
+        bidirectional(a, b, "similar_price_band", pricePair.map(row => row.evidence),
+          { basis: "documented_starting_prices_within_10_percent_not_comparable_valuation" });
       }
     }
   }
   // Geographic/competitive edges require an explicit evidence record. Same
   // area and similar project names never create a nearby edge.
-  const allowed = new Set(["nearby", "direct_competitor"]);
   for (const relation of intelligence.projectRelations || []) {
-    const verified = Date.parse(relation.verifiedOn || "");
-    if (!allowed.has(relation.relationship) || relation.usable !== true || !relation.source ||
-      !relation.sourceRecordId || !Number.isFinite(verified) || verified > now) continue;
+    const relationship = String(relation.relationship || "").toLowerCase();
+    const evidence = comparisonEvidence({ ...relation, scope: relation.scope || "project_relationship",
+      field: "relationship", value: relationship }, { now });
+    if (!RESEARCH_RELATIONSHIPS.has(relationship) || relation.usable !== true || !evidence) continue;
     const a = nodes.find(node => node.id === relation.from), b = nodes.find(node => node.id === relation.to);
-    if (a && b && a !== b) bidirectional(a, b, relation.relationship, [{ source: relation.source,
-      sourceRecordId: relation.sourceRecordId, scope: relation.scope || "project_relationship",
-      verifiedOn: relation.verifiedOn, field: "relationship", value: relation.relationship }]);
+    if (!a || !b || a === b) continue;
+    const context = { reason: relation.reason || null, locationContext: relation.locationContext || null,
+      comparableProduct: relation.comparableProduct ?? null, comparableBuyer: relation.comparableBuyer ?? null,
+      basis: "documented_relationship_candidate_only" };
+    add(a, b, relationship, [evidence], context);
+    const inverse = { earlier_phase: "later_phase", later_phase: "earlier_phase", ready_alternative: "off_plan_alternative", off_plan_alternative: "ready_alternative" }[relationship] || relationship;
+    // Ready/off-plan describe the target; an inverse requires documented status.
+    if (!["ready_alternative", "off_plan_alternative"].includes(relationship) ||
+      (relationship === "ready_alternative" && /^off-plan$/i.test(a.status || "")) ||
+      (relationship === "off_plan_alternative" && /^ready$/i.test(a.status || ""))) add(b, a, inverse, [evidence], context);
   }
   return { nodes: nodes.map(project => ({ projectId: project.id })), edges };
 }
 
 export function relationsBetween(graph, projectAId, projectBId) {
   return (graph?.edges || []).filter(edge => edge.from === projectAId && edge.to === projectBId);
+}
+
+export function crossSellCandidateIds(graph, projectId) {
+  return new Set((graph?.edges || []).filter(edge => edge.from === projectId && CROSS_SELL_RELATIONSHIPS.has(edge.relationship)).map(edge => edge.to));
 }

@@ -5,8 +5,9 @@ import { bedroomLabel, normalizeArea, normalizePropertyType, sameText } from "..
 import { loadConversationPreferences } from "./preferences.js";
 import { buildInvestmentStrategy, deriveInvestmentStrategy } from "./investment-strategy.js";
 import { buildInvestmentThesis } from "./investment-thesis.js";
-import { compareProperties } from "./comparison.js";
-import { buildProjectRelations } from "./project-relations.js";
+import { compareProperties, compareTransactionDepth } from "./comparison.js";
+import { buildProjectRelations, crossSellCandidateIds } from "./project-relations.js";
+import { buildBuyerBudgetComparisons, sourcedCandidatePrice } from "./comparison-evidence.js";
 
 const numeric = value => typeof value === "number" && Number.isFinite(value);
 const positive = value => numeric(value) && value > 0;
@@ -86,7 +87,9 @@ function evidence(candidate, key) {
     source: fact.provenance?.source || fact.source || value(candidate.factPack, "source"),
     sourceRecordId: fact.provenance?.sourceRecordId || fact.sourceRecordId || fact.recordId || (key === "startingPriceAed" || key.startsWith("size") || key === "bedrooms" ? candidate.unit.id : candidate.project.id),
     lastVerified: fact.provenance?.verifiedOn || fact.verifiedOn || fact.verifiedAt || value(candidate.factPack, "lastVerified"),
-    scope: fact.provenance?.scope || fact.scope || (key === "startingPriceAed" ? "unit_type_starting_price" : key === "downPaymentAed" ? (candidate.unit.initialPaymentAed != null ? "unit_type_initial_payment" : "project_initial_payment") : "catalogue_field")
+    scope: fact.provenance?.scope || fact.scope || (key === "startingPriceAed" ? "unit_type_starting_price" : key === "downPaymentAed" ? (candidate.unit.initialPaymentAed != null ? "unit_type_initial_payment" : "project_initial_payment") : "catalogue_field"),
+    confidence: fact.confidence || fact.provenance?.confidence || "UNKNOWN",
+    evidenceClass: fact.evidenceClass || fact.provenance?.evidenceClass || "FACT"
   };
 }
 
@@ -189,7 +192,7 @@ function wantedBedroomsMatch(candidate, buyer) {
 function eligibility(candidate, buyer, ceiling, options) {
   const reasons = [];
   const pack = candidate.factPack;
-  const price = value(pack, "startingPriceAed");
+  const price = sourcedCandidatePrice(candidate, { now: options.now })?.value ?? null;
   const initial = value(pack, "downPaymentAed");
   if (!positive(price)) reasons.push("price_unknown");
   else if (ceiling !== null && price > ceiling) reasons.push("over_budget_ceiling");
@@ -301,11 +304,11 @@ function ranking(candidate, buyer, context) {
     const materiallyLarger = context.spaceReferences.some(reference => reference.unit.id !== candidate.unit.id && value(reference.factPack, "startingPriceAed") <= value(pack, "startingPriceAed") && (value(pack, "bedrooms") > value(reference.factPack, "bedrooms") || (positive(value(reference.factPack, "sizeSqftTo")) && positive(value(pack, "sizeSqftFrom")) && value(pack, "sizeSqftFrom") >= value(reference.factPack, "sizeSqftTo") * 1.1)));
     if (context.space && materiallyLarger && positive(value(pack, "sizeSqftFrom")) && context.maxSize > 0) { score += 30 * value(pack, "sizeSqftFrom") / context.maxSize; codes.push("more_space_priority"); }
   }
-  if (buyer.useType === "investment" && context.investmentStrategy.weights.liquidity > 0 && context.comparableTransactionScopes.size > 0) {
-    const sample = candidate.investmentThesis?.liquidityCase?.transactionSamples?.find(row => context.comparableTransactionScopes.has(`${row.scope}|${normalizePropertyType(candidate.unit.propertyType)}|${candidate.unit.bedrooms}`));
-    const comparable = sample && context.transactionRanges.get(`${sample.scope}|${normalizePropertyType(candidate.unit.propertyType)}|${candidate.unit.bedrooms}`);
-    if (sample && comparable && comparable.max > comparable.min) {
-      score += context.investmentStrategy.weights.liquidity * 5 * (sample.transactions12m - comparable.min) / (comparable.max - comparable.min);
+  if (buyer.useType === "investment" && context.investmentStrategy.weights.liquidity > 0) {
+    const comparable = context.transactionReferences.filter(reference => reference.project.id !== candidate.project.id)
+      .map(reference => compareTransactionDepth(reference, candidate, { now: context.now })).filter(Boolean);
+    if (comparable.some(row => row.delta > 0) && !comparable.some(row => row.delta < 0)) {
+      score += context.investmentStrategy.weights.liquidity * 5;
       codes.push("documented_transaction_depth_for_strategy");
     }
   }
@@ -350,6 +353,9 @@ function compareBenefits(reference, candidate, buyer, context) {
   if (context.objections.has("handover_too_soon") && priorHandover && nextHandover && nextHandover.start > priorHandover.end) benefits.push(dimensionDelta("later_handover", "handover", reference, candidate));
   if (buyer.useType === "investment" && (context.investmentStrategy.strategy === "READY_INCOME" || ["rental_income", "income"].includes(buyer.investmentObjective)) && !sameText(value(from, "status"), "Ready") && sameText(value(to, "status"), "Ready") && nextHandover?.end === 0) benefits.push(dimensionDelta("ready_income_route", "status", reference, candidate));
   if (buyer.useType === "investment" && buyer.investmentObjective === "growth" && !sameText(value(from, "status"), "Off-plan") && sameText(value(to, "status"), "Off-plan") && value(to, "paymentPlanAvailable") === true && value(to, "paymentPlanSummary")) benefits.push(dimensionDelta("off_plan_with_documented_plan", "status", reference, candidate));
+  const depth = compareTransactionDepth(reference, candidate, { now: context.now });
+  if (buyer.useType === "investment" && depth?.delta > 0) benefits.push({ code: "better_documented_transaction_depth", field: "transactions12m",
+    from: depth.a, to: depth.b, delta: depth.delta, evidence: depth.evidence, basis: depth.basis });
   return benefits;
 }
 
@@ -454,16 +460,14 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const hasSuitabilityObjection = [...objections].some(category => SUITABILITY_OBJECTIONS.has(category));
   const priorityCodes = priorities(buyer);
   const investmentStrategy = buildInvestmentStrategy(buyer);
-  const transactionRanges = new Map();
-  const recentSamples = candidates.flatMap(candidate => (candidate.investmentThesis?.liquidityCase?.transactionSamples || []).filter(sample => sample.scope && numeric(sample.transactions12m) && Number.isFinite(Date.parse(sample.latestTransactionDate)) && Date.parse(sample.latestTransactionDate) <= (options.now ?? Date.now())).map(sample => ({ ...sample, unitId: candidate.unit.id, propertyType: normalizePropertyType(candidate.unit.propertyType), bedrooms: candidate.unit.bedrooms })));
-  for (const sample of recentSamples) {
-    const peers = recentSamples.filter(row => row.scope === sample.scope && row.propertyType === sample.propertyType && row.bedrooms === sample.bedrooms && Math.abs(Date.parse(row.latestTransactionDate) - Date.parse(sample.latestTransactionDate)) <= 90 * 86400000);
-    if (new Set(peers.map(row => row.unitId)).size > 1) transactionRanges.set(`${sample.scope}|${sample.propertyType}|${sample.bedrooms}`, { min: Math.min(...peers.map(row => row.transactions12m)), max: Math.max(...peers.map(row => row.transactions12m)) });
-  }
+  const relations = buildProjectRelations(catalog.projects, { units: candidates.map(row => row.unit),
+    factPacks: candidates.map(row => row.factPack), intelligence: catalog.intelligence || {}, now: options.now });
+  const graphAllows = (reference, candidate) => reference.project.id === candidate.project.id ||
+    crossSellCandidateIds(relations, reference.project.id).has(candidate.project.id);
   const context = {
     investmentStrategy,
-    transactionRanges,
-    comparableTransactionScopes: new Set(transactionRanges.keys()),
+    now: options.now ?? Date.now(),
+    transactionReferences: candidates,
     objections,
     priorities: priorityCodes,
     space: wantsSpace(buyer, objections, priorityCodes),
@@ -476,7 +480,11 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   };
   for (const candidate of candidates) candidate.rationale = recommendationRationale(candidate, buyer, context);
   const assessments = candidates.map(candidate => ({ candidate, hardConstraintFailures: eligibility(candidate, buyer, budgetPolicy.ceilingAed, options), preferenceGaps: preferenceGaps(candidate, buyer) }));
-  const base = { candidates, assessments, budgetPolicy, investmentStrategy, investmentTheses: [], comparison: null, relations: { nodes: [], edges: [] }, rationale: null, directMatches: [], matches: [], primary: null, challenger: null, opportunities: [], packs: [], upgradeAssessment: { permissionCandidate: null, opportunities: [], decision: "no_push", reasonCodes: [] } };
+  const budgetComparisons = buildBuyerBudgetComparisons(candidates, { now: options.now, intelligence: catalog.intelligence,
+    projects: catalog.projects, buyer, candidateProjectIds: buyer.activeRecommendationProjectId ?
+      new Set([buyer.activeRecommendationProjectId, ...crossSellCandidateIds(relations, buyer.activeRecommendationProjectId)]) : null,
+    eligible: candidate => !eligibility(candidate, buyer, budgetPolicy.ceilingAed, options).length && canChallenge(candidate, buyer, context) });
+  const base = { candidates, assessments, budgetPolicy, investmentStrategy, investmentTheses: [], comparison: null, relations, budgetComparisons, rationale: null, directMatches: [], matches: [], primary: null, challenger: null, opportunities: [], packs: [], upgradeAssessment: { permissionCandidate: null, opportunities: [], decision: "no_push", reasonCodes: [] } };
   if (buyer.salesPathStopped || objections.has("not_interested") || (!options.requestedRecommendation && ["needs_time", "already_has_agent"].some(code => objections.has(code)))) return { ...base, opportunities: [noPush(["respect_buyer_pace"])] };
   if (!options.requestedRecommendation && objections.has("trust_concern") && !hasSuitabilityObjection) return { ...base, opportunities: [noPush(["resolve_trust_before_recommending"])] };
   if (budgetPolicy.originalBudgetAed === null) return { ...base, opportunities: [noPush(["budget_unknown"])] };
@@ -493,19 +501,19 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const referenceProjectId = objectedTo?.projectId || buyer.activeRecommendationProjectId;
   const referenceUnitId = objectedTo?.unitId || buyer.activeRecommendationUnitId;
   const reference = candidates.find(row => row.unit.id === referenceUnitId && row.project.id === referenceProjectId) || candidates.find(row => row.project.id === referenceProjectId) || null;
-  const referenceFresh = reference && positive(value(reference.factPack, "startingPriceAed")) ? reference : null;
+  const referenceFresh = reference && sourcedCandidatePrice(reference, { now: options.now }) ? reference : null;
   const withinOriginal = candidate => value(candidate.factPack, "startingPriceAed") <= budgetPolicy.originalBudgetAed;
   const originalBudgetDirect = directMatches.filter(withinOriginal);
-  const relevantDirect = referenceFresh && hasSuitabilityObjection ? originalBudgetDirect.filter(candidate => (rejectionResolvedByEvidence(candidate, buyer) || candidate.unit.id !== referenceFresh.unit.id && solvesObjection(compareBenefits(referenceFresh, candidate, buyer, context), context))) : originalBudgetDirect;
+  const relevantDirect = referenceFresh && hasSuitabilityObjection ? originalBudgetDirect.filter(candidate => (rejectionResolvedByEvidence(candidate, buyer) || candidate.unit.id !== referenceFresh.unit.id && graphAllows(referenceFresh, candidate) && solvesObjection(compareBenefits(referenceFresh, candidate, buyer, context), context))) : originalBudgetDirect;
   let primaryCandidate = relevantDirect[0] || null;
   if (!primaryCandidate && referenceFresh) {
-    primaryCandidate = sortByFit(eligible.filter(candidate => withinOriginal(candidate) && canChallenge(candidate, buyer, context) && relevantChallengeBenefits(candidate, referenceFresh, buyer, context).length && solvesObjection(relevantChallengeBenefits(candidate, referenceFresh, buyer, context), context)))[0] || null;
+    primaryCandidate = sortByFit(eligible.filter(candidate => withinOriginal(candidate) && graphAllows(referenceFresh, candidate) && canChallenge(candidate, buyer, context) && relevantChallengeBenefits(candidate, referenceFresh, buyer, context).length && solvesObjection(relevantChallengeBenefits(candidate, referenceFresh, buyer, context), context)))[0] || null;
   }
   // Permission to stretch never supplies the missing "why spend more" evidence.
   // Prefer an in-budget primary; an over-original primary requires a real,
   // fresh, previously considered in-budget baseline and a material advantage.
   if (!primaryCandidate && budgetPolicy.flexible && referenceFresh && withinOriginal(referenceFresh)) {
-    primaryCandidate = sortByFit(eligible.filter(candidate => !withinOriginal(candidate) && canChallenge(candidate, buyer, context) && relevantChallengeBenefits(candidate, referenceFresh, buyer, context).some(benefit => benefit.code !== "lower_starting_price") && solvesObjection(relevantChallengeBenefits(candidate, referenceFresh, buyer, context), context)))[0] || null;
+    primaryCandidate = sortByFit(eligible.filter(candidate => !withinOriginal(candidate) && graphAllows(referenceFresh, candidate) && canChallenge(candidate, buyer, context) && relevantChallengeBenefits(candidate, referenceFresh, buyer, context).some(benefit => benefit.code !== "lower_starting_price") && solvesObjection(relevantChallengeBenefits(candidate, referenceFresh, buyer, context), context)))[0] || null;
   }
   if (!primaryCandidate) return { ...base, directMatches, opportunities: [noPush(["no_suitable_supported_option"])] };
 
@@ -514,7 +522,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const primary = makeOpportunity("best_fit", primaryCandidate, baseline, primaryBenefits, buyer, budgetPolicy, ranking(primaryCandidate, buyer, context).codes);
   if (baseline && primaryBenefits.length && (preferenceGaps(primaryCandidate, buyer).length || !withinOriginal(primaryCandidate))) primary.type = opportunityType(primaryCandidate, baseline, primaryBenefits);
 
-  const challengerRows = eligible.filter(candidate => candidate.unit.id !== primaryCandidate.unit.id && canChallenge(candidate, buyer, context)).map(candidate => ({ candidate, benefits: relevantChallengeBenefits(candidate, primaryCandidate, buyer, context) })).filter(row => row.benefits.length && solvesObjection(row.benefits, context));
+  const challengerRows = eligible.filter(candidate => candidate.unit.id !== primaryCandidate.unit.id && graphAllows(primaryCandidate, candidate) && canChallenge(candidate, buyer, context)).map(candidate => ({ candidate, benefits: relevantChallengeBenefits(candidate, primaryCandidate, buyer, context) })).filter(row => row.benefits.length && solvesObjection(row.benefits, context));
   const usefulChallengers = challengerRows.filter(row => {
     const costsMore = value(row.candidate.factPack, "startingPriceAed") > value(primaryCandidate.factPack, "startingPriceAed");
     return !costsMore || (!buyer.upgradeDeclined && row.candidate.project.id !== buyer.lastUpgradeProjectId && row.benefits.some(item => item.code !== "lower_starting_price"));
@@ -531,7 +539,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const challenger = challengerRow ? makeOpportunity(opportunityType(challengerRow.candidate, primaryCandidate, challengerRow.benefits), challengerRow.candidate, primaryCandidate, challengerRow.benefits, buyer, budgetPolicy) : null;
   const matches = [primaryCandidate, ...(challengerRow ? [challengerRow.candidate] : [])];
 
-  const unhelpfulExtra = eligible.find(candidate => candidate.unit.id !== primaryCandidate.unit.id && value(candidate.factPack, "startingPriceAed") > value(primaryCandidate.factPack, "startingPriceAed") && canChallenge(candidate, buyer, context) && !compareBenefits(primaryCandidate, candidate, buyer, context).length);
+  const unhelpfulExtra = eligible.find(candidate => candidate.unit.id !== primaryCandidate.unit.id && graphAllows(primaryCandidate, candidate) && value(candidate.factPack, "startingPriceAed") > value(primaryCandidate.factPack, "startingPriceAed") && canChallenge(candidate, buyer, context) && !compareBenefits(primaryCandidate, candidate, buyer, context).length);
   const upgradeAssessment = { permissionCandidate: null, opportunities: [], decision: challenger?.type === "smart_upgrade" ? "justified_upgrade" : "no_push", reasonCodes: [] };
   if (unhelpfulExtra) {
     const decision = makeOpportunity("no_push", unhelpfulExtra, primaryCandidate, [], buyer, budgetPolicy);
@@ -540,7 +548,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
     upgradeAssessment.reasonCodes.push("no_material_buyer_benefit_for_extra_price");
   }
   if (!budgetPolicy.flexible && !budgetPolicy.firm && !buyer.budgetFlexibilityAsked && !buyer.upgradeDeclined) {
-    const permissionRows = candidates.filter(candidate => !eligibility(candidate, buyer, budgetPolicy.permissionCeilingAed, options).length && value(candidate.factPack, "startingPriceAed") > budgetPolicy.originalBudgetAed && canChallenge(candidate, buyer, context)).map(candidate => ({ candidate, benefits: relevantChallengeBenefits(candidate, primaryCandidate, buyer, context) })).filter(row => row.benefits.some(item => item.code !== "lower_starting_price") && solvesObjection(row.benefits, context));
+    const permissionRows = candidates.filter(candidate => !eligibility(candidate, buyer, budgetPolicy.permissionCeilingAed, options).length && graphAllows(primaryCandidate, candidate) && value(candidate.factPack, "startingPriceAed") > budgetPolicy.originalBudgetAed && canChallenge(candidate, buyer, context)).map(candidate => ({ candidate, benefits: relevantChallengeBenefits(candidate, primaryCandidate, buyer, context) })).filter(row => row.benefits.some(item => item.code !== "lower_starting_price") && solvesObjection(row.benefits, context));
     const permissionRow = permissionRows.sort((a, b) => value(a.candidate.factPack, "startingPriceAed") - value(b.candidate.factPack, "startingPriceAed"))[0];
     if (permissionRow) {
       const opportunity = makeOpportunity("smart_upgrade", permissionRow.candidate, primaryCandidate, permissionRow.benefits, buyer, budgetPolicy);
@@ -556,7 +564,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const comparison = comparisonCandidate ? compareProperties(primaryCandidate, comparisonCandidate, buyer, { ...options, budgetPolicy }) : null;
   return { ...base, directMatches, matches, primary, challenger,
     investmentTheses: matches.map(row => row.investmentThesis), comparison,
-    relations: buildProjectRelations(matches.map(row => row.project), { factPacks: matches.map(row => row.factPack), units: matches.map(row => row.unit), intelligence: catalog.intelligence || {}, now: options.now }),
+    relations,
     rationale: primaryCandidate.rationale,
     opportunities: [primary, ...(challenger ? [challenger] : [])], packs: [...evidenceCandidates.values()].map(row => row.factPack), upgradeAssessment };
 }

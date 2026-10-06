@@ -1,0 +1,1488 @@
+{
+  "capturedAt": "2026-10-06",
+  "baseId": "appbIG0pZvueaTp07",
+  "projectId": "rechIsmpeP1yUp3ht",
+  "sheetProjectId": "AD-004",
+  "tables": {
+    "Projects": [
+      {
+        "id": "rec1ZBwrnPPihFmmX",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-011",
+          "Property types": [
+            "apartment"
+          ],
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Muheira",
+          "Last verified": "2026-10-06",
+          "Area": "Al Reem Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/muheira",
+          "Handover": "Q2 2029"
+        }
+      },
+      {
+        "id": "rec4WSVLkqY9qYbJX",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-015",
+          "Property types": [
+            "townhouse",
+            "villa"
+          ],
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Hudayriyat Golf Estates",
+          "Last verified": "2026-10-06",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/hudayriyat-golf-estates",
+          "Handover": "Q3 2030; FAQ specifies August 2030"
+        }
+      },
+      {
+        "id": "recBurbYOnLovzFGF",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-005",
+          "Property types": [
+            "villa"
+          ],
+          "Payment plan summary": "40/60 payment plan (Modon official page, checked 2026-10-06; booking amount and instalment split not published).",
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Al Naseem Community",
+          "Last verified": "2026-10-06",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/al-naseem-community",
+          "Payment plan available": true,
+          "Handover": "First phase: Q4 2027"
+        }
+      },
+      {
+        "id": "recM7fisL8nvyIWrY",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-013",
+          "Property types": [
+            "apartment"
+          ],
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Tara Park",
+          "Last verified": "2026-10-06",
+          "Area": "Al Reem Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/tara-park",
+          "Handover": "Q2 2030"
+        }
+      },
+      {
+        "id": "recQStpVi23iJi1e2",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-003",
+          "Property types": [
+            "townhouse",
+            "villa"
+          ],
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Nawayef Village",
+          "Last verified": "2026-10-06",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/nawayef-village",
+          "Handover": "From Q1 2029"
+        }
+      },
+      {
+        "id": "recV8Af6bt2d31jip",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-012",
+          "Property types": [
+            "apartment",
+            "townhouse",
+            "villa",
+            "penthouse"
+          ],
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Bashayer",
+          "Last verified": "2026-10-06",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/bashayer",
+          "Handover": "Villas Q1 2030; apartments Q2 2030"
+        }
+      },
+      {
+        "id": "recXdZbfJVbXSUJUQ",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Property types": [
+            "villa"
+          ],
+          "Payment plan summary": "50/50 over 3 years.",
+          "Emirate": "Abu Dhabi",
+          "Name": "Hudayriyat Villas",
+          "Last verified": "2026-09-01",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "Modon brochure 2026-02",
+          "Payment plan available": true,
+          "Handover": "Q1 2028"
+        }
+      },
+      {
+        "id": "rechIsmpeP1yUp3ht",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-004",
+          "Property types": [
+            "apartment"
+          ],
+          "Payment plan summary": "60/40 plan: 10% down payment on booking, 50% in instalments during construction, 40% on handover (Modon official page, checked 2026-10-06; individual instalment dates not published).",
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Nawayef Park Views",
+          "Last verified": "2026-10-06",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Payment plan available": true,
+          "Handover": "Q1 2028"
+        }
+      },
+      {
+        "id": "recijgBmm2mwZne1H",
+        "fields": {
+          "Developer": [
+            "rec3Key5NguCIW9Ju"
+          ],
+          "Property types": [
+            "townhouse"
+          ],
+          "Payment plan summary": "80/20. 10 percent booking.",
+          "Emirate": "Abu Dhabi",
+          "Name": "Hudayriyat Shores",
+          "Last verified": "2026-09-01",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "Aldar brochure 2026-03",
+          "Payment plan available": true,
+          "Handover": "Q3 2027",
+          "Availability notes": "Phase 1 releasing"
+        }
+      },
+      {
+        "id": "recwUlm5ZEzaTGwvf",
+        "fields": {
+          "Developer": [
+            "recE9brEpb4btlQNc"
+          ],
+          "Sheet Project ID": "AD-014",
+          "Property types": [
+            "villa"
+          ],
+          "Emirate": "Abu Dhabi",
+          "Active": true,
+          "Name": "Nawayef East",
+          "Last verified": "2026-10-06",
+          "Area": "Hudayriyat Island",
+          "Status": "Off-plan",
+          "Source": "https://www.modon.com/real-estate/nawayef-east",
+          "Handover": "December 2028"
+        }
+      }
+    ],
+    "Price History": [
+      {
+        "id": "rec1tIt3JPSA0oCI8",
+        "fields": {
+          "Observation ID": "PO-00438",
+          "Verified": true,
+          "Price AED": 3268941,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (primary off-plan) | 2025-Q3",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 15 registration(s), primary, off-plan, 2025-08-01..2025-09-26, range AED 3,148,948–3,677,491; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,723 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1986,
+          "Observation date": "2025-09-26",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q3"
+        }
+      },
+      {
+        "id": "rec8bx8mQAiF1Ekrg",
+        "fields": {
+          "Observation ID": "PO-R2-AD004-LAUNCH-20241210",
+          "Verified": true,
+          "Price AED": 2000000,
+          "Name": "Nawayef Park Views | project launch starting price | 2024-12-10",
+          "Published date": "2024-12-10",
+          "Price type": "Original launch (OP)",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "Official launch: sales opened for 1–4BR apartments with project prices starting from AED 2M. Launch release does not tie AED 2M to a bedroom type; do not treat as a verified 1BR launch price.",
+          "Confidence": "Official",
+          "Price scope": "project starting price; 1–4BR apartments; bedroom not scoped",
+          "Checked date": "2026-10-06",
+          "Source type": "Developer",
+          "Source URL": "https://www.modon.com/about-modon/media-centre/details/2024/12/10/modon-launches-nawayef-park-views--the-first-apartments-release-on-hudayriyat-island",
+          "Observation date": "2024-12-10",
+          "Property type": "Apartment",
+          "Reporting period": "Launch announcement — 10 Dec 2024"
+        }
+      },
+      {
+        "id": "rec9hoTQfyNEJ0ceP",
+        "fields": {
+          "Observation ID": "PO-00444",
+          "Verified": true,
+          "Price AED": 4385430,
+          "Name": "Nawayef Park Views | 3 beds apartment | Registered transaction (primary off-plan) | 2025-Q2",
+          "Price type": "Registered transaction",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 12 registration(s), primary, off-plan, 2025-06-30..2025-06-30, range AED 4,345,880–4,499,745; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,748 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 2503,
+          "Observation date": "2025-06-30",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q2"
+        }
+      },
+      {
+        "id": "recGbAjSvJgbGtcZR",
+        "fields": {
+          "Observation ID": "PO-00443",
+          "Verified": true,
+          "Price AED": 3646378,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (secondary off-plan) | 2026-Q2",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 2 registration(s), secondary/resale, off-plan, 2026-05-08..2026-06-11, range AED 3,192,755–4,100,000; full-share only. Mapping high: exact name. Caveat: n=2, not a market median. Per-txn median AED/sqft 1,832 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1983,
+          "Observation date": "2026-06-11",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q2"
+        }
+      },
+      {
+        "id": "recIT3mdGXNzo7hnw",
+        "fields": {
+          "Observation ID": "PO-00436",
+          "Verified": true,
+          "Price AED": 2140625,
+          "Name": "Nawayef Park Views | 1 bed apartment | Registered transaction (primary off-plan) | 2026-Q2",
+          "Price type": "Registered transaction",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 1 registration(s), primary, off-plan, 2026-04-01..2026-04-01, range AED 2,140,625–2,140,625; full-share only. Mapping high: exact name. Caveat: n=1, not a market median. Per-txn median AED/sqft 2,053 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1043,
+          "Observation date": "2026-04-01",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q2"
+        }
+      },
+      {
+        "id": "recIzhAc8YiSpvEst",
+        "fields": {
+          "Observation ID": "PO-00018",
+          "Verified": true,
+          "Price AED": 2000000,
+          "Name": "Nawayef Park Views | 1BR Apartment — Park Views | Developer current | as of 2026-10-06",
+          "Price type": "Developer current",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "Scope: Starting price for Apartment 1BR (Park Views). Source: re-fetched developer page 2026-10-06; value unchanged. Developer list price, not a transaction.",
+          "Confidence": "Official",
+          "Price scope": "starting price",
+          "Checked date": "2026-10-06",
+          "Source type": "Developer",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Observation date": "2026-10-06",
+          "Property type": "Apartment",
+          "Reporting period": "Developer page as checked"
+        }
+      },
+      {
+        "id": "recJXFHDoidyTjknt",
+        "fields": {
+          "Observation ID": "PO-00435",
+          "Verified": true,
+          "Price AED": 2179990,
+          "Name": "Nawayef Park Views | 1 bed apartment | Registered transaction (primary off-plan) | 2026-Q1",
+          "Price type": "Registered transaction",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 7 registration(s), primary, off-plan, 2026-01-15..2026-02-24, range AED 2,106,481–2,256,214; full-share only. Mapping high: exact name. Per-txn median AED/sqft 2,021 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1045,
+          "Observation date": "2026-02-24",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q1"
+        }
+      },
+      {
+        "id": "recOrocXc3dh4NGhu",
+        "fields": {
+          "Observation ID": "PO-00017",
+          "Verified": true,
+          "Price AED": 2000000,
+          "Name": "Nawayef Park Views | 1BR Apartment — Park Views | Developer current | as of 2026-09-21",
+          "Price type": "Developer current",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "Scope: Starting price for Apartment 1BR (Park Views). Source: KB Sheet check (Unit types TYPE-004). Developer list price, not a transaction.",
+          "Confidence": "Official",
+          "Price scope": "starting price",
+          "Checked date": "2026-10-06",
+          "Source type": "Developer",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Observation date": "2026-09-21",
+          "Property type": "Apartment",
+          "Reporting period": "Developer page as checked"
+        }
+      },
+      {
+        "id": "recR5R101hJOEgGFf",
+        "fields": {
+          "Observation ID": "PO-01520",
+          "Verified": true,
+          "Name": "Nawayef Park Views | Apartment | Registered transaction | H1 2026 (Jan–Jun)",
+          "Price type": "Registered transaction",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC H1 2026 Market Report chart value: average AED 20k per sqm; converted at 10.764 sqft/sqm. Values read from PDF text extraction of chart labels — confirm against PDF. Property type for project rows inferred from project composition. Published value: AED 20k/sqm ≈ AED 1,858/sqft (÷10.764); Price AED left blank (no per-unit price published). Published date (partial/approx.): 2026-08.",
+          "Confidence": "Official",
+          "Price scope": "published average rate (all layouts)",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/-/media/adrec/market-reports/marketreportslatest/adrec-h1-2026-spread-3.pdf",
+          "Observation date": "2026-06-30",
+          "Property type": "Apartment",
+          "Reporting period": "H1 2026 (Jan–Jun)"
+        }
+      },
+      {
+        "id": "recU1WYVPIxDEgpau",
+        "fields": {
+          "Observation ID": "PO-00446",
+          "Verified": true,
+          "Price AED": 4435880,
+          "Name": "Nawayef Park Views | 3 beds apartment | Registered transaction (primary off-plan) | 2025-Q4",
+          "Price type": "Registered transaction",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 7 registration(s), primary, off-plan, 2025-10-03..2025-12-21, range AED 4,418,780–4,528,570; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,772 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 2503,
+          "Observation date": "2025-12-21",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q4"
+        }
+      },
+      {
+        "id": "recU3ueklsCC2Dp1J",
+        "fields": {
+          "Observation ID": "PO-00437",
+          "Verified": true,
+          "Price AED": 3249665,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (primary off-plan) | 2025-Q2",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 46 registration(s), primary, off-plan, 2025-06-25..2025-06-30, range AED 3,132,770–3,766,760; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,750 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1913,
+          "Observation date": "2025-06-30",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q2"
+        }
+      },
+      {
+        "id": "recXiBG9qS3GNbCgw",
+        "fields": {
+          "Observation ID": "PO-00441",
+          "Verified": true,
+          "Price AED": 3222072,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (primary off-plan) | 2026-Q2",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 4 registration(s), primary, off-plan, 2026-04-01..2026-06-12, range AED 3,182,755–3,340,711; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,796 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1816,
+          "Observation date": "2026-06-12",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q2"
+        }
+      },
+      {
+        "id": "recZQBxLeZynvFWDu",
+        "fields": {
+          "Observation ID": "PO-00449",
+          "Verified": true,
+          "Price AED": 4395880,
+          "Name": "Nawayef Park Views | 3 beds apartment | Registered transaction (secondary off-plan) | 2025-Q4",
+          "Price type": "Registered transaction",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 1 registration(s), secondary/resale, off-plan, 2025-10-06..2025-10-06, range AED 4,395,880–4,395,880; full-share only. Mapping high: exact name. Caveat: n=1, not a market median. Per-txn median AED/sqft 1,756 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 2503,
+          "Observation date": "2025-10-06",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q4"
+        }
+      },
+      {
+        "id": "recajCTI0V19hMdAw",
+        "fields": {
+          "Observation ID": "PO-00433",
+          "Verified": true,
+          "Price AED": 2164995,
+          "Name": "Nawayef Park Views | 1 bed apartment | Registered transaction (primary off-plan) | 2025-Q3",
+          "Price type": "Registered transaction",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 13 registration(s), primary, off-plan, 2025-08-01..2025-09-26, range AED 2,045,910–2,222,687; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,985 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1111,
+          "Observation date": "2025-09-26",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q3"
+        }
+      },
+      {
+        "id": "reccvyRaqdVR0ljWD",
+        "fields": {
+          "Observation ID": "PO-00447",
+          "Verified": true,
+          "Price AED": 4462781,
+          "Name": "Nawayef Park Views | 3 beds apartment | Registered transaction (primary off-plan) | 2026-Q1",
+          "Price type": "Registered transaction",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 5 registration(s), primary, off-plan, 2026-02-04..2026-03-17, range AED 4,389,258–4,510,539; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,765 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 2503,
+          "Observation date": "2026-03-17",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q1"
+        }
+      },
+      {
+        "id": "recexYxXSjSnTiZXi",
+        "fields": {
+          "Observation ID": "PO-00432",
+          "Verified": true,
+          "Price AED": 2158675,
+          "Name": "Nawayef Park Views | 1 bed apartment | Registered transaction (primary off-plan) | 2025-Q2",
+          "Price type": "Registered transaction",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 21 registration(s), primary, off-plan, 2025-06-30..2025-06-30, range AED 2,001,585–2,249,995; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,972 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1111,
+          "Observation date": "2025-06-30",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q2"
+        }
+      },
+      {
+        "id": "recgVaEFvaR0pQMWb",
+        "fields": {
+          "Observation ID": "PO-00434",
+          "Verified": true,
+          "Price AED": 2045910,
+          "Name": "Nawayef Park Views | 1 bed apartment | Registered transaction (primary off-plan) | 2025-Q4",
+          "Price type": "Registered transaction",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 3 registration(s), primary, off-plan, 2025-10-07..2025-10-07, range AED 2,005,625–2,138,005; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,554 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1321,
+          "Observation date": "2025-10-07",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q4"
+        }
+      },
+      {
+        "id": "reclcLhXFzav8Wnt9",
+        "fields": {
+          "Observation ID": "PO-00448",
+          "Verified": true,
+          "Price AED": 4395880,
+          "Name": "Nawayef Park Views | 3 beds apartment | Registered transaction (secondary off-plan) | 2025-Q3",
+          "Price type": "Registered transaction",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 1 registration(s), secondary/resale, off-plan, 2025-09-26..2025-09-26, range AED 4,395,880–4,395,880; full-share only. Mapping high: exact name. Caveat: n=1, not a market median. Per-txn median AED/sqft 1,756 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 2503,
+          "Observation date": "2025-09-26",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q3"
+        }
+      },
+      {
+        "id": "recnfPZ9jel8JNfDa",
+        "fields": {
+          "Observation ID": "PO-00440",
+          "Verified": true,
+          "Price AED": 3342742,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (primary off-plan) | 2026-Q1",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 12 registration(s), primary, off-plan, 2026-02-02..2026-02-24, range AED 3,137,770–3,677,976; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,752 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1918,
+          "Observation date": "2026-02-24",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q1"
+        }
+      },
+      {
+        "id": "recuG65u8GjxZ4znJ",
+        "fields": {
+          "Observation ID": "PO-00442",
+          "Verified": true,
+          "Price AED": 3315396,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (primary off-plan) | 2026-Q3",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 1 registration(s), primary, off-plan, 2026-07-27..2026-07-27, range AED 3,315,396–3,315,396; full-share only. Mapping high: exact name. Caveat: n=1, not a market median. Per-txn median AED/sqft 1,857 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1785,
+          "Observation date": "2026-07-27",
+          "Property type": "Apartment",
+          "Reporting period": "2026-Q3"
+        }
+      },
+      {
+        "id": "recxrjONDwui95rMk",
+        "fields": {
+          "Observation ID": "PO-00439",
+          "Verified": true,
+          "Price AED": 3263938,
+          "Name": "Nawayef Park Views | 2 beds apartment | Registered transaction (primary off-plan) | 2025-Q4",
+          "Price type": "Registered transaction",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 18 registration(s), primary, off-plan, 2025-10-03..2025-12-21, range AED 3,175,690–3,553,935; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,757 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 1850,
+          "Observation date": "2025-12-21",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q4"
+        }
+      },
+      {
+        "id": "recyG0cOB7MFPTIrz",
+        "fields": {
+          "Observation ID": "PO-00445",
+          "Verified": true,
+          "Price AED": 4387330,
+          "Name": "Nawayef Park Views | 3 beds apartment | Registered transaction (primary off-plan) | 2025-Q3",
+          "Price type": "Registered transaction",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Notes": "ADREC median of 6 registration(s), primary, off-plan, 2025-08-01..2025-09-26, range AED 4,345,985–4,478,705; full-share only. Mapping high: exact name. Per-txn median AED/sqft 1,748 (formula column = median price ÷ median size; differs). ADREC RecentSales feed, pulled 2026-10-06.",
+          "Confidence": "Official",
+          "Price scope": "median of registered transactions",
+          "Checked date": "2026-10-06",
+          "Source type": "ADREC",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Size sqft": 2503,
+          "Observation date": "2025-09-26",
+          "Property type": "Apartment",
+          "Reporting period": "2025-Q3"
+        }
+      }
+    ],
+    "Market Snapshot": [
+      {
+        "id": "recMq1yTeQQBx0vXZ",
+        "fields": {
+          "Sale type": "Primary off-plan",
+          "Snapshot date": "2026-10-06",
+          "Confidence": "Medium",
+          "Property type": "Apartment",
+          "Transactions 12M": 35,
+          "ADREC project label": "Nawayef Park Views",
+          "Latest transaction date": "2026-07-27",
+          "Row basis": "ADREC transactions",
+          "Counts basis": "2BR primary off-plan quarterly underlying sample counts in trailing window: 2025-Q4 n=18; 2026-Q1 n=12; 2026-Q2 n=4; 2026-Q3 n=1; total n=35. Exact-duplicate feed rows excluded.",
+          "Scope": "Nawayef Park Views | Apartment | 2BR | Primary off-plan | liquidity count",
+          "Bedrooms": 2,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Source note": "ADREC public RecentSales evidence: https://adrec.gov.ae/en/property_and_index/adrec-dashboards. Liquidity-only snapshot. 2BR primary off-plan quarterly underlying sample counts in trailing window: 2025-Q4 n=18; 2026-Q1 n=12; 2026-Q2 n=4; 2026-Q3 n=1; total n=35. Exact-duplicate feed rows excluded. No trailing-window median is calculated from quarterly medians. Past activity only, not a resale forecast.",
+          "Name": "Nawayef Park Views | Apartment 2BR | primary off-plan | liquidity count | 2026-10-06"
+        }
+      },
+      {
+        "id": "recVbF9MrjYVVErdz",
+        "fields": {
+          "Sale type": "Primary off-plan",
+          "Snapshot date": "2026-10-06",
+          "Confidence": "Medium",
+          "Property type": "Apartment",
+          "Transactions 12M": 11,
+          "Latest transaction date": "2026-04-01",
+          "Row basis": "Developer price + ADREC counts",
+          "Counts basis": "Transactions 12M n=11 (2025-10-01..2026-09-30): 'Nawayef Park Views' n=11. Quarterly n: Nawayef Park Views: 2025-Q2 n=21; 2025-Q3 n=13; 2025-Q4 n=3; 2026-Q1 n=7; 2026-Q2 n=1",
+          "Scope": "Nawayef Park Views | Apartment | 1BR | Primary off-plan | Developer starting price (Modon page)",
+          "Bedrooms": 1,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Source note": "Modon Holding official project page https://www.modon.com/real-estate/nawayef-parkviews (Tier 1 developer page), fetched 2026-10-06 07:33 GST (raw: intel-r2/sources/golive-20261006/nawayef-parkviews.txt). Unchanged from the 2026-09-21 check (15 days; that is stability, not a trend). Wording: 'Starting price: AED 2M'; FAQ: 'The starting price for a spacious one-bedroom apartment is AED 2 million'. No unit size is published, so AED/sqft is left blank. Basis: starting price (a 'from' price; not comparable with averages or transaction medians). Transactions 12M = 11 ADREC (Tier 1, https://adrec.gov.ae/en/property_and_index/adrec-dashboards, pulled 2026-10-06) registrations for the same scope (apartment, 1 bed, primary, off-plan), 1 Oct 2025–30 Sep 2026, summed over label(s) 'Nawayef Park Views' n=11. Latest date = latest of these (data to 2026-10-06). Exact-duplicate feed rows removed. No median: 2026-Q3 n=0 and 2026-Q2 n=1 in this scope, which is below n≥3. Left blank: original price and since-launch % (no verified same-basis launch price); trends (developer prices are never compared with transaction medians); asking; area benchmark. Confidence Medium: Tier 1 page, but a single figure with no count behind it. Not a forecast.",
+          "Name": "Nawayef Park Views | Apartment 1BR | Developer starting price | 2026-10-06"
+        }
+      },
+      {
+        "id": "rechTGqd6jVk1lM1W",
+        "fields": {
+          "Sale type": "Primary off-plan",
+          "Snapshot date": "2026-10-06",
+          "Confidence": "Medium",
+          "Property type": "Apartment",
+          "Transactions 12M": 12,
+          "ADREC project label": "Nawayef Park Views",
+          "Latest transaction date": "2026-03-17",
+          "Row basis": "ADREC transactions",
+          "Counts basis": "3BR primary off-plan quarterly underlying sample counts in trailing window: 2025-Q4 n=7; 2026-Q1 n=5; later sampled quarters n=0; total n=12. Exact-duplicate feed rows excluded.",
+          "Scope": "Nawayef Park Views | Apartment | 3BR | Primary off-plan | liquidity count",
+          "Bedrooms": 3,
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Source note": "ADREC public RecentSales evidence: https://adrec.gov.ae/en/property_and_index/adrec-dashboards. Liquidity-only snapshot. 3BR primary off-plan quarterly underlying sample counts in trailing window: 2025-Q4 n=7; 2026-Q1 n=5; later sampled quarters n=0; total n=12. Exact-duplicate feed rows excluded. No trailing-window median is calculated from quarterly medians. Past activity only, not a resale forecast.",
+          "Name": "Nawayef Park Views | Apartment 3BR | primary off-plan | liquidity count | 2026-10-06"
+        }
+      }
+    ],
+    "Areas (research)": [
+      {
+        "id": "rect78NsLminRqNnb",
+        "fields": {
+          "Competing supply": "[{\"projectId\":\"rec4WSVLkqY9qYbJX\",\"name\":\"Hudayriyat Golf Estates\",\"handover\":\"Q3 2030; FAQ specifies August 2030\",\"source\":\"https://www.modon.com/real-estate/hudayriyat-golf-estates\",\"verifiedOn\":\"2026-10-06\",\"approved\":true},{\"projectId\":\"recBurbYOnLovzFGF\",\"name\":\"Al Naseem Community\",\"handover\":\"First phase: Q4 2027\",\"source\":\"https://www.modon.com/real-estate/al-naseem-community\",\"verifiedOn\":\"2026-10-06\",\"approved\":true},{\"projectId\":\"recQStpVi23iJi1e2\",\"name\":\"Nawayef Village\",\"handover\":\"From Q1 2029\",\"source\":\"https://www.modon.com/real-estate/nawayef-village\",\"verifiedOn\":\"2026-10-06\",\"approved\":true},{\"projectId\":\"recV8Af6bt2d31jip\",\"name\":\"Bashayer\",\"handover\":\"Villas Q1 2030; apartments Q2 2030\",\"source\":\"https://www.modon.com/real-estate/bashayer\",\"verifiedOn\":\"2026-10-06\",\"approved\":true},{\"projectId\":\"rechIsmpeP1yUp3ht\",\"name\":\"Nawayef Park Views\",\"handover\":\"Q1 2028\",\"source\":\"https://www.modon.com/real-estate/nawayef-parkviews\",\"verifiedOn\":\"2026-10-06\",\"approved\":true},{\"projectId\":\"recwUlm5ZEzaTGwvf\",\"name\":\"Nawayef East\",\"handover\":\"December 2028\",\"source\":\"https://www.modon.com/real-estate/nawayef-east\",\"verifiedOn\":\"2026-10-06\",\"approved\":true}]",
+          "Summary": "Hudayriyat Island (Abu Dhabi). ADREC district: Al Hidayriyyat. Maturity: mixed: existing leisure/sport destinations + residential under construction + further phases announced. Master developer: Modon (Modon Holding PSC / Modon Properties) revealed and develops the Hudayriyat Island masterplan. Residential profile: Villa-led island (villas, townhouses, twin villas, mansions, residential plots) with low-rise apartments at Nawayef Park Views and Bashayer Residences. ADREC projects 3,477 incremental units in Al Hidayriyyat H1 2026–2030: 866 apartments, 2,611 villas/townhouses.",
+          "Maturity": "Mixed",
+          "Source URL": "https://www.mediaoffice.abudhabi/en/infrastructure/in-line-with-the-directives-of-sheikh-mohamed-bin-zayed-modon-properties-reveals-hudayriyat-island-masterplan-spanning-51-million-square-meters-equivalent-to-538-of-abu-dhabi-island/",
+          "Verified": true,
+          "Emirate": "Abu Dhabi",
+          "Risks": "[{\"description\":\"Delivery concentration: several Modon projects scheduled 2027–2030 on one island; no residential handover has yet occurred.\",\"source\":\"https://www.modon.com/real-estate/al-naseem-community\",\"verifiedOn\":\"2026-10-06\",\"approved\":true,\"sourceTier\":\"T1\"},{\"description\":\"Velodrome Abu Dhabi was announced to launch in 2025 (Construction Week, 2023); no confirmation of opening found in this pass.\",\"source\":\"https://www.constructionweekonline.com/projects-tenders/unveiled-modon-properties-master-plan-for-hudayriyat-island-megaproject\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"sourceTier\":\"T2\"},{\"description\":\"ADREC public feed returns villa/townhouse sales on the island as unclassified 'Private' records without size — project-level villa transaction pricing is not observable publicly.\",\"source\":\"https://adrec.gov.ae/-/media/adrec/market-reports/marketreportslatest/adrec-h1-2026-spread-3.pdf\",\"verifiedOn\":\"2026-10-06\",\"approved\":true,\"sourceTier\":\"T1\"}]",
+          "Catalysts": "[{\"description\":\"Surf Abu Dhabi — exists\",\"name\":\"Surf Abu Dhabi\",\"type\":\"sport\",\"status\":\"exists\",\"source\":\"https://www.thenationalnews.com/lifestyle/things-to-do/2024/08/12/surf-abu-dhabi-opening-date/\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":\"October 2024 (opening announced)\",\"notes\":\"Surf Abu Dhabi — exists (October 2024 (opening announced); thenationalnews.com pub 2024-08-12, T2)\"},{\"description\":\"Velodrome Abu Dhabi — announced\",\"name\":\"Velodrome Abu Dhabi\",\"type\":\"sport\",\"status\":\"announced\",\"source\":\"https://www.constructionweekonline.com/projects-tenders/unveiled-modon-properties-master-plan-for-hudayriyat-island-megaproject\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":null,\"notes\":\"Velodrome Abu Dhabi — announced ('Scheduled to launch in 2025' (2023 statement); constructionweekonline.com pub 2023, T2)\"},{\"description\":\"Hudayriyat urban park (largest in emirate, 2.25m sqm) — announced\",\"name\":\"Hudayriyat urban park (largest in emirate, 2.25m sqm)\",\"type\":\"infrastructure\",\"status\":\"announced\",\"source\":\"https://www.constructionweekonline.com/projects-tenders/unveiled-modon-properties-master-plan-for-hudayriyat-island-megaproject\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":null,\"notes\":\"Hudayriyat urban park (largest in emirate, 2.25m sqm) — announced (not published; constructionweekonline.com pub 2023, T2)\"},{\"description\":\"220 km cycle-track network — announced\",\"name\":\"220 km cycle-track network\",\"type\":\"sport\",\"status\":\"announced\",\"source\":\"https://www.mediaoffice.abudhabi/en/infrastructure/in-line-with-the-directives-of-sheikh-mohamed-bin-zayed-modon-properties-reveals-hudayriyat-island-masterplan-spanning-51-million-square-meters-equivalent-to-538-of-abu-dhabi-island/\",\"verifiedOn\":\"2026-10-06\",\"approved\":true,\"confidence\":\"High\",\"expectedCompletion\":null,\"notes\":\"220 km cycle-track network — announced (not published; mediaoffice.abudhabi pub 2023, T1)\"},{\"description\":\"Marsana / beaches (16 km of beaches in masterplan) — exists\",\"name\":\"Marsana / beaches (16 km of beaches in masterplan)\",\"type\":\"tourism\",\"status\":\"exists\",\"source\":\"https://www.constructionweekonline.com/projects-tenders/unveiled-modon-properties-master-plan-for-hudayriyat-island-megaproject\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":null,\"notes\":\"Marsana / beaches (16 km of beaches in masterplan) — exists (n/a; constructionweekonline.com pub 2023, T2)\"},{\"description\":\"321 Sports / OCR Park / Trail X / Bike Park / Bab Al Nojoum — exists\",\"name\":\"321 Sports / OCR Park / Trail X / Bike Park / Bab Al Nojoum\",\"type\":\"transport\",\"status\":\"exists\",\"source\":\"https://www.constructionweekonline.com/projects-tenders/unveiled-modon-properties-master-plan-for-hudayriyat-island-megaproject\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":null,\"notes\":\"321 Sports / OCR Park / Trail X / Bike Park / Bab Al Nojoum — exists (n/a; constructionweekonline.com pub 2023, T2)\"},{\"description\":\"Wadeem community hub private school + mosque + central park — announced\",\"name\":\"Wadeem community hub private school + mosque + central park\",\"type\":\"education\",\"status\":\"announced\",\"source\":\"https://www.wam.ae/en/article/bzkav5l-hudayriyat-island-model-integrated-urban\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":null,\"notes\":\"Wadeem community hub private school + mosque + central park — announced (not published; wam.ae pub 2026-04-05, T2)\"},{\"description\":\"Nawayef Village schools / medical facilities / retail avenue (walking distance) — announced\",\"name\":\"Nawayef Village schools / medical facilities / retail avenue (walking distance)\",\"type\":\"education\",\"status\":\"announced\",\"source\":\"https://www.modon.com/real-estate/al-naseem-community\",\"verifiedOn\":\"2026-10-06\",\"approved\":true,\"confidence\":\"High\",\"expectedCompletion\":null,\"notes\":\"Nawayef Village schools / medical facilities / retail avenue (walking distance) — announced (not published; modon.com pub n/d, T1)\"},{\"description\":\"Hudayriyat Golf Estates 18-hole golf course + country clubhouse + private school — under construction\",\"name\":\"Hudayriyat Golf Estates 18-hole golf course + country clubhouse + private school\",\"type\":\"education\",\"status\":\"under construction\",\"source\":\"https://www.modon.com/real-estate/al-naseem-community\",\"verifiedOn\":\"2026-10-06\",\"approved\":true,\"confidence\":\"High\",\"expectedCompletion\":null,\"notes\":\"Hudayriyat Golf Estates 18-hole golf course + country clubhouse + private school — under construction (Golf Estates handover Aug 2030; modon.com pub n/d, T1)\"},{\"description\":\"Hudayriyat Bridge / road connection to Abu Dhabi — exists\",\"name\":\"Hudayriyat Bridge / road connection to Abu Dhabi\",\"type\":\"transport\",\"status\":\"exists\",\"source\":\"https://www.wam.ae/en/article/bzkav5l-hudayriyat-island-model-integrated-urban\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":null,\"notes\":\"Hudayriyat Bridge / road connection to Abu Dhabi — exists (n/a; wam.ae pub 2026-04-05, T2)\"},{\"description\":\"Etihad Rail conventional passenger service Abu Dhabi–Dubai (MBZ City Station) — exists\",\"name\":\"Etihad Rail conventional passenger service Abu Dhabi–Dubai (MBZ City Station)\",\"type\":\"transport\",\"status\":\"exists\",\"source\":\"https://www.thenationalnews.com/lifestyle/things-to-do/2024/08/12/surf-abu-dhabi-opening-date/\",\"verifiedOn\":\"2026-10-06\",\"approved\":false,\"confidence\":\"Medium\",\"expectedCompletion\":\"launched (by Sep 2026)\",\"notes\":\"Etihad Rail conventional passenger service Abu Dhabi–Dubai (MBZ City Station) — exists (launched (by Sep 2026); thenationalnews.com pub 2026-09-29, T2)\"}]",
+          "Approval": "Needs review",
+          "Checked on": "2026-10-06",
+          "Masterplan": "Master developer: Modon (Modon Holding PSC / Modon Properties) revealed and develops the Hudayriyat Island masterplan. [T1 mediaoffice.abudhabi, pub 2023 (masterplan reveal; exact date not captured); High]\nDestination components: - Surf Abu Dhabi\n- Velodrome Abu Dhabi (announced)\n- Marsana\n- largest urban park in emirate (2.25m sqm, announced)\n- 220 km cycle tracks\n- Nawayef hills (45–60 m man-made hills)\n- 18-hole golf course (Golf Estates)",
+          "Name": "Hudayriyat Island"
+        }
+      }
+    ],
+    "Payment Schedules (research)": [
+      {
+        "id": "recTFDnHntZxaAkdJ",
+        "fields": {
+          "Home type": "Apartment",
+          "Plan ID": "MODON-PARK-PUBLIC",
+          "Notes": "Research mirror of Google Sheet Milestones. Draft and bot-disabled. Aggregate plan ratios do not authorize invented dated instalments.",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Fees": "[]",
+          "Checked on": "2026-10-06",
+          "Approval": "Draft",
+          "Milestones": "[{\"id\":\"MODON-PARK-PUBLIC-1\",\"sequence\":1,\"kind\":\"booking\",\"percent\":10,\"whenDue\":\"On booking\",\"dueOn\":null,\"contractualTrigger\":null,\"detailVerified\":true,\"note\":\"Included once in the purchase price.\"},{\"id\":\"MODON-PARK-PUBLIC-2\",\"sequence\":2,\"kind\":\"construction\",\"percent\":50,\"whenDue\":\"During construction — dates and individual amounts missing\",\"dueOn\":null,\"contractualTrigger\":null,\"detailVerified\":false,\"note\":\"Aggregate only; replace with actual dated instalments before approval.\"},{\"id\":\"MODON-PARK-PUBLIC-3\",\"sequence\":3,\"kind\":\"handover\",\"percent\":40,\"whenDue\":\"Upon handover\",\"dueOn\":null,\"contractualTrigger\":null,\"detailVerified\":true,\"note\":\"Confirm current contractual terms.\"}]",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Phase / release": "Public 1BR starting offer; phase unconfirmed",
+          "Offer ID": "OFFER-004",
+          "Completeness": "Summary only"
+        }
+      }
+    ],
+    "Project Relationships (research)": [
+      {
+        "id": "rec3Bqp2e2TTKVsUh",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD012-SAME_AREA",
+          "Relationship type": "SAME_AREA",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Area-constrained buyers",
+          "Project B": [
+            "recV8Af6bt2d31jip"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "apartment",
+          "Project B Sheet ID": "AD-012",
+          "Source / evidence": "https://www.modon.com/real-estate/bashayer\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Both projects are catalogued in Hudayriyat Island."
+        }
+      },
+      {
+        "id": "rec51TRD7IKpPXOcd",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD011-SIMILAR_PRODUCT",
+          "Relationship type": "SIMILAR_PRODUCT",
+          "Distance / location context": "Hudayriyat Island ↔ Al Reem Island",
+          "Comparable buyer": "Investors open to another Abu Dhabi area",
+          "Project B": [
+            "rec1ZBwrnPPihFmmX"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Apartment",
+          "Project B Sheet ID": "AD-011",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-parkviews\nhttps://www.modon.com/real-estate/muheira",
+          "Reason": "Nawayef Park Views and Muheira both publish apartment product; use bedroom-specific price observations before comparing value."
+        }
+      },
+      {
+        "id": "rec63OCsMEpALsh9z",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD012-OFF_PLAN_ALTERNATIVE",
+          "Relationship type": "OFF_PLAN_ALTERNATIVE",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Same-area off-plan comparison",
+          "Project B": [
+            "recV8Af6bt2d31jip"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "apartment",
+          "Project B Sheet ID": "AD-012",
+          "Source / evidence": "https://www.modon.com/real-estate/bashayer\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Both are active off-plan projects in Hudayriyat Island with overlapping published property types."
+        }
+      },
+      {
+        "id": "recB2KbDtEPZrXCSK",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD003-AD004-SAME_AREA",
+          "Relationship type": "SAME_AREA",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Area-constrained buyers",
+          "Project B": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A": [
+            "recQStpVi23iJi1e2"
+          ],
+          "Project A Sheet ID": "AD-003",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Different/unknown product types",
+          "Project B Sheet ID": "AD-004",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-village\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Both projects are catalogued in Hudayriyat Island."
+        }
+      },
+      {
+        "id": "recCugyx4TcGNhaWa",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD014-SAME_AREA",
+          "Relationship type": "SAME_AREA",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Area-constrained buyers",
+          "Project B": [
+            "recwUlm5ZEzaTGwvf"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Different/unknown product types",
+          "Project B Sheet ID": "AD-014",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-parkviews\nhttps://www.modon.com/real-estate/nawayef-east",
+          "Reason": "Both projects are catalogued in Hudayriyat Island."
+        }
+      },
+      {
+        "id": "recEKFf1SNEpwtBf9",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD014-SAME_MASTERPLAN",
+          "Relationship type": "SAME_MASTERPLAN",
+          "Distance / location context": "Nawayef / Hudayriyat Island",
+          "Comparable buyer": "Buyers comparing releases within the same Nawayef destination",
+          "Project B": [
+            "recwUlm5ZEzaTGwvf"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Different product segments",
+          "Project B Sheet ID": "AD-014",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-parkviews\nhttps://www.modon.com/real-estate/nawayef-east",
+          "Reason": "Nawayef Park Views is set between the Nawayef hills; Nawayef East is the east-hill residential release."
+        }
+      },
+      {
+        "id": "recEXGysayhIl30dc",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD003-AD004-SAME_MASTERPLAN",
+          "Relationship type": "SAME_MASTERPLAN",
+          "Distance / location context": "Nawayef / Hudayriyat Island",
+          "Comparable buyer": "Buyers comparing releases within the same Nawayef destination",
+          "Project B": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A": [
+            "recQStpVi23iJi1e2"
+          ],
+          "Project A Sheet ID": "AD-003",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Different product segments",
+          "Project B Sheet ID": "AD-004",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-village\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Nawayef Village and Nawayef Park Views are distinct residential releases within the Nawayef development on Hudayriyat."
+        }
+      },
+      {
+        "id": "recJvSOR1i6uqEMSJ",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD015-SAME_AREA",
+          "Relationship type": "SAME_AREA",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Area-constrained buyers",
+          "Project B": [
+            "rec4WSVLkqY9qYbJX"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Different/unknown product types",
+          "Project B Sheet ID": "AD-015",
+          "Source / evidence": "https://www.modon.com/real-estate/hudayriyat-golf-estates\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Both projects are catalogued in Hudayriyat Island."
+        }
+      },
+      {
+        "id": "recX8usySsuw5dKTp",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD013-SIMILAR_PRODUCT",
+          "Relationship type": "SIMILAR_PRODUCT",
+          "Distance / location context": "Hudayriyat Island ↔ Al Reem Island",
+          "Comparable buyer": "Investors open to another Abu Dhabi area",
+          "Project B": [
+            "recM7fisL8nvyIWrY"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Apartment",
+          "Project B Sheet ID": "AD-013",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-parkviews\nhttps://www.modon.com/real-estate/tara-park",
+          "Reason": "Nawayef Park Views and Tara Park both publish apartment product; use bedroom-specific price observations before comparing value."
+        }
+      },
+      {
+        "id": "reciOg1p9QnoHrxsN",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD005-SAME_AREA",
+          "Relationship type": "SAME_AREA",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Area-constrained buyers",
+          "Project B": [
+            "recBurbYOnLovzFGF"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "Different/unknown product types",
+          "Project B Sheet ID": "AD-005",
+          "Source / evidence": "https://www.modon.com/real-estate/al-naseem-community\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Both projects are catalogued in Hudayriyat Island."
+        }
+      },
+      {
+        "id": "recnwePSq7vd1ayRL",
+        "fields": {
+          "Confidence": "Medium",
+          "Relationship ID": "REL-AD004-AD011-SIMILAR_PRICE_BAND",
+          "Relationship type": "SIMILAR_PRICE_BAND",
+          "Distance / location context": "Hudayriyat Island ↔ Al Reem Island",
+          "Comparable buyer": "AED 1.5M–2.5M investment search",
+          "Project B": [
+            "rec1ZBwrnPPihFmmX"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "1BR apartment",
+          "Project B Sheet ID": "AD-011",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-parkviews\nhttps://www.modon.com/real-estate/muheira",
+          "Reason": "Sourced 1BR/current developer observations are in a comparable entry band (NPV AED 2,000,000; Muheira AED 1,600,000); one is a starting price and the other may be a published average, so this is a discovery relationship, not an apples-to-apples valuation."
+        }
+      },
+      {
+        "id": "recrBwHZ1TbfnrlmV",
+        "fields": {
+          "Confidence": "Medium",
+          "Relationship ID": "REL-AD004-AD012-SIMILAR_PRICE_BAND",
+          "Relationship type": "SIMILAR_PRICE_BAND",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Budget comparison",
+          "Project B": [
+            "recV8Af6bt2d31jip"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "apartment",
+          "Project B Sheet ID": "AD-012",
+          "Source / evidence": "https://www.modon.com/real-estate/bashayer\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Latest sourced developer price observations are within 30% (Bashayer: AED 2,500,000; Nawayef Park Views: AED 2,000,000); scopes must still be checked before a unit-level comparison."
+        }
+      },
+      {
+        "id": "recrUSbx22OP2T5Hm",
+        "fields": {
+          "Confidence": "High",
+          "Relationship ID": "REL-AD004-AD012-SIMILAR_PRODUCT",
+          "Relationship type": "SIMILAR_PRODUCT",
+          "Distance / location context": "Hudayriyat Island",
+          "Comparable buyer": "Buyers comparing the same broad home type",
+          "Project B": [
+            "recV8Af6bt2d31jip"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "apartment",
+          "Project B Sheet ID": "AD-012",
+          "Source / evidence": "https://www.modon.com/real-estate/bashayer\nhttps://www.modon.com/real-estate/nawayef-parkviews",
+          "Reason": "Both have overlapping published property types: apartment."
+        }
+      },
+      {
+        "id": "recwj48UoOPDXGkGF",
+        "fields": {
+          "Confidence": "Medium",
+          "Relationship ID": "REL-AD004-AD013-SIMILAR_PRICE_BAND",
+          "Relationship type": "SIMILAR_PRICE_BAND",
+          "Distance / location context": "Hudayriyat Island ↔ Al Reem Island",
+          "Comparable buyer": "AED 1.5M–2.5M investment search",
+          "Project B": [
+            "recM7fisL8nvyIWrY"
+          ],
+          "Project A": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Project A Sheet ID": "AD-004",
+          "Checked on": "2026-10-06",
+          "Comparable product": "1BR apartment",
+          "Project B Sheet ID": "AD-013",
+          "Source / evidence": "https://www.modon.com/real-estate/nawayef-parkviews\nhttps://www.modon.com/real-estate/tara-park",
+          "Reason": "Sourced 1BR/current developer observations are in a comparable entry band (NPV AED 2,000,000; Tara Park AED 1,680,000); one is a starting price and the other may be a published average, so this is a discovery relationship, not an apples-to-apples valuation."
+        }
+      }
+    ],
+    "Investment Evidence (research)": [
+      {
+        "id": "rec1WrsssL0fjWYSL",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0036",
+          "Confidence": "Medium",
+          "Evidence class": "FACT",
+          "Readiness impact": "Improves liquidity evidence",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "LIQUIDITY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Transaction count is activity evidence, not proof of easy resale or future demand.",
+          "Source type": "Registered transaction evidence",
+          "Evidence fact": "ADREC-backed scope records 11 transactions over the stated trailing-12-month window, latest 2026-04-01.",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Related record ID": "MS-20261006-AD-004-DEV-APT1BR-PRI-OP-D",
+          "Orientation": "Neutral",
+          "Scope": "Nawayef Park Views | Apartment | 1BR | Primary off-plan | Developer starting price (Modon page)",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "rec3GxHiTGXvLsFrA",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0069",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Supports aggregate cash deployment; not 30d/6m/12m timing",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "PAYMENT",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Individual construction instalment dates are not published on the current public page.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Current public terms are 10% on booking, 50% during construction and 40% at handover; Q1 2028 handover.",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Related record ID": "MODON-PARK-PUBLIC",
+          "Orientation": "Neutral",
+          "Scope": "Project-level public plan; 1BR current price separately scoped",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recAizLTGuPTr2ya2",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0071",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Useful same-area apartment cross-sell",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "COMPARABLE",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Bashayer is a later waterfront product with different positioning; average price is not directly comparable to NPV starting price.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Bashayer publishes 1BR apartments at AED 2.5M average, 50/50, with apartment handover Q2 2030.",
+          "Source URL": "https://www.modon.com/real-estate/bashayer",
+          "Orientation": "Neutral",
+          "Scope": "Hudayriyat 1BR apartment alternative",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recCYIRRfssiwnD1p",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0067",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Strong current entry evidence",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "ENTRY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "A starting price is not an average, exact unit price, or resale value.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Current Modon page states a one-bedroom apartment starts at AED 2M.",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Related record ID": "PO-00018",
+          "Orientation": "Neutral",
+          "Scope": "1BR apartment starting price",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recDOSSLjHuPTdGDm",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0075",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Strong area/masterplan evidence",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "AREA_CATALYST",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Catalyst fact only; no appreciation implication is stored.",
+          "Source type": "Tier 1 government",
+          "Evidence fact": "Hudayriyat masterplan spans more than 51m sqm, with 53.5 km of coastline including 16 km of beaches and a planned 220 km cycling network.",
+          "Published date": "2023",
+          "Source URL": "https://www.mediaoffice.abudhabi/en/infrastructure/in-line-with-the-directives-of-sheikh-mohamed-bin-zayed-modon-properties-reveals-hudayriyat-island-masterplan-spanning-51-million-square-meters-equivalent-to-538-of-abu-dhabi-island/",
+          "Related record ID": "AREA-HUD",
+          "Orientation": "Bull fact",
+          "Scope": "Hudayriyat masterplan",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recNuAdaLkhFkPAit",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0066",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Closes launch timing; preserves price-scope uncertainty",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "ENTRY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Do not treat the launch AED2M as a verified 1BR launch price.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Modon launched Nawayef Park Views on 10 Dec 2024; launch release states sales opened with project prices starting from AED 2M.",
+          "Published date": "10 Dec 2024",
+          "Source URL": "https://www.modon.com/about-modon/media-centre/details/2024/12/10/modon-launches-nawayef-park-views--the-first-apartments-release-on-hudayriyat-island",
+          "Orientation": "Bull fact",
+          "Scope": "Project starting price; 1–4BR apartments; bedroom not tied to AED2M in launch release",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recYDuxQm8iP6fKVc",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0074",
+          "Confidence": "Medium",
+          "Evidence class": "FACT",
+          "Readiness impact": "Supports handover-competition discussion",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "SURROUNDING_DEVELOPMENT",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Project-specific pages override conflicting summary dates where available; not a complete census of future supply.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Same-island scheduled handovers in the current researched set include Al Naseem first phase Q4 2027, Nawayef East Dec 2028, Nawayef Village from Q1 2029, Bashayer villas Q1 2030/apartments Q2 2030 and Hudayriyat Golf Estates Q3 2030.",
+          "Source URL": "https://www.modon.com/real-estate/hudayriyat-island",
+          "Related record ID": "AREA-HUD",
+          "Orientation": "Risk fact",
+          "Scope": "Hudayriyat surrounding researched projects",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recaPSFYPVSmzbm95",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0072",
+          "Confidence": "Medium",
+          "Evidence class": "CALCULATION",
+          "Readiness impact": "Supports activity/liquidity discussion",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "RESALE_LIQUIDITY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Counts are registration activity; exact-duplicate feed rows were excluded in the research process. Do not call this 'easy to resell'.",
+          "Source type": "Tier 1 regulator",
+          "Evidence fact": "ADREC Price History contains 11 primary off-plan 1BR registrations in the trailing 12 months to 30 Sep 2026; 2BR quarterly primary samples total 35 over the same window.",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Related record ID": "MS-20261006-AD-004-DEV-APT1BR-PRI-OP-D",
+          "Orientation": "Bull fact",
+          "Scope": "NPV primary off-plan apartments by bedroom",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recgQfEkPXCoIZYEo",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0070",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Strong area supply context",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "SUPPLY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Area-level supply, not all direct NPV competitors.",
+          "Source type": "Tier 1 regulator",
+          "Evidence fact": "ADREC H1 2026 research in the area layer records 3,477 projected Hudayriyat units for H1 2026–2030: 866 apartments and 2,611 villas/townhouses.",
+          "Published date": "18 Aug 2026",
+          "Source URL": "https://adrec.gov.ae/-/media/adrec/market-reports/marketreportslatest/adrec-h1-2026-spread-3.pdf",
+          "Related record ID": "AREA-HUD",
+          "Orientation": "Risk fact",
+          "Scope": "Hudayriyat Island projected incremental supply",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "reckfFR7igSlTPlwk",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0065",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Supports payment-fit only; dated cash windows may remain unknown",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "PAYMENT",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Do not infer dated instalments beyond the published summary.",
+          "Source type": "Official/developer or existing production source",
+          "Evidence fact": "60/40 plan: 10% down payment on booking, 50% in instalments during construction, 40% on handover (Modon official page, checked 2026-10-06; individual instalment dates not published).",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Orientation": "Neutral",
+          "Scope": "Project-level public payment summary",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "rectKywqWwGe5pyIZ",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0068",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Supports release-stage narrative without forecasting",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "PROJECT_STAGE",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Nawayef Park Views was the first freehold apartment development launched on Hudayriyat Island.",
+          "Published date": "10 Dec 2024",
+          "Source URL": "https://www.modon.com/about-modon/media-centre/details/2024/12/10/modon-launches-nawayef-park-views--the-first-apartments-release-on-hudayriyat-island",
+          "Orientation": "Bull fact",
+          "Scope": "Project launch positioning",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recuEPNR7cJ2yO7J3",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0076",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Supports risk disclosure",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "RISK",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Fact-based maturity risk; not a prediction of delay or underperformance.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "Nawayef Park Views has no delivered residential operating history yet; the project is scheduled for Q1 2028 and Hudayriyat's first researched residential handovers are still ahead.",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Orientation": "Risk fact",
+          "Scope": "Project/area maturity",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recvvySpBCDJcw9bs",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0077",
+          "Confidence": "High",
+          "Evidence class": "CALCULATION",
+          "Readiness impact": "Supports handover-exit cash exposure",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "EXIT",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Assignment/resale rules and transaction costs are not established here; this is cash exposure only.",
+          "Source type": "Tier 1 developer",
+          "Evidence fact": "At handover, a buyer using the current public plan would have paid 60% of purchase price before/through construction and faces 40% due at handover.",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Related record ID": "MODON-PARK-PUBLIC",
+          "Orientation": "Risk fact",
+          "Scope": "60/40 plan from current public terms",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "recxFqOpMfulq11UT",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0073",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Important resale-liquidity caveat",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "RESALE_LIQUIDITY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Sparse public sample; does not prove absence of other transfers.",
+          "Source type": "Tier 1 regulator",
+          "Evidence fact": "Observed secondary off-plan NPV samples are thin: 2BR has n=2 in 2026-Q2; 3BR secondary observations are n=1 in sampled 2025 quarters.",
+          "Source URL": "https://adrec.gov.ae/en/property_and_index/adrec-dashboards",
+          "Orientation": "Risk fact",
+          "Scope": "Secondary/off-plan resale registration samples",
+          "Checked date": "2026-10-06"
+        }
+      },
+      {
+        "id": "reczi19PVOyOO7nBi",
+        "fields": {
+          "Evidence ID": "EVID-AD004-0013",
+          "Confidence": "High",
+          "Evidence class": "FACT",
+          "Readiness impact": "Improves entry/comparison evidence",
+          "Project Sheet ID": "AD-004",
+          "Dimension": "ENTRY",
+          "Project": [
+            "rechIsmpeP1yUp3ht"
+          ],
+          "Caveat": "Developer pricing is not a transaction and may be a from/average price.",
+          "Source type": "Developer/current source",
+          "Evidence fact": "Latest sourced developer observation: AED 2,000,000 (starting price) for 1BR Apartment.",
+          "Source URL": "https://www.modon.com/real-estate/nawayef-parkviews",
+          "Related record ID": "PO-00018",
+          "Orientation": "Neutral",
+          "Scope": "1BR Apartment; starting price",
+          "Checked date": "2026-10-06"
+        }
+      }
+    ]
+  },
+  "capturePurpose": "Public Airtable serving snapshot for offline adapter and Nawayef regression acceptance; not production inventory."
+}

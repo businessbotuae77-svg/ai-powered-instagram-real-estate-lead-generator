@@ -1,4 +1,5 @@
 import { normalizeArea, normalizePropertyType, sameText } from "../matching/normalize.js";
+import { comparisonEvidence, sourcedCandidatePrice, thesisComparisonDimensions } from "./comparison-evidence.js";
 
 export const UNKNOWN = "UNKNOWN";
 const numeric = value => typeof value === "number" && Number.isFinite(value);
@@ -29,7 +30,11 @@ function trace(candidate, key) {
     source: source || UNKNOWN,
     recordId: fact?.recordId ?? fact?.sourceRecordId ?? provenance.recordId ?? provenance.sourceRecordId ?? (commercial ? candidate?.unit?.offerId : null) ?? candidate?.unit?.id ?? candidate?.project?.id ?? pack.unitId ?? pack.projectId ?? UNKNOWN,
     scope: fact?.scope ?? provenance.scope ?? (key === "startingPriceAed" ? "unit_type_starting_price" : key === "downPaymentAed" ? "initial_payment" : "catalogue_field"),
-    verificationDate: verificationDate || UNKNOWN
+    verificationDate: verificationDate || UNKNOWN,
+    sourceRecordId: fact?.sourceRecordId ?? fact?.recordId ?? provenance.sourceRecordId ?? provenance.recordId ?? candidate?.unit?.id ?? candidate?.project?.id ?? pack.unitId ?? pack.projectId ?? UNKNOWN,
+    verifiedOn: verificationDate || UNKNOWN,
+    confidence: fact?.confidence ?? provenance.confidence ?? "UNKNOWN",
+    evidenceClass: fact?.evidenceClass ?? provenance.evidenceClass ?? "FACT"
   };
 }
 
@@ -53,7 +58,11 @@ function scheduleDimension(a, b, key, name) {
     evidence: [...left.evidence, ...right.evidence], amountBasis: left.amountBasis };
 }
 
-function supported(candidate, key) {
+function supported(candidate, key, options = {}) {
+  if (key === "startingPriceAed") {
+    const price = sourcedCandidatePrice(candidate, options);
+    return price ? { value: price.value, evidence: { ...trace(candidate, key), ...price.evidence } } : null;
+  }
   const raw = confirmed(candidate?.factPack, key);
   if (raw === null || raw === undefined || raw === "") return null;
   const evidence = trace(candidate, key);
@@ -62,14 +71,15 @@ function supported(candidate, key) {
   return { value: raw, evidence };
 }
 
-function dimension(a, b, key, name = key) {
-  const left = supported(a, key);
-  const right = supported(b, key);
+function dimension(a, b, key, name = key, options = {}) {
+  const left = supported(a, key, options);
+  const right = supported(b, key, options);
   if (!left || !right) return null;
   return {
     dimension: name, field: key, a: left.value, b: right.value,
     delta: numeric(left.value) && numeric(right.value) ? right.value - left.value : null,
-    evidence: [left.evidence, right.evidence]
+    evidence: [left.evidence, right.evidence],
+    evidenceClass: numeric(left.value) && numeric(right.value) ? "CALCULATION" : "FACT"
   };
 }
 
@@ -121,7 +131,7 @@ function advantage(code, difference, preferred, buyerRelevant = true) {
 
 function failures(candidate, buyer, options) {
   const result = [];
-  const price = supported(candidate, "startingPriceAed")?.value;
+  const price = supported(candidate, "startingPriceAed", options)?.value;
   const cash = supported(candidate, "downPaymentAed")?.value;
   const area = supported(candidate, "area")?.value;
   const type = supported(candidate, "propertyType")?.value;
@@ -164,11 +174,11 @@ export function compareProperties(propertyA, propertyB, buyer = {}, options = {}
   const context = buyerContext(buyer);
   const aAdvantages = [], bAdvantages = [], differences = [], unknowns = [];
   const add = (code, diff, side, relevant = true) => (side === "a" ? aAdvantages : bAdvantages).push(advantage(code, diff, side, relevant));
-  const fields = [["startingPriceAed", "price"], ["downPaymentAed", "initial_cash"], ["bedrooms", "bedrooms"], ["handover", "handover"], ["area", "area"], ["propertyType", "property_type"], ["status", "status"], ["paymentPlanSummary", "payment_plan"]];
+  const fields = [["startingPriceAed", "price"], ["downPaymentAed", "initial_cash"], ["bedrooms", "bedrooms"], ["handover", "handover"], ["area", "area"], ["propertyType", "property_type"], ["status", "status"], ["developer", "developer"], ["paymentPlanSummary", "payment_plan"]];
   for (const [key, name] of fields) {
-    const diff = dimension(propertyA, propertyB, key, name);
+    const diff = dimension(propertyA, propertyB, key, name, options);
     if (diff) differences.push(diff);
-    else unknowns.push({ dimension: name, a: supported(propertyA, key)?.value ?? UNKNOWN, b: supported(propertyB, key)?.value ?? UNKNOWN });
+    else unknowns.push({ dimension: name, a: supported(propertyA, key, options)?.value ?? UNKNOWN, b: supported(propertyB, key, options)?.value ?? UNKNOWN });
   }
   const price = differences.find(row => row.dimension === "price");
   if (price && positive(price.a) && positive(price.b) && price.delta !== 0) add("lower_starting_price", price, price.delta > 0 ? "a" : "b");
@@ -204,6 +214,13 @@ export function compareProperties(propertyA, propertyB, buyer = {}, options = {}
   if (context.readyIncome && status && !sameText(status.a, status.b)) {
     if (sameText(status.a, "Ready") && rangeA?.end === 0) add("ready_income_route", status, "a");
     if (sameText(status.b, "Ready") && rangeB?.end === 0) add("ready_income_route", status, "b");
+  }
+  const transactionDepth = compareTransactionDepth(propertyA, propertyB, options);
+  if (transactionDepth) {
+    differences.push(transactionDepth);
+    if (transactionDepth.delta && (buyer.useType === "investment" || context.priorities.has("transaction_depth"))) {
+      add("better_documented_transaction_depth", transactionDepth, transactionDepth.delta > 0 ? "b" : "a");
+    }
   }
   const tradeoffs = [];
   if (price?.delta) tradeoffs.push({ ...price, code: "higher_starting_price", borneBy: price.delta > 0 ? "b" : "a", extraCostAed: Math.abs(price.delta) });
@@ -266,8 +283,41 @@ export function compareProperties(propertyA, propertyB, buyer = {}, options = {}
   return {
     propertyA: identity(propertyA), propertyB: identity(propertyB), differences, aAdvantages, bAdvantages, tradeoffs,
     hardConstraintFailures, unknowns, upgradeAssessment,
+    researchDimensions: thesisComparisonDimensions(propertyA, propertyB, options),
     buyerPreference: preferred ? { ...identity(preferred === "a" ? propertyA : propertyB), reasonCodes, opinion: upgradeAssessment?.worthPaying === false ? "prefer_lower_cost_option" : "prefer_for_stated_priorities" } : null,
     evidenceStrength: differences.length >= 6 ? "medium" : "low",
     unsupportedClaims: ["future_appreciation", "forecast_return", "resale_demand", "liquidity", "rental_yield"].map(dimension => ({ dimension, value: UNKNOWN }))
   };
+}
+
+/** Executed transaction depth is a factual difference, never an ease-of-resale claim. */
+export function compareTransactionDepth(a, b, { now = Date.now() } = {}) {
+  const samples = candidate => {
+    const thesis = candidate?.investmentThesis;
+    const projectId = identity(candidate).projectId;
+    if (!thesis || (thesis.projectId && thesis.projectId !== projectId)) return [];
+    const evidence = (thesis.liquidityCase?.evidence || []).map(row => comparisonEvidence(row, { now, projectId })).filter(Boolean);
+    return (thesis.liquidityCase?.transactionSamples || []).map(row => ({ ...row,
+      scope: { ...(typeof row.scope === "object" ? row.scope : {}),
+        area: row.area || row.scope?.area, propertyType: row.propertyType || row.scope?.propertyType,
+        bedrooms: row.bedrooms ?? row.scope?.bedrooms, saleType: row.saleType || row.scope?.saleType,
+        metric: row.metric || row.scope?.metric, reportingPeriod: row.reportingPeriod || row.scope?.reportingPeriod }
+    })).filter(row => {
+      const scope = row.scope;
+      return numeric(row.transactions12m) && row.transactions12m >= 5 && scope && typeof scope === "object" &&
+        scope.area && scope.propertyType && numeric(scope.bedrooms) && /secondary|resale/i.test(scope.saleType || "") && scope.metric &&
+        Number.isFinite(Date.parse(row.latestTransactionDate || "")) && Date.parse(row.latestTransactionDate) <= now &&
+        evidence.some(source => source.sourceRecordId === row.sourceRecordId);
+    }).map(row => ({ ...row, evidence: evidence.filter(source => source.sourceRecordId === row.sourceRecordId) }));
+  };
+  for (const left of samples(a)) {
+    const right = samples(b).find(row => ["area", "propertyType", "bedrooms", "saleType", "metric"].every(key => sameText(row.scope[key], left.scope[key])) &&
+      sameText(row.reportingPeriod || row.scope.reportingPeriod || "12M", left.reportingPeriod || left.scope.reportingPeriod || "12M") &&
+      Math.abs(Date.parse(row.latestTransactionDate) - Date.parse(left.latestTransactionDate)) <= 90 * 86400000);
+    if (!right) continue;
+    return { dimension: "documented_transaction_depth", field: "transactions12m", a: left.transactions12m, b: right.transactions12m,
+      delta: right.transactions12m - left.transactions12m, evidence: [...left.evidence, ...right.evidence],
+      basis: "same_area_product_sale_type_metric_period_executed_activity_not_resale_ease" };
+  }
+  return null;
 }

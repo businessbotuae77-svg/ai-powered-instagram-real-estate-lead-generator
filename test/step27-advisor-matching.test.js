@@ -125,7 +125,9 @@ test("at most one reasoned challenger and claim traces remain sourced to record 
 });
 
 test("handover strategy compares documented transaction depth without claiming future liquidity", () => {
-  const marketSnapshots = [5, 25].map((transactions12m, index) => ({ id: `market_${index}`, sourceRecordId: `market_${index}`, projectId: index ? "b" : "a", usable: true, source: "Synthetic executed transaction records", verifiedOn: checked, latestTransactionDate: "2026-10-01", confidence: "high", scope: "one_bedroom_apartment_12_month_transactions", transactions12m }));
+  const marketSnapshots = [5, 25].map((transactions12m, index) => ({ id: `market_${index}`, sourceRecordId: `market_${index}`, projectId: index ? "b" : "a", usable: true, source: "Synthetic executed secondary transaction records", verifiedOn: checked, latestTransactionDate: "2026-10-01", confidence: "high",
+    area: "Yas Island", propertyType: "Apartment", bedrooms: 1, saleType: "Secondary", metric: "registered_transaction_count_12m", reportingPeriod: "12M",
+    scope: { projectId: index ? "b" : "a", area: "Yas Island", propertyType: "Apartment", bedrooms: 1, saleType: "Secondary", metric: "registered_transaction_count_12m" }, transactions12m }));
   const data = catalog([{ id: "a", price: 1_850_000 }, { id: "b", price: 1_900_000 }], { marketSnapshots });
   const result = buildAdvisorOpportunities(data, buyer({ exitHorizon: "handover", handoverStrategy: "sell" }), options);
   assert.equal(result.primary.projectId, "b");
