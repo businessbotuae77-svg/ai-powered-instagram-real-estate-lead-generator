@@ -1,5 +1,13 @@
 # Conversation engine handover
 
+The current-main off-plan advisor upgrade is documented in
+[`OFF-PLAN-ADVISOR.md`](OFF-PLAN-ADVISOR.md), with its optional research/offer
+contract in [`OFF-PLAN-DATA-CONTRACT.md`](OFF-PLAN-DATA-CONTRACT.md). It preserves
+the permission and durable integration architecture below while changing ROI
+guidance to umbrella return intent and exit-horizon strategy. The upgrade report
+contains the final review-branch validation, live-data limitations and release
+plan; earlier baseline descriptions here remain historical context.
+
 ## Governing specification and baseline
 
 The 2 October 2026 [Milestone 3/4 specification](https://docs.google.com/document/d/1u9VLg6DFU0ofDrS8tW5tizsrykP-I0LroPeFsUVWT8Q/edit)

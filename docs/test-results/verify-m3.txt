@@ -1,0 +1,13 @@
+
+> abu-dhabi-property-leads@1.3.0 verify:m3
+> node --test test/step19-milestone3-integrations.test.js
+
+✔ test/step19-milestone3-integrations.test.js (1161.309306ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1189.937646

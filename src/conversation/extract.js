@@ -64,13 +64,13 @@ const PROJECT_HINTS = {
  * Pull structured buyer facts from a free-text or quick-reply message.
  * Matching still happens in code; this only fills the buyer card.
  */
-export function extractFactsFromMessage(message) {
+export function extractFactsFromMessage(message, { buyer = null, lastAskedField = null } = {}) {
   const text = normalizeBuyerText(message).trim();
   let facts = {};
   const signals = [];
   if (!text) return { facts, signals, intents: ["empty"] };
 
-  const intents = detectIntents(text);
+  const intents = detectIntents(text, { lastAskedField });
   if (/سعر|تكلفة|تسليم|متاح|متوفر|خطة السداد|خطة سداد/.test(text)) intents.push("ask_facts");
 
   const project = extractProject(text);
@@ -139,8 +139,12 @@ export function extractFactsFromMessage(message) {
   if (intents.includes("callback")) signals.push("callback_request");
   if (intents.includes("agent")) signals.push("agent_request");
 
-  facts = { ...facts, ...parseAdvisoryFacts(text) };
-  if (facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined) intents.push("advisory");
+  facts = { ...facts, ...parseAdvisoryFacts(text, { buyer, lastAskedField }) };
+  if (facts.removedAreas?.length) {
+    if (facts.removedAreas.includes(facts.area)) delete facts.area;
+    intents.push("correction");
+  }
+  if (facts.investmentGoal || facts.investmentStrategy || facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined) intents.push("advisory");
   const refined = refineTurnIntent({ intents, signals, facts, message: text });
   return {
     facts: refined.facts,
@@ -149,7 +153,7 @@ export function extractFactsFromMessage(message) {
   };
 }
 
-export function detectIntents(message) {
+export function detectIntents(message, { lastAskedField = null } = {}) {
   const text = String(message || "").toLowerCase();
   const intents = [];
 
@@ -177,8 +181,10 @@ export function detectIntents(message) {
     intents.push("search");
   }
   const viewingMention = /\b(viewing|visit|tour|see it|site visit)\b/i.test(text);
+  const investmentHolding = /\bhold(?:ing)?\b.{0,40}\b(?:\d+(?:\.\d+)?\s*years?|long(?:er|[- ]term)?|after (?:handover|completion))\b|\blong[- ]term\s+hold\b/i.test(text)
+    || (["exitHorizon", "handoverStrategy"].includes(lastAskedField) && /^(?:hold(?:ing)?(?: it)?)[.!?]*$/i.test(text.trim()));
   const reserveMention =
-    /\b(reserve|hold|secure)\b/i.test(text) ||
+    /\b(reserve|secure)\b/i.test(text) || (/\bhold\b/i.test(text) && !investmentHolding) ||
     (/\b(book|booking)\b/i.test(text) && !viewingMention);
   if (reserveMention) {
     intents.push("reserve");

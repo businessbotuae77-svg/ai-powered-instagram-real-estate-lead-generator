@@ -5,8 +5,10 @@ import {
   normalizePropertyType,
   sameText
 } from "./normalize.js";
+import { buildFactPack } from "../facts/retrieval.js";
 
 function downPayment(project, unit) {
+  if (unit.commercialOffer) return unit.initialPaymentAed ?? null;
   if (unit.initialPaymentAed !== null && unit.initialPaymentAed !== undefined) {
     return unit.initialPaymentAed;
   }
@@ -27,6 +29,7 @@ function reject(unit, project, reason) {
 }
 
 export function matchCriteria(project, unit, criteria = {}) {
+  if (unit.commercialOffer && unit.commercialGate?.ok !== true) return reject(unit, project, "commercial_offer_unusable");
   if (!project.active) return reject(unit, project, "project_inactive");
   if (!project.developerActive) return reject(unit, project, "developer_inactive");
   if (!unit.active) return reject(unit, project, "unit_inactive");
@@ -81,7 +84,8 @@ export function matchCriteria(project, unit, criteria = {}) {
   }
 
   if (criteria.paymentPlanRequired) {
-    if (!project.paymentPlanAvailable) return reject(unit, project, "payment_plan");
+    const available = unit.commercialOffer ? buildFactPack({ project, unit, downPaymentAed: downPayment(project, unit) }).paymentPlanAvailable.value : project.paymentPlanAvailable;
+    if (!available) return reject(unit, project, "payment_plan");
   }
 
   if (criteria.status && !sameText(project.status, criteria.status)) {

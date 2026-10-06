@@ -206,7 +206,7 @@ test("Arabic advice keeps two displayed choices and discloses the exact upgrade 
 test("a buyer asking for time clears the pending sales action and keeps later acknowledgments quiet", async () => {
   const { engine } = await fixture();
   const first = await engine.handleMessage("pause", "2M Yas 1 bedroom apartment", offline);
-  assert.ok(first.pendingOffer);
+  assert.ok(first.nextQuestion);
   for (const message of ["I need some time to think about it", "thanks", "okay"]) {
     const result = await engine.handleMessage("pause", message, offline);
     assert.equal(result.nextQuestion, null);

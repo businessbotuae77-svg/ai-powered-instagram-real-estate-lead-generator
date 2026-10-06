@@ -14,7 +14,7 @@ const DEFAULT_MODEL = "claude-sonnet-5";
 const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "You extract structured buyer requirements from Abu Dhabi off-plan property chat.",
   "Return ONLY valid JSON with this shape:",
-  '{"facts":{"budget":number|null,"cash":number|null,"area":string|null,"areas":string[]|null,"bedrooms":number|number[]|null,"propertyType":string|null,"developer":string|null,"project":string|null,"financing":"cash"|"mortgage"|"payment_plan"|null,"useType":"investment"|"end_use"|null,"investmentObjective":"rental_income"|"growth"|"balanced"|null,"holdingPeriod":number|null,"explorationState":boolean|null,"areaFlexibility":"open"|"preferred"|"fixed"|null,"propertyTypeFlexibility":boolean|null,"priorities":string[],"objections":[{"category":string}],"contactDeclined":boolean|null,"openToOtherAreas":boolean|null},"unsure":string[],"intents":string[],"signals":string[],"ack":string|null}',
+  '{"facts":{"budget":number|null,"cash":number|null,"area":string|null,"areas":string[]|null,"bedrooms":number|number[]|null,"propertyType":string|null,"developer":string|null,"project":string|null,"financing":"cash"|"mortgage"|"payment_plan"|null,"useType":"investment"|"end_use"|null,"investmentObjective":"rental_income"|"growth"|"balanced"|null,"investmentGoal":"total_return"|"capital_appreciation"|"income"|"balanced"|null,"investmentStrategy":"OFF_PLAN_APPRECIATION"|"HANDOVER_EXIT"|"LONG_TERM_HOLD"|"INCOME_AFTER_HANDOVER"|"READY_INCOME"|"BALANCED"|"UNDECIDED"|null,"exitHorizon":"before_handover"|"handover"|"long_term"|null,"holdingPeriod":number|null,"incomeRequirement":"immediate"|"after_handover"|"none"|"flexible"|null,"growthPriority":"high"|"medium"|"low"|null,"liquidityPriority":"high"|"medium"|"low"|null,"riskTolerance":"low"|"medium"|"high"|null,"cashDeploymentPreference":"lower_initial"|"lower_construction"|"minimize_total_price"|"balanced"|null,"handoverStrategy":"sell"|"hold"|"rent"|null,"explorationState":boolean|null,"areaFlexibility":"open"|"preferred"|"fixed"|null,"propertyTypeFlexibility":boolean|null,"priorities":string[],"objections":[{"category":string}],"contactDeclined":boolean|null,"openToOtherAreas":boolean|null},"unsure":string[],"intents":string[],"signals":string[],"ack":string|null}',
   "Rules:",
   "- Convert money to AED numbers. around/about/roughly 2M → 2000000. 300k → 300000. no more than 150k down → cash 150000.",
   "- bedrooms studio → 0. Corrections like actually make that 2 bedrooms replace bedrooms.",
@@ -23,7 +23,9 @@ const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "- Canonicalize Masdar as Masdar City. If buyer says what about Masdar, forget Yas, or switch to Reem, set area to the newly requested area only.",
   "- If buyer says not sure / unsure / idk / I don't know about a field, put that field name in unsure (budget, cash, area, bedrooms, financing) and leave facts for that field null.",
   "- If the buyer does not know the area, also set openToOtherAreas true so the conversation moves forward across Abu Dhabi instead of asking area again.",
-  "- Best ROI means investment intent. Growth/rental income/both answers update investmentObjective; do not clear the known budget or choose an area on their behalf.",
+  "- Best ROI is umbrella total_return intent; capital appreciation and rental income are return drivers, not opposites to ROI. Do not pick a return driver or strategy from ROI alone. Never clear a known budget or choose an area on the buyer's behalf.",
+  "- Extract volunteered investmentGoal, investmentStrategy, exitHorizon, incomeRequirement, growthPriority, liquidityPriority, riskTolerance, cashDeploymentPreference, handoverStrategy only when explicit. Short 'handover' after an exit question means handover exit; a project handover question does not. 'Hold 5 years' is a holding period, never a reservation request. A forecast question is not a preference.",
+  "- 'I do not care about Yas anymore' removes that preference; do not set Yas as the requested area. Explicit 'only Yas' makes area fixed.",
   "- Exploring is a valid state. Set explorationState true; do not turn it into a home/investment objective without an explicit buyer preference.",
   "- holdingPeriod is years, only if buyer supplies it. Objections are buyer concerns, not permission to invent listing facts or contact consent.",
   "- If open to other areas while preferring one, set area plus openToOtherAreas true.",
@@ -56,7 +58,16 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
       financing: buyer?.financing || null,
       useType: buyer?.useType || null,
       investmentObjective: buyer?.investmentObjective || null,
+      investmentGoal: buyer?.investmentGoal || null,
+      investmentStrategy: buyer?.investmentStrategy || "UNDECIDED",
+      exitHorizon: buyer?.exitHorizon || null,
       holdingPeriod: buyer?.holdingPeriod || null,
+      incomeRequirement: buyer?.incomeRequirement || null,
+      growthPriority: buyer?.growthPriority || null,
+      liquidityPriority: buyer?.liquidityPriority || null,
+      riskTolerance: buyer?.riskTolerance || null,
+      cashDeploymentPreference: buyer?.cashDeploymentPreference || null,
+      handoverStrategy: buyer?.handoverStrategy || null,
       priorities: buyer?.priorities || [],
       concerns: buyer?.concerns || [],
       projectInterest: buyer?.projectInterest || null
@@ -224,7 +235,8 @@ export function understandMessageLocally(message, { buyer = null, lastAskedField
     ack = ack || `Looking at ${facts.bedrooms.join(" or ")} bedroom options.`;
   }
 
-  if (facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined || facts.explorationState === true) intents.push("advisory");
+  if (facts.investmentGoal || facts.investmentStrategy || facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined || facts.explorationState === true) intents.push("advisory");
+  if (facts.removedAreas?.length) intents.push("correction");
   if (facts.openToOtherAreas === true) signals.push("area_flexible");
 
   return normalizeUnderstanding({ facts, unsure, intents, signals, ack }, "local");
@@ -268,6 +280,7 @@ export function mergeUnderstanding(baseExtract, understanding) {
   }
   if (rawFacts.openToOtherAreas === false) facts.openToOtherAreas = false;
   for (const field of ADVISORY_FACT_FIELDS) if (rawFacts[field] !== undefined) facts[field] = rawFacts[field];
+  if (facts.removedAreas?.includes(facts.area)) delete facts.area;
 
   for (const field of u.unsure || []) {
     if (field === "budget") delete facts.budget;
@@ -334,6 +347,9 @@ export function normalizeUnderstanding(raw, source = "none") {
   if (factsIn.contactDeclined === true) facts.contactDeclined = true;
   if (typeof factsIn.openToOtherAreas === "boolean") facts.openToOtherAreas = factsIn.openToOtherAreas;
   Object.assign(facts, normalizeAdvisoryFacts(factsIn, { allowBudgetControls: source !== "claude" }));
+  if (source === "claude") {
+    for (const field of ["removedAreas", "bedroomsRequired", "initialCashHardCap", "financingRequired"]) delete facts[field];
+  }
 
   const unsure = Array.isArray(input.unsure)
     ? input.unsure.map(mapAskedField).filter(Boolean)

@@ -1,5 +1,14 @@
 # Airtable live data contract
 
+The current review-branch extension is documented in
+[`OFF-PLAN-DATA-CONTRACT.md`](OFF-PLAN-DATA-CONTRACT.md) and
+[`OFF-PLAN-ADVISOR.md`](OFF-PLAN-ADVISOR.md). Those documents describe optional
+research reads, explicit Sheet identity mapping, blocked research offers and
+future separately configured scoped offers/payment schedules. The table and
+freshness descriptions below record the original serving contract and migration
+state; the "Not consumed" list is historical for the inspected baseline. No
+production schema or record changes were performed by this upgrade.
+
 Base: `appbIG0pZvueaTp07`. Master research lives in the Google Sheet "Abu Dhabi Brokerage Knowledge Base" (`1f4rBxBZ22V4R0dVMPtWLhfL0bv1kiWKtdHKKXUm9xs4`). Airtable is the approved serving layer. Do not edit facts in Airtable that conflict with the Sheet without resolving the Sheet first.
 
 ## Tables the bot reads (runtime)

@@ -4,6 +4,8 @@ import { bedroomOptionsFromMatches, canPitchBuyer } from "./match-resolve.js";
 import { renderProjectIntro, renderProjectCard } from "./project-copy.js";
 import { nextQualificationQuestion, isCoreQualified } from "./qualify.js";
 import { choicesForField } from "./choices.js";
+import { comparisonReply } from "./comparison-reply.js";
+import { exitQuestion } from "./investment-guidance.js";
 
 /** Pure greeting with no other request in the same message. */
 export function isGreetingOnly(message) {
@@ -517,9 +519,17 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
   const primaryPack = advisor.packs.find(p => p.projectId === primary.projectId && p.unitId === primary.unitId);
   if (!primaryPack) return null;
   const name = primaryPack.name.value;
+  if (strategy.type === "transaction_prep") {
+    const prompt = "Want me to check the current availability before we discuss the next step?";
+    return advisorDraft(`Let's focus on ${name}. The next step is to check its current availability and the applicable offer and EOI terms; nothing has been reserved or submitted.`, advisor, "availability", prompt);
+  }
+  if (strategy.type === "compare" && advisor.comparison) {
+    const text = comparisonReply(advisor.comparison, { preferredName: name });
+    return advisorDraft(text, advisor, "payment_details", "Want me to break down the payment commitments?");
+  }
   if (strategy.type === "answer_action") {
     if (strategy.nextAction === "compare") {
-      return advisorDraft(advisor.matches.map(m => renderProjectCard(m.factPack)).join("\n"), advisor, "availability", "Want me to check current availability?");
+      return advisorDraft(comparisonReply(advisor.comparison, { preferredName: name }) || `For your priorities, I'd start with ${name}.`, advisor, "availability", "Want me to check current availability?");
     }
     const topic = strategy.nextAction === "availability" ? "availability" : "payment plan";
     const answer = answerFactQuestion(topic, [primaryPack]);
@@ -551,12 +561,18 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
   }
   if (advisor.upgradeAssessment?.reasonCodes?.includes("no_material_buyer_benefit_for_extra_price") &&
       (/\b(upgrade|extra|more expensive|worth|better)\b/i.test(message) || !buyer.shownProjects?.includes(primary.projectId))) {
-    lines.push("I would not pay extra here without a material benefit for your priorities.");
+    const assessment = advisor.upgradeAssessment.opportunities?.find(o => o.priceDifferenceAed > 0);
+    lines.push(assessment ? `I would not pay the extra AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} here without a material benefit for your priorities.` : "I would not pay extra here without a material benefit for your priorities.");
   }
   if (strategy.type === "budget_permission") {
     const prompt = `Is AED ${Number(buyer.budgetAed).toLocaleString("en-US")} a hard ceiling, or would you stretch slightly for a materially better option?`;
     const draft = advisorDraft(lines.join("\n"), advisor, null, null);
     return { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "budgetFlexible", prompt }, pendingOffer: null };
+  }
+  const horizon = buyer.useType === "investment" ? exitQuestion(buyer) : null;
+  if (horizon && !strategy.lowPressure) {
+    const result = advisorDraft(lines.join("\n"), advisor, null, null);
+    return { ...result, text: `${result.text}\n${horizon.prompt}`, nextQuestion: horizon };
   }
   const prompt = strategy.lowPressure ? null : challenger ? "Want me to compare these side by side?" : "Want me to break down the payment terms?";
   return advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt);

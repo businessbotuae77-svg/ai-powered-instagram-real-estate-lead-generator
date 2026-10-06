@@ -55,7 +55,7 @@ test("commercial regression: AED 2M stays remembered through ROI, growth and lat
   assert.equal(roi.buyer.useType, "investment");
   assert.doesNotMatch(roi.reply, budgetQuestion);
   assert.doesNotMatch(roi.reply, areaQuestion);
-  assert.equal(roi.nextQuestion?.field, "investmentObjective");
+  assert.equal(roi.nextQuestion?.field, "exitHorizon");
   oneQuestion(roi);
 
   const growth = await engine.handleMessage("roi", "Growth", offline);
@@ -355,7 +355,7 @@ function mockModel(t, engine, compose) {
 test("model composes a complete paraphrased ROI question once without appending the deterministic question", async t => {
   const { engine } = await advisorSetup();
   await engine.handleMessage("model-roi", "2M", offline);
-  const modelReply = "We can keep the area open and compare investment routes. Do you prefer rental income, long-term growth, or a balance?";
+  const modelReply = "We can keep the area open and compare overall return potential. Would you exit around handover or hold longer?";
   const calls = mockModel(t, engine, payload => ({
     message: modelReply, askedQuestion: true, questionField: payload.requiredQuestion.field,
     claims: [], proposedActions: []
@@ -364,7 +364,7 @@ test("model composes a complete paraphrased ROI question once without appending 
   assert.equal(result.polished, true);
   assert.equal(result.reply, modelReply);
   assert.equal(result.buyer.budgetAed, 2_000_000);
-  assert.equal(result.nextQuestion.field, "investmentObjective");
+  assert.equal(result.nextQuestion.field, "exitHorizon");
   assert.ok(calls.some(payload => payload.currentMessage && Array.isArray(payload.recentTurns)));
   oneQuestion(result);
 });

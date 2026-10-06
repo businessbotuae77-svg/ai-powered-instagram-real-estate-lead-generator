@@ -1,7 +1,12 @@
+import { buildInvestmentStrategy } from "./investment-strategy.js";
+import { conversationState } from "./conversation-state.js";
+
 // Sales strategy chooses a small useful commitment. Facts and candidates are
 // supplied by the opportunity engine; this layer cannot create inventory.
-export function determineAdvisorStrategy({ buyer, advisor, message = "", pendingOffer = null }) {
+export function determineAdvisorStrategy({ buyer, advisor, message = "", pendingOffer = null, intents = [], recentTurns = [] }) {
   const text = String(message).toLowerCase();
+  const state = conversationState({ buyer, advisor, message, intents, recentTurns });
+  const investment = buildInvestmentStrategy(buyer);
   const concerns = buyer.concerns || [];
   if (advisor.opportunities.some(o => o.type === "no_push" && o.reasonCodes.includes("resolve_trust_before_recommending"))) {
     return { type: "trust_check", nextAction: null, questionField: "trustConcern" };
@@ -13,6 +18,10 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
     return { type: "no_push", nextAction: null, questionField: null };
   }
   if (!advisor.primary) return null;
+  if (state === "HIGH_INTENT") return { type: "transaction_prep", conversationState: state,
+    nextAction: "availability", questionField: "advisoryNextAction", investmentStrategy: investment.strategy };
+  if (state === "COMPARING") return { type: "compare", conversationState: state,
+    nextAction: "payment_details", questionField: "advisoryNextAction", investmentStrategy: investment.strategy };
   const candidate = advisor.upgradeAssessment?.permissionCandidate;
   const askFlexibility = candidate && !buyer.budgetFlexible && !buyer.budgetFirm &&
     !buyer.budgetFlexibilityAsked && !buyer.upgradeDeclined;
@@ -25,6 +34,8 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
   const nextAction = advisor.challenger ? "compare" : "payment_details";
   return {
     type: "recommend",
+    conversationState: state,
+    investmentStrategy: investment.strategy,
     nextAction,
     questionField: "advisoryNextAction",
     objection: objection?.category || null,
@@ -37,7 +48,7 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
 
 export function advisoryReady(buyer) {
   return Boolean(buyer.budgetAed && (
-    buyer.investmentObjective || buyer.useType === "end_use" ||
+    buyer.investmentGoal || buyer.investmentObjective || buyer.exitHorizon || buyer.useType === "end_use" ||
     ((buyer.preferredAreas?.length || buyer.projectInterest || buyer.openToOtherAreas) &&
       (buyer.bedrooms?.length || buyer.propertyTypes?.length))
   ));

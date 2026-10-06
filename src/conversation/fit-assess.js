@@ -1,3 +1,4 @@
+import { buildFactPack } from "../facts/retrieval.js";
 import { formatAed, normalizeArea, normalizeDeveloper, normalizePropertyType, sameText } from "../matching/normalize.js";
 
 const TIER_RANK = {
@@ -17,6 +18,7 @@ const WEIGHTS = {
 };
 
 function initialPayment(project, unit) {
+  if (unit.commercialOffer) return unit.commercialOffer.initialPaymentAed ?? null;
   if (unit.initialPaymentAed !== null && unit.initialPaymentAed !== undefined) {
     return unit.initialPaymentAed;
   }
@@ -45,12 +47,11 @@ function dimension(key, status, weight, details = {}) {
 function activeCandidate(catalog, unit) {
   const project = catalog.projects.find((row) => row.id === unit.projectId);
   if (!project || !project.active || !project.developerActive || !unit.active) return null;
-  return {
-    project,
-    unit,
-    downPaymentAed: initialPayment(project, unit),
-    bedroomLabel: bedroomPhrase(unit.bedrooms)
-  };
+  const candidate = { project, unit, downPaymentAed: initialPayment(project, unit), bedroomLabel: bedroomPhrase(unit.bedrooms) };
+  if (!unit.commercialOffer) return candidate;
+  const pack = buildFactPack(candidate);
+  const fact = key => pack[key]?.confirmed ? pack[key].value : null;
+  return { ...candidate, project: { ...project, paymentPlanAvailable: fact("paymentPlanAvailable"), paymentPlanSummary: fact("paymentPlanSummary"), handover: fact("handover") }, unit: { ...unit, startingPriceAed: fact("startingPriceAed") }, downPaymentAed: fact("downPaymentAed") };
 }
 
 function requestedBedrooms(buyer) {
@@ -67,7 +68,7 @@ function assessDimensions(candidate, buyer) {
   const wantedType = buyer.propertyTypes?.[0] || null;
 
   if (wantedArea) {
-    const matched = sameText(project.area, normalizeArea(wantedArea));
+    const matched = buyer.preferredAreas.some(area => sameText(normalizeArea(project.area), normalizeArea(area)));
     dimensions.push(
       dimension("area", matched ? "matched" : "mismatch", WEIGHTS.area, {
         requested: normalizeArea(wantedArea),
@@ -94,10 +95,10 @@ function assessDimensions(candidate, buyer) {
     normalizePropertyType(wantedType) === "studio" && wantedBeds.includes(0);
   if (wantedType && !studioAlreadyRepresented) {
     const normalized = normalizePropertyType(wantedType);
-    const matched =
-      normalized === "studio"
+    const matched = buyer.propertyTypes.some(type =>
+      normalizePropertyType(type) === "studio"
         ? unit.bedrooms === 0
-        : sameText(unit.propertyType, normalized);
+        : sameText(normalizePropertyType(unit.propertyType), normalizePropertyType(type)));
     dimensions.push(
       dimension("property_type", matched ? "matched" : "mismatch", WEIGHTS.property_type, {
         requested: normalized,
@@ -109,7 +110,7 @@ function assessDimensions(candidate, buyer) {
 
   if (buyer.budgetAed !== null && buyer.budgetAed !== undefined) {
     let status = "matched";
-    if (unit.startingPriceAed === null || unit.startingPriceAed === undefined) status = "unknown";
+    if (!Number.isFinite(unit.startingPriceAed) || unit.startingPriceAed <= 0) status = "unknown";
     else if (unit.startingPriceAed > buyer.budgetAed) status = "mismatch";
     dimensions.push(
       dimension("budget", status, WEIGHTS.budget, {
@@ -126,7 +127,7 @@ function assessDimensions(candidate, buyer) {
 
   if (buyer.cashAvailableAed !== null && buyer.cashAvailableAed !== undefined) {
     let status = "matched";
-    if (downPaymentAed === null || downPaymentAed === undefined) status = "unknown";
+    if (!Number.isFinite(downPaymentAed) || downPaymentAed < 0) status = "unknown";
     else if (downPaymentAed > buyer.cashAvailableAed) status = "mismatch";
     dimensions.push(
       dimension("cash", status, WEIGHTS.cash, {
@@ -227,6 +228,7 @@ function classify(dimensions, buyer) {
   const coreGaps = gaps.filter((row) => row.core);
   const financeGaps = gaps.filter((row) => !row.core);
   const areaFlexible =
+    buyer.areaFlexibility === "open" || buyer.areaFlexibility === "preferred" ||
     Boolean(buyer.openToOtherAreas) ||
     (buyer.intentSignals || []).includes("area_flexible");
   const strictAreaGap = coreGaps.some((row) => row.key === "area") && !areaFlexible;
@@ -272,9 +274,46 @@ function distancePenalty(dimensions) {
   }, 0);
 }
 
+/** Explicit constraints govern recommendation permission independently of the
+ * retained legacy fit score. Unknown evidence never satisfies a hard constraint. */
+export function candidateConstraintFailures(candidate, buyer) {
+  const { project, unit } = candidate;
+  const failures = [];
+  const price = unit.startingPriceAed;
+  const cash = candidate.downPaymentAed;
+  const budget = buyer.budgetAed;
+  const flexible = buyer.budgetFlexible === true && buyer.budgetHardCap !== true && buyer.budgetFirm !== true;
+  const zeroStretch = buyer.budgetFlexibilityPct === 0 && !(buyer.budgetStretchAed > 0);
+  const explicitPct = Number(buyer.budgetFlexibilityPct);
+  const allowedPct = zeroStretch ? 0 : Number.isFinite(explicitPct) && explicitPct > 0 ? Math.min(10, explicitPct) : 5;
+  const stretch = flexible && Number.isFinite(budget) ? Math.min(buyer.budgetStretchAed > 0 ? buyer.budgetStretchAed : budget * allowedPct / 100, budget * allowedPct / 100, budget * 0.1) : 0;
+  if (!Number.isFinite(price) || price <= 0) failures.push("price_unknown");
+  else if (Number.isFinite(budget) && price > budget + stretch) failures.push("over_budget_ceiling");
+  if (buyer.preferredAreas?.length && ["fixed", false].includes(buyer.areaFlexibility) && !buyer.preferredAreas.some(area => sameText(normalizeArea(project.area), normalizeArea(area)))) failures.push("fixed_area");
+  if (buyer.propertyTypes?.length && ["fixed", false].includes(buyer.propertyTypeFlexibility) && !buyer.propertyTypes.some(type => normalizePropertyType(type) === "studio" ? unit.bedrooms === 0 : sameText(normalizePropertyType(unit.propertyType), normalizePropertyType(type)))) failures.push("fixed_property_type");
+  if (buyer.bedrooms?.length && buyer.bedroomsRequired === true && !buyer.bedrooms.map(Number).includes(unit.bedrooms)) failures.push("required_bedrooms");
+  if (Number.isFinite(buyer.cashAvailableAed) && buyer.cashAvailableAed >= 0 && buyer.cashFlexible !== true) {
+    if (!Number.isFinite(cash) || cash < 0) failures.push("initial_payment_unknown");
+    else if (cash > buyer.cashAvailableAed) failures.push("initial_payment_over_cash");
+  }
+  if (buyer.financing === "payment_plan" && buyer.financingOptional !== true && (project.paymentPlanAvailable !== true || !project.paymentPlanSummary)) failures.push("payment_plan_unconfirmed");
+  if ((buyer.investmentStrategy === "READY_INCOME" || buyer.incomeRequirement === "immediate") && !(sameText(project.status, "Ready") && sameText(project.handover, "Ready"))) failures.push("ready_income_required");
+  if (buyer.financing === "mortgage" && buyer.financingRequired === true && unit.mortgageEligible !== true) failures.push("mortgage_eligibility_unknown");
+  return failures;
+}
+
+function explainComponents(dimensions, hardFailures, buyer) {
+  const names = { budget: "priceFit", cash: "cashFit", area: "areaFit", property_type: "typeFit", bedrooms: "spaceFit", payment_plan: "paymentFit" };
+  return Object.fromEntries(Object.entries(names).map(([key, name]) => {
+    const row = dimensions.find(item => item.key === key);
+    return [name, row ? { status: row.status === "matched" ? "MATCH" : row.status === "unknown" ? "UNKNOWN" : "TRADE_OFF", requested: row.requested, offered: row.offered, constraint: key === "budget" || (key === "cash" && buyer.cashFlexible !== true) || (key === "area" && ["fixed", false].includes(buyer.areaFlexibility)) || (key === "property_type" && ["fixed", false].includes(buyer.propertyTypeFlexibility)) || (key === "bedrooms" && buyer.bedroomsRequired === true) || (key === "payment_plan" && buyer.financingOptional !== true) ? "HARD" : "SOFT" } : { status: "NOT_REQUESTED", requested: null, offered: null }];
+  }));
+}
+
 export function assessCandidate(candidate, buyer) {
   const dimensions = assessDimensions(candidate, buyer);
   const tier = classify(dimensions, buyer);
+  const hardConstraintFailures = candidateConstraintFailures(candidate, buyer);
   const matched = dimensions
     .filter((row) => row.status === "matched")
     .map((row) => matchedReason(candidate, row))
@@ -288,6 +327,9 @@ export function assessCandidate(candidate, buyer) {
     ...candidate,
     fit: {
       tier,
+      classification: hardConstraintFailures.length ? "POOR_FIT" : tier === "exact" ? "MATCH" : tier === "strong_with_compromise" ? "FIT_WITH_TRADE_OFF" : tier === "nearby" ? "STRATEGIC_ALTERNATIVE" : "POOR_FIT",
+      hardConstraintFailures,
+      components: explainComponents(dimensions, hardConstraintFailures, buyer),
       tierRank: TIER_RANK[tier],
       score: scoreDimensions(dimensions),
       distancePenalty: Math.round(distancePenalty(dimensions) * 100) / 100,

@@ -52,6 +52,15 @@ export class ConversationMemory {
     return this.lastAsked?.get(String(instagramUserId)) || null;
   }
 
+  getLastMeaningfulQuestion(instagramUserId) {
+    for (const turn of [...this.getTurns(instagramUserId)].reverse()) {
+      if (turn.role !== "assistant") continue;
+      if (turn.questionField) return turn.questionField;
+      if (!["conversation_repair", "education"].includes(turn.stage)) return null;
+    }
+    return null;
+  }
+
   setLastAskedField(instagramUserId, field) {
     if (!this.lastAsked) this.lastAsked = new Map();
     const id = String(instagramUserId);
