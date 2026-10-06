@@ -83,6 +83,14 @@ export function validateBuyerResponse(message, options = {}) {
   if ((buyer.noCalls || forbiddenActions.includes("call")) && /\b(?:call you|will call|give you a call|arrange a call|would you like (?:a|me to) call|phone call)\b/i.test(text)) violations.push({ type: "no_calls" });
   if (/\b(?:(?:i(?:'ve| have)|we(?:'ve| have))\s+(?:booked|reserved|submitted|sent|notified|saved|deleted)|(?:viewing|eoi|reservation|booking)\s+(?:is\s+)?confirmed|reserved for you|advisor (?:was|has been) notified)\b/i.test(text)) violations.push({ type: "action_completion_claim" });
   if (/\b(?:best investment|highest (?:rental )?(?:yield|roi|returns?)|better (?:roi|returns?)|(?:strong|certain|guaranteed|higher) (?:future )?(?:appreciation|capital growth)|will (?:appreciate|outperform|grow in value)|guaranteed to)\b|أفضل استثمار|أعلى عائد|(?:عائد|ربح|نمو)\s+(?:مضمون|مضمونة)|سيرتفع|سيحقق.*(?:عائد|ربح)/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
+  const educationTurn = ["education", "investment_education"].includes(options.responseStage || options.strategy?.type);
+  if (metadata && (!packs.length || educationTurn)) {
+    // History is context, not a fresh listing retrieval or a current search.
+    // In particular, educational questions must not inherit an imaginary offer
+    // from an earlier turn or a search the buyer has explicitly reset.
+    if (/\b(?:that|this|selected|chosen|previous)\s+(?:property|project|unit|option)\b[^.!?\n]{0,90}\b(?:fits?|matches?|suitable|requires?|costs?|available|terms|price|payment|handover|budget|has|offers?|includes?|sold out|ready|yields?|roi|income|returns?)|\b(?:terms|price|payment|availability)[^.!?\n]{0,65}\b(?:that|this|selected|chosen|previous)\s+(?:property|project|unit|option)\b|\b(?:no (?:suitable|matching|exact) (?:options?|properties|matches?)|(?:it|that|this) (?:does(?:n['’]t| not)|won['’]t|will not) (?:fit|match))\b/i.test(text)) violations.push({ type: "unretrieved_property_context" });
+    if (!buyer.preferredAreas?.length && /\b(?:yas(?: island)?|(?:al )?reem(?: island)?|hudayriyat(?: island)?|saadiyat(?: island)?|masdar(?: city)?)\b[^.!?\n]{0,45}\b(?:remains? (?:your|the) priority|still (?:your|the) preference)|\b(?:keep|continue|still)[^.!?\n]{0,40}\b(?:looking|searching|search)[^.!?\n]{0,30}\b(?:yas|reem|hudayriyat|saadiyat|masdar)\b/i.test(text)) violations.push({ type: "stale_search_preference" });
+  }
   if (metadata) {
     if (typeof metadata.askedQuestion !== "boolean" || !["string", "object"].includes(typeof metadata.questionField) || (metadata.questionField !== null && typeof metadata.questionField !== "string")) violations.push({ type: "invalid_question_metadata" });
     if (metadata.askedQuestion !== (questions.length > 0)) violations.push({ type: "question_metadata_mismatch" });

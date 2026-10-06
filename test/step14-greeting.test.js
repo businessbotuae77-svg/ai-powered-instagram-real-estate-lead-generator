@@ -14,12 +14,13 @@ test("step 14a Hi alone does not soft-pitch leftover buyer criteria", async () =
   assert.ok(hi.nextQuestion?.choices?.some((c) => /fresh/i.test(c.label)));
 });
 
-test("step 14b Start fresh clears criteria then asks budget", async () => {
+test("step 14b Start fresh clears criteria then opens purpose and exploration", async () => {
   const { engine, buyers } = await setupConversation();
   await engine.handleMessage("ig_m2_hi2", "Budget AED 2M and Yas Island");
   const fresh = await engine.handleMessage("ig_m2_hi2", "Start fresh");
-  assert.equal(fresh.stage, "qualifying");
-  assert.match(fresh.reply, /budget/i);
+  assert.equal(fresh.stage, "exploring");
+  assert.match(fresh.reply, /buying.*home.*investing.*exploring/i);
+  assert.equal(fresh.nextQuestion.field, "useType");
   const buyer = await buyers.getOrCreate("ig_m2_hi2");
   assert.equal(buyer.budgetAed, null);
   assert.deepEqual(buyer.preferredAreas, []);

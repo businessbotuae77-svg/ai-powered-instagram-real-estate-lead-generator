@@ -1,5 +1,6 @@
 import { parseMoney } from "../matching/normalize.js";
 import { normalizeBuyerText } from "./text.js";
+import { conversationalScope } from "./question-scope.js";
 
 export const INVESTMENT_OBJECTIVES = ["rental_income", "growth", "balanced"];
 export const OBJECTION_CATEGORIES = [
@@ -64,7 +65,7 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
 
   const endUse = /\b(?:not (?:an? )?investment|end\s*use|live in|for (?:my )?family|for my (?:own )?home|buying (?:my |a |an? )?home|my own home)\b/.test(text) || /للسكن|بيتي|ليس استثمار/.test(text);
   const objectiveText = withoutNegatedObjectives(text);
-  const investment = !endUse && (/\b(?:roi|return on investment|invest(?:ment|ing|or)?|rental (?:income|yield)|capital growth|appreciation)\b/.test(objectiveText) || /استثمار|عائد|دخل (?:الإيجار|الايجار)|نمو رأس المال/.test(objectiveText));
+  const investment = !endUse && (conversationalScope(text) === "investment_education" || /\b(?:roi|return on investment|invest(?:ment|ing|or)?|rental (?:income|yield)|capital growth|appreciation)\b/.test(objectiveText) || /استثمار|عائد|دخل (?:الإيجار|الايجار)|نمو رأس المال/.test(objectiveText));
   if (endUse) facts.useType = "end_use";
   const objectiveQuestion = lastAskedField === "investmentObjective";
   if (!endUse && (investment || objectiveQuestion || buyer?.useType === "investment")) {
