@@ -14,7 +14,9 @@ test("step 10a multi-turn chat keeps buyer memory", async () => {
   assert.deepEqual(buyer.bedrooms, [3]);
   assert.equal(buyer.cashAvailableAed, 500000);
   assert.equal(buyer.financing, "payment_plan");
-  assert.equal(third.matchCount, 1);
+  assert.ok(third.matchCount >= 1 && third.matchCount <= 2);
+  assert.equal(third.matches[0].project.name, "Yas Park Views");
+  if (third.advisor.challenger) assert.ok(third.advisor.challenger.reasonCodes.length);
   assert.match(third.reply, /Yas Park Views/);
   assert.ok(third.check.ok);
 });
@@ -30,7 +32,9 @@ test("step 10b returning user does not re-ask known budget", async () => {
   });
   const result = await engine.handleMessage("ig_m2_mem2", "Show me what still fits");
   assert.equal(result.buyer.budgetAed, 3000000);
-  assert.equal(result.matchCount, 1);
+  assert.ok(result.matchCount >= 1 && result.matchCount <= 2);
+  assert.equal(result.matches[0].project.name, "Yas Park Views");
+  if (result.advisor.challenger) assert.ok(result.advisor.challenger.reasonCodes.length);
   assert.doesNotMatch(result.reply, /What budget are you working with/i);
   assert.ok(result.context.length >= 2);
 });

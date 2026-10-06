@@ -10,13 +10,24 @@ live Instagram acceptance.
 
 ## Architecture
 
+The commercial advisor change and its review/rollout contract are documented in
+[`COMMERCIAL-ADVISOR.md`](COMMERCIAL-ADVISOR.md). It separates the factual
+catalogue/freshness/validation boundary from objective-aware opportunity ranking
+and permission-aware sales strategy. Advisory buyer memory uses the existing
+runtime volume; no Airtable schema migration or production seed change is needed.
+The runtime policy remains unchanged: code now enforces its answer-first,
+known-field, open-area and single-question rules in the recommendation path.
+
 Instagram webhook and optional conversation poller feed a serialized orchestrator.
 Signed webhook events are stored before acknowledgement. The conversation engine
 normalizes text, extracts volunteered requirements, updates buyer state, refreshes
 the catalogue, and chooses an answer-first decision or a commercial recommendation.
 Explicit contact decisions use remembered permissions and channel preferences.
-The optional model interprets and polishes supported replies; it cannot override
-the deterministic stop, channel and handoff controls.
+The optional model interprets buyer preferences and composes complete responses
+over selected inventory, structured opportunities and permitted actions; it cannot
+override deterministic facts, hard criteria, stop, channel or handoff controls.
+The composition response is validated before send and falls back to deterministic
+copy if rejected or unavailable. Questions are not appended after composition.
 
 The orchestrator persists the decision and each successful integration operation.
 HubSpot upserts use the unique Instagram user id. Advisor alerts use WhatsApp
@@ -29,7 +40,7 @@ required; the file stores do not coordinate multiple application replicas.
 
 `prompts/conversation-policy.md` is the checked-in runtime policy, loaded by both
 model calls. `src/conversation/understand.js` supplies extraction rules;
-`src/conversation/llm.js` supplies rewrite and factual constraints. The original
+`src/conversation/llm.js` supplies composition and factual constraints. The original
 Drive markdown is reference documentation, not a dynamically loaded runtime
 prompt. Updating Drive alone does not deploy new behavior. The status payload
 reports the local policy hash and source path; decision logs include that hash.
@@ -99,6 +110,11 @@ Check provider delivery history when resolving ambiguous failures. Catalogue
 refresh fails closed; there is no invented fallback inventory.
 
 ## Validation and release
+
+Commercial regression/acceptance cases supplement the existing milestone tests.
+See [`COMMERCIAL-ADVISOR.md`](COMMERCIAL-ADVISOR.md) for schema limits, production
+risks, rollout/rollback and the complete captured local test-output artifact.
+Local mocks do not certify live model output or real provider delivery.
 
 Run `npm test` and `npm run verify:spec`. The new tests cover the previously
 reproduced failures, Arabic/mixed input, permissions, freshness, comparison,
