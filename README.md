@@ -59,6 +59,7 @@ Docs:
 - Milestone 1: `docs/MILESTONE_1.md`
 - Milestone 2: `docs/MILESTONE_2.md`
 - Milestone 3: `docs/MILESTONE_3.md`
+- [Off-plan research integration](docs/OFF-PLAN-RESEARCH-INTEGRATION.md): evidence boundaries, optional tables and rollout.
 
 ## Sample listings
 

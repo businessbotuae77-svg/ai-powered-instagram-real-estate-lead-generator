@@ -2,6 +2,7 @@ import { approvedFresh, factPolicy } from "./freshness.js";
 import { formatAed } from "../matching/normalize.js";
 import { commercialOfferGate } from "./commercial-offers.js";
 import { analyzePaymentSchedule } from "../conversation/payment-analysis.js";
+import { confirmedEvidenceClass } from "./advisor-claims.js";
 
 function field(value, provenance = {}) {
   const confirmed = value !== null && value !== undefined && value !== "";
@@ -21,6 +22,7 @@ export function buildFactPack(match, options = {}) {
   const gate = offer ? commercialOfferGate(offer, { now: options.now, policy }) : null;
   const quoteFresh = offer ? gate.ok : fresh;
   const projectEvidence = { source: project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.lastVerified || null };
+  Object.assign(projectEvidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
   const unitEvidence = { ...projectEvidence, recordId: unit.inventoryUnitId || unit.id, scope: "unit_type" };
   const commercialEvidence = offer
     ? { source: offer.commercialSource, recordId: offer.sourceRecordId || offer.id, scope: offer.priceBasis, verifiedAt: offer.checkedOn, offerId: offer.offerId }
@@ -69,7 +71,8 @@ export function buildFactPack(match, options = {}) {
   }
   if (payment?.status === "COMPLETE") {
     const row = payment.evidence[0];
-    const provenance = { source: row.source, recordId: row.sourceRecordId, scope: row.scope, verifiedAt: row.verifiedOn };
+    const provenance = { source: row.source, recordId: row.sourceRecordId, scope: row.scope, verifiedAt: row.verifiedOn,
+      evidenceClass: "CALCULATION", confidence: row.confidence || "Unrated" };
     for (const key of ["bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed"]) pack[key] = field(payment[key], provenance);
   }
   return pack;
@@ -78,6 +81,7 @@ export function buildFactPack(match, options = {}) {
 /** Knowledge has its own scope and cannot turn a known project into a quote. */
 export function buildProjectKnowledgePack(project) {
   const evidence = { source: project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.lastVerified || null };
+  Object.assign(evidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
   const pack = { projectId: project.id, unitId: null, knowledgeOnly: true };
   const values = { name: project.name, developer: project.developerName, emirate: project.emirate,
     area: project.area, status: project.status, description: project.description, features: project.features };
@@ -144,10 +148,15 @@ export function collectAllowedClaims(packs, evidenceClaims = []) {
   }
 
   for (const claim of evidenceClaims) {
+    if (!confirmedEvidenceClass(claim)) continue;
     if (!claim?.evidenceId || !claim.source || !claim.recordId || !claim.scope || !claim.verifiedAt) continue;
-    if (typeof claim.value === "number" && Number.isFinite(claim.value)) amounts.add(claim.value);
+    if (typeof claim.value === "number" && Number.isFinite(claim.value)) {
+      if (claim.field === "observedChangePct" && claim.evidenceClass === "CALCULATION" &&
+          claim.calculationInputs && claim.inputEvidence?.length >= 2) percents.add(String(claim.value));
+      else amounts.add(claim.value);
+    }
     if (typeof claim.value === "string") {
-      phrases.add(claim.value.toLowerCase());
+      if (claim.field !== "investmentEvidence") phrases.add(claim.value.toLowerCase());
       for (const date of claim.value.match(/\b20\d{2}\b|Q[1-4]\s*20\d{2}/gi) || []) dates.add(date.toUpperCase());
     }
     for (const date of String(claim.verifiedAt).match(/\b20\d{2}\b/g) || []) dates.add(date);

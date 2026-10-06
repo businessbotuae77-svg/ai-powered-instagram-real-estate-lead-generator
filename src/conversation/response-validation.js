@@ -1,6 +1,7 @@
 import { validateMessage, extractCommercialClaims, collectOpportunityAmounts, collectComparisonDifferences, comparisonAmountSupported } from "../facts/checker.js";
 import { normalizeBuyerText } from "./text.js";
 import { advisorBudgetPolicy } from "./advisor-opportunities.js";
+import { confirmedEvidenceClass } from "../facts/advisor-claims.js";
 
 const INTERNAL_LANGUAGE = /\b(?:approved evidence|approved matrix|confirmed options|fact packs?|verified stock|matching engine|approved catalog(?:ue)?|approved inventory|commercial gate|verified inventory layer|database)\b/i;
 const QUESTION_START = /^(?:what|which|where|when|why|how|do you|would you|could you|can you|are you|is your|is AED|want (?:me|to)|هل|ما |أي |كم |متى |أين )/i;
@@ -92,6 +93,8 @@ export function validateBuyerResponse(message, options = {}) {
   if (metadata && callPromise && !allowedActions.some(action => ["call", "request_call"].includes(actionType(action)))) violations.push({ type: "unauthorized_call" });
   if (/\b(?:(?:i(?:'ve| have)|we(?:'ve| have))\s+(?:booked|reserved|submitted|sent|notified|saved|deleted)|(?:viewing|eoi|expression of interest|reservation|booking)\s+(?:(?:is|was|has been)\s+)?(?:confirmed|submitted|completed|booked|sent)|reserved for you|advisor (?:was|has been) notified)\b/i.test(text)) violations.push({ type: "action_completion_claim" });
   if (/\b(?:best investment|highest (?:rental )?(?:yield|roi|returns?)|better (?:roi|returns?)|(?:strong|certain|guaranteed|higher) (?:future )?(?:appreciation|capital growth)|will (?:appreciate|outperform|grow in value)|guaranteed to)\b|أفضل استثمار|أعلى عائد|(?:عائد|ربح|نمو)\s+(?:مضمون|مضمونة)|سيرتفع|سيحقق.*(?:عائد|ربح)/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
+  if (/\b(?:easy|effortless|quick|straightforward)\s+(?:to\s+)?(?:resell|resale)|\b(?:resale|reselling)\s+(?:is|will be|should be)\s+(?:easy|effortless|quick|straightforward)|\b(?:definitely|certainly|guaranteed to)\s+outperform/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
+  if (/\b(?:resell|reselling|resale)\b[^.!?\n]{0,25}\b(?:easily|easy|straightforward|effortless|quickly)\b/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   const educationTurn = ["education", "investment_education"].includes(options.responseStage || options.strategy?.type);
   if (metadata && (!packs.length || educationTurn)) {
     // History is context, not a fresh listing retrieval or a current search.
@@ -136,9 +139,14 @@ function validateClaimCitations(message, claims, packs, options) {
       : pack?.[claim?.field];
     const research = Boolean(claim?.evidenceId);
     const scopeMatches = !research || (field && field.projectId === claim.projectId && (field.unitId || null) === (claim.unitId || null) && field.field === claim.field);
-    const provenanceValid = !research || (field?.source && field?.recordId && field?.scope && Number.isFinite(Date.parse(field?.verifiedAt)));
+    const provenanceValid = !research || (field?.source && field?.recordId && field?.scope &&
+      Number.isFinite(Date.parse(field?.verifiedAt)) && Date.parse(field.verifiedAt) <= (options.now ?? Date.now()) && confirmedEvidenceClass(field));
     if (!field || (!research && (!pack || !field.confirmed)) || field.confirmed === false || !scopeMatches || !provenanceValid || field.value == null || field.value === "UNKNOWN" || typeof claim.text !== "string" || !claim.text || !message.includes(claim.text) || JSON.stringify(field.value) !== JSON.stringify(claim.value)) {
       violations.push({ type: "unsupported_citation" });
+      continue;
+    }
+    if (research && !researchScopeSupported(claim.text, field)) {
+      violations.push({ type: "research_scope_mismatch", field: claim.field });
       continue;
     }
     const scoped = validateMessage(claim.text, pack ? [pack] : [], { ...options, allowedClaims: research ? [field] : [], opportunities: [], allowedBuyerAmounts: [] });
@@ -157,7 +165,8 @@ function validateClaimCitations(message, claims, packs, options) {
       source: field.source || pack.source?.value || null,
       recordId: field.recordId || pack.unitId || pack.projectId,
       scope: field.scope || { projectId: pack.projectId, unitId: pack.unitId, field: claim.field },
-      verifiedAt: field.verifiedAt || pack.lastVerified?.value || null
+      verifiedAt: field.verifiedAt || pack.lastVerified?.value || null,
+      evidenceClass: field.evidenceClass || "FACT", confidence: field.confidence || "Unrated"
     } });
   }
   const derived = collectOpportunityAmounts(packs, options.opportunities || [], options.buyer);
@@ -168,7 +177,7 @@ function validateClaimCitations(message, claims, packs, options) {
     if (comparisonAmountSupported(message, claim, comparisonDifferences)) continue;
     if (claim.type === "amount" && buyerAmounts.has(claim.value) && buyerAmountContext(message, claim)) continue;
     if (claim.type === "split" && claim.value === options.educationalSplit) continue;
-    if (!supported.some(row => citationSupportsClaim(row, claim))) violations.push({ type: "uncited_claim", claimType: claim.type });
+    if (!supported.some(row => citationSupportsClaim(row, claim, message))) violations.push({ type: "uncited_claim", claimType: claim.type });
   }
   for (const pack of packs) {
     if (pack.name?.confirmed && message.includes(String(pack.name.value)) && !supported.some(row => row.projectId === pack.projectId && row.unitId === pack.unitId && row.text.includes(String(pack.name.value)))) violations.push({ type: "uncited_inventory", projectId: pack.projectId });
@@ -186,7 +195,7 @@ function validateClaimCitations(message, claims, packs, options) {
   ];
   for (const [type, pattern] of attributes) {
     for (const match of message.matchAll(new RegExp(pattern.source, "gi"))) {
-      const fields = type === "bedrooms" ? ["bedrooms", "bedroomLabel"] : type === "size" ? ["sizeSqftFrom", "sizeSqftTo"] : ["features", "description"];
+      const fields = type === "bedrooms" ? ["bedrooms", "bedroomLabel", "investmentEvidence"] : type === "size" ? ["sizeSqftFrom", "sizeSqftTo", "investmentEvidence"] : ["features", "description", "investmentEvidence"];
       if (!supported.some(row => fields.includes(row.field) && row.text.toLowerCase().includes(match[0].toLowerCase()) && assertedAttributeSupported(match[0], row, type))) violations.push({ type: "uncited_attribute", attribute: type });
     }
   }
@@ -236,6 +245,41 @@ function containsNumber(text, value) {
   if (extractCommercialClaims(normalizeBuyerText(text)).some(claim => claim.type === "amount" && claim.value === value)) return true;
   if ([...text.matchAll(/\b(\d+)\s*BR\b/gi)].some(match => Number(match[1]) === value)) return true;
   return [...normalizeBuyerText(text).matchAll(/(?<![\d,.])\b\d+(?:\.\d+)?\b(?![\d,.])/g)].some(match => Number(match[0]) === value);
+}
+
+function researchScopeSupported(text, field) {
+  if (field.field === "observedChangePct") {
+    return field.evidenceClass === "CALCULATION" && field.calculationInputs && field.inputEvidence?.length >= 2 &&
+      /\b(?:observed|historical)\b/i.test(text) && !/\b(?:will|future|expected|forecast|projected)\b/i.test(text);
+  }
+  if (field.purchasePriceExample === true || field.commercialQuote === false ||
+      (typeof field.scope === "object" && /example.*not_commercial_quote/i.test(field.scope.basis || ""))) {
+    if (!/\b(?:example|research|calculation)\b/i.test(text) ||
+        /\b(?:your (?:booking|quote)|booking quote|to (?:reserve|book)|I can offer|quoted (?:at|price))\b/i.test(text)) return false;
+  }
+  if (field.field === "investmentEvidence") {
+    // This path quotes the full sourced fact; paraphrases cannot add a unit,
+    // date, outcome or commercial authority to an observation.
+    const value = String(field.value);
+    const start = text.indexOf(value);
+    if (start < 0) return false;
+    const prefix = text.slice(0, start).trim();
+    const suffix = text.slice(start + value.length).trim();
+    const label = /^(?:(?:Research\s+)?(?:FACT|CALCULATION)|(?:Recorded|Observed|Documented)\s+(?:research\s+)?(?:fact|calculation))\s*[:—-]?$/i;
+    const metadata = /^\[(?:FACT|CALCULATION)\s*[;|,][^\]]*\]$/i;
+    return (!prefix || label.test(prefix)) && (!suffix || metadata.test(suffix)) &&
+      (label.test(prefix) || metadata.test(suffix));
+  }
+  if (!["observedPriceAed", "launchPriceAed", "historicalPriceAed"].includes(field.field)) return true;
+  if (/\b(?:market\s+)?(?:median|average)\b/i.test(text)) {
+    const scope = typeof field.scope === "object" ? field.scope : {};
+    if (!/median|average/i.test(`${scope.priceBasis || ""} ${scope.priceType || ""}`) ||
+        !Number.isFinite(scope.sampleSize) || scope.sampleSize < 5) return false;
+  }
+  if (/\b(?:booking|down.?payment|cash|within\s+\d+\s+(?:days?|months?))\b/i.test(text)) return false;
+  const bedroom = text.match(/\b(\d+)\s*(?:BR|bedrooms?)\b/i);
+  if (bedroom && (typeof field.scope !== "object" || field.scope.bedrooms !== Number(bedroom[1]))) return false;
+  return !/\b(?:available|can (?:buy|book|offer)|your (?:price|quote)|booking quote|quoted price|to reserve)\b/i.test(text);
 }
 
 function assertedAttributeSupported(text, citation, type) {
@@ -355,9 +399,25 @@ function buyerAmountContext(message, claim) {
   return /(?:your (?:original )?(?:budget|cash)|budget|ceiling|cash available|you have|put down|ميزاني[^.؟\n]*|المتاح|لديك)\s*(?:of|is|around|about|:)?\s*$/i.test(before) || /^\s*(?:budget|ceiling|cash available)\b/i.test(after);
 }
 
-function citationSupportsClaim(citation, claim) {
+function citationSupportsClaim(citation, claim, message) {
+  // A known amount in one citation cannot bless its reuse in a different
+  // sentence, payment window or quote. Every occurrence needs its own span.
+  if (!Number.isInteger(claim.index)) return false;
+  const normalizedMessage = normalizeBuyerText(message);
+  const citationText = normalizeBuyerText(citation.text);
+  let start = normalizedMessage.indexOf(citationText);
+  let containsOccurrence = false;
+  while (start >= 0) {
+    if (claim.index >= start && claim.index + claim.raw.length <= start + citationText.length) { containsOccurrence = true; break; }
+    start = normalizedMessage.indexOf(citationText, start + citationText.length);
+  }
+  if (!containsOccurrence) return false;
   const facts = extractCommercialClaims(normalizeBuyerText(citation.text));
   if (!facts.some(part => part.type === claim.type && part.value === claim.value)) return false;
+  if (citation.evidenceId && citation.field === "investmentEvidence" && typeof citation.value === "string") {
+    return claim.type !== "availability" && citation.text.includes(citation.value) && extractCommercialClaims(citation.value)
+      .some(part => part.type === claim.type && part.value === claim.value);
+  }
   if (claim.type === "amount") {
     const numericValue = typeof citation.value === "number" ? citation.value : extractCommercialClaims(normalizeBuyerText(String(citation.value))).find(row => row.type === "amount")?.value;
     if (numericValue !== claim.value) return false;
@@ -374,6 +434,9 @@ function citationSupportsClaim(citation, claim) {
     };
     if (paymentRoles[citation.field]) return paymentRoles[citation.field].test(citation.text);
     return ["startingPriceAed", "startingPriceText", "sizeSqftFrom", "sizeSqftTo", "bedrooms"].includes(citation.field);
+  }
+  if (claim.type === "percent" && citation.evidenceId && citation.field === "observedChangePct") {
+    return String(citation.value) === claim.value && /\b(?:observed|historical)\b/i.test(citation.text);
   }
   if (claim.type === "percent" || claim.type === "split") return citation.field === "paymentPlanSummary" && extractCommercialClaims(normalizeBuyerText(String(citation.value))).some(row => row.type === claim.type && row.value === claim.value);
   if (claim.type === "date") return ["handover", "observationDate", "announcedAt", "validUntil", "checkedOn"].includes(citation.field) && extractCommercialClaims(normalizeBuyerText(String(citation.value))).some(row => row.type === claim.type && row.value === claim.value);

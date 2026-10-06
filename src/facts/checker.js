@@ -1,4 +1,6 @@
 import { collectAllowedClaims, missingCommercialFields } from "./retrieval.js";
+import { confirmedEvidenceClass } from "./advisor-claims.js";
+import { normalizeBuyerText } from "../conversation/text.js";
 
 const MONTHS = "jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
 
@@ -25,7 +27,9 @@ function amountAllowed(amount, allowedAmounts) {
 }
 
 export function extractCommercialClaims(message) {
-  const text = String(message);
+  // Source URLs can contain dates and path ratios. Keep their character
+  // positions but do not interpret URL components as buyer-facing terms.
+  const text = String(message).replace(/https?:\/\/[^\s<>]+/gi, url => " ".repeat(url.length));
   const claims = [];
 
   const money = text.matchAll(/(?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?|\b\d[\d,]*(?:\.\d+)?(?:\s*[Mk]\b)?\s*(?:دراهم|درهم)|\b\d+(?:\.\d+)?\s*[Mk]\b|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/gi);
@@ -35,32 +39,32 @@ export function extractCommercialClaims(message) {
 
   const percents = text.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|percent\b)/gi);
   for (const hit of percents) {
-    claims.push({ type: "percent", raw: hit[0], value: hit[1] });
+    claims.push({ type: "percent", raw: hit[0], value: hit[1], index: hit.index });
   }
 
   const splits = text.matchAll(/(\d+)\s*\/\s*(\d+)/g);
   for (const hit of splits) {
-    claims.push({ type: "split", raw: hit[0].replace(/\s+/g, ""), value: hit[0].replace(/\s+/g, "") });
+    claims.push({ type: "split", raw: hit[0].replace(/\s+/g, ""), value: hit[0].replace(/\s+/g, ""), index: hit.index });
   }
 
   const quarters = text.matchAll(/Q[1-4]\s*20\d{2}/gi);
   for (const hit of quarters) {
-    claims.push({ type: "date", raw: hit[0], value: hit[0].replace(/\s+/g, " ").toUpperCase() });
+    claims.push({ type: "date", raw: hit[0], value: hit[0].replace(/\s+/g, " ").toUpperCase(), index: hit.index });
   }
 
   const years = text.matchAll(/\b(20\d{2})\b/g);
   for (const hit of years) {
-    claims.push({ type: "date", raw: hit[1], value: hit[1] });
+    claims.push({ type: "date", raw: hit[1], value: hit[1], index: hit.index });
   }
 
   const monthYear = text.matchAll(new RegExp(`\\b(?:${MONTHS})\\s+20\\d{2}\\b`, "gi"));
   for (const hit of monthYear) {
-    claims.push({ type: "date", raw: hit[0], value: hit[0].toLowerCase() });
+    claims.push({ type: "date", raw: hit[0], value: hit[0].toLowerCase(), index: hit.index });
   }
 
   const availability = text.matchAll(/\b(sold out|available now|units remaining|ready to move)\b/gi);
   for (const hit of availability) {
-    claims.push({ type: "availability", raw: hit[1], value: hit[1].toLowerCase() });
+    claims.push({ type: "availability", raw: hit[1], value: hit[1].toLowerCase(), index: hit.index });
   }
 
   return claims;
@@ -82,7 +86,10 @@ function claimAllowed(claim, allowed) {
 }
 
 export function validateMessage(message, packs, options = {}) {
-  const allowed = collectAllowedClaims(packs, options.allowedClaims || []);
+  message = normalizeBuyerText(message);
+  const evidenceClaims = (options.allowedClaims || []).filter(confirmedEvidenceClass);
+  const literalResearch = literalResearchClaims(message, evidenceClaims);
+  const allowed = collectAllowedClaims(packs, evidenceClaims);
   const derivedAmounts = collectOpportunityAmounts(packs, options.opportunities || [], options.buyer || {});
   const comparisonDifferences = collectComparisonDifferences(packs, options.comparisonFacts);
   for (const difference of comparisonDifferences.filter(row => row.monetary)) derivedAmounts.add(Math.abs(difference.delta));
@@ -100,7 +107,7 @@ export function validateMessage(message, packs, options = {}) {
     }
   }
   const claims = extractCommercialClaims(message);
-  const violations = claims.filter((claim) => !claimAllowed(claim, allowed));
+  const violations = claims.filter((claim) => !claimAllowed(claim, allowed) && !literalResearchSupports(claim, literalResearch));
   const monetaryAmounts = new Set(derivedAmounts);
   for (const pack of packs) {
     for (const [key, fact] of Object.entries(pack)) if (/Aed$/.test(key) && fact?.confirmed === true && typeof fact.value === "number") monetaryAmounts.add(fact.value);
@@ -108,7 +115,7 @@ export function validateMessage(message, packs, options = {}) {
   for (const fact of options.allowedClaims || []) if (/Aed$/.test(fact.field || "") && typeof fact.value === "number") monetaryAmounts.add(fact.value);
   for (const value of options.allowedBuyerAmounts || []) if (value != null) monetaryAmounts.add(Number(value));
   for (const claim of claims) {
-    if (claim.type === "amount" && /(?:\b(?:AED|Dhs|Dh)\b|درهم|دراهم)/i.test(claim.raw) && !amountAllowed(claim.value, monetaryAmounts)) violations.push({ type: "non_monetary_amount" });
+    if (claim.type === "amount" && /(?:\b(?:AED|Dhs|Dh)\b|درهم|دراهم)/i.test(claim.raw) && !amountAllowed(claim.value, monetaryAmounts) && !literalResearchSupports(claim, literalResearch)) violations.push({ type: "non_monetary_amount" });
   }
   const ordinaryAmounts = collectAllowedClaims(packs, options.allowedClaims || []).amounts;
   for (const value of collectOpportunityAmounts(packs, options.opportunities || [], options.buyer || {})) ordinaryAmounts.add(value);
@@ -135,6 +142,32 @@ export function validateMessage(message, packs, options = {}) {
     handoffRequired,
     handoffReason: handoffRequired ? options.handoffReason || "buyer_requested" : null
   };
+}
+
+// Exact sourced research wording may contain prices or payment ratios. It is
+// permitted as a labelled observation, never as a quote or availability claim.
+export function literalResearchClaims(message, allowedClaims = []) {
+  const text = String(message);
+  return allowedClaims.filter(row => row.field === "investmentEvidence" &&
+    ["FACT", "CALCULATION"].includes(row.evidenceClass) && row.source && row.recordId && row.scope &&
+    Number.isFinite(Date.parse(row.verifiedAt || "")) && typeof row.value === "string" && row.value &&
+    text.includes(normalizeBuyerText(row.value)) && /\b(?:research|recorded|observed|FACT|CALCULATION)\b/i.test(text))
+    .map(row => {
+      const value = normalizeBuyerText(row.value);
+      const spans = [];
+      let start = text.indexOf(value);
+      while (start >= 0) {
+        spans.push({ start, end: start + value.length });
+        start = text.indexOf(value, start + value.length);
+      }
+      return { ...row, value, spans };
+    });
+}
+
+export function literalResearchSupports(claim, rows) {
+  return claim.type !== "availability" && Number.isInteger(claim.index) && rows.some(row =>
+    row.spans?.some(span => claim.index >= span.start && claim.index + claim.raw.length <= span.end) &&
+    extractCommercialClaims(row.value).some(part => part.type === claim.type && part.value === claim.value));
 }
 
 /** Accept computed differences only when both operands remain fresh in packs. */
@@ -231,11 +264,16 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
     // citations; there is no unambiguous single offer for a comparison sentence.
     if (!scoped) continue;
     const own = collectAllowedClaims([scoped], (options.allowedClaims || []).filter(claim => claim.projectId === scoped.projectId && (!claim.unitId || claim.unitId === scoped.unitId)));
+    // A sourced multi-project research sentence keeps the scope of its own
+    // record. A project name inside that exact fact does not reassign it to
+    // the last commercial pack; only its literal spans are allowed here.
+    const literal = literalResearchClaims(segment, options.allowedClaims || []);
     for (const claim of extractCommercialClaims(segment)) {
       if (claim.type === "amount" && (derivedAmounts.has(claim.value) || (buyerAmounts.has(claim.value) && /\b(your|you have|budget|cash available|ceiling|put down)\b|ميزاني|المتاح|الدفعة التي|لديك|لديك|سقف/i.test(segment)))) continue;
-      if (!claimAllowed(claim, own)) violations.push({ ...claim, type: "offer_mismatch", projectId: scoped.projectId, unitId: scoped.unitId });
+      if (!claimAllowed(claim, own) && !literalResearchSupports(claim, literal)) violations.push({ ...claim, type: "offer_mismatch", projectId: scoped.projectId, unitId: scoped.unitId });
     }
     for (const match of segment.matchAll(/(?:starts?(?:\s+at|\s+from)?|starting\s+price|price\s*[:—-]?|costs?|priced\s+at)\s*(?:of\s*)?((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?|\d+(?:\.\d+)?\s*[Mk]\b)/gi)) {
+      if (literal.some(row => row.value.includes(match[0]))) continue;
       if (!scoped.startingPriceAed?.confirmed || normalizeAmount(match[1]) !== Number(scoped.startingPriceAed.value)) violations.push({ type: "price_scope", projectId: scoped.projectId });
     }
     for (const match of segment.matchAll(/(?:initial\s+payment|down\s*payment|initial\s+commitment)\s*[:—-]?\s*(?:of\s*)?((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?|\d+(?:\.\d+)?\s*[Mk]\b)/gi)) {
@@ -248,7 +286,7 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
       if (!plan.includes(assertion.toLowerCase())) violations.push({ type: "unsupported_payment_schedule", projectId: scoped.projectId });
     }
     const initialPercent = segment.match(/(?:\d+(?:\.\d+)?\s*%[^.!?\n]{0,30}(?:initial|down\s*payment|booking)|(?:initial|down\s*payment|booking)[^.!?\n]{0,30}\d+(?:\.\d+)?\s*%)/gi) || [];
-    for (const assertion of initialPercent) if (!plan.includes(assertion.toLowerCase())) violations.push({ type: "unsupported_initial_percentage", projectId: scoped.projectId });
+    for (const assertion of initialPercent) if (!plan.includes(assertion.toLowerCase()) && !literal.some(row => row.value.toLowerCase().includes(assertion.toLowerCase()))) violations.push({ type: "unsupported_initial_percentage", projectId: scoped.projectId });
     const availabilityAssertion = /\b(?:is|are|has|have)\s+(?:currently\s+|now\s+)?(?:available|in stock|ready to move)|\bunits?\s+(?:are\s+)?available\b|\bavailability\s*:\s*available\b/i.test(segment);
     if (availabilityAssertion && (!scoped.availability?.confirmed || !/available|ready/i.test(String(scoped.availability.value)))) violations.push({ type: "availability_scope", projectId: scoped.projectId });
     if (/\b(?:last|only)\s+\d+\s+units?\b|\b\d+\s+units?\s+(?:left|remaining)\b/i.test(segment) && !(scoped.availabilityNotes?.confirmed && lower.includes(String(scoped.availabilityNotes.value).toLowerCase()))) violations.push({ type: "unsupported_scarcity", projectId: scoped.projectId });

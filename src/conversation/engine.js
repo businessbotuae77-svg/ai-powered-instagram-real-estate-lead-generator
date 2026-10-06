@@ -19,6 +19,7 @@ import { thesisClaims } from "../facts/advisor-claims.js";
 import { buildInvestmentStrategy, INVESTMENT_PROFILE_FIELDS } from "./investment-strategy.js";
 import { conversationState } from "./conversation-state.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
+import { researchReply } from "./research-reply.js";
 import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
@@ -428,6 +429,14 @@ export class ConversationEngine {
     }
     if (contact && !["paused", "permissions_updated"].includes(draft?.stage)) draft = contact;
     if (contact && draft?.stage === "permissions_updated" && contact.channel === "whatsapp") draft = contact;
+    // Named commercial comparisons can run before buyer qualification creates
+    // advisor.primary. Their concrete fact packs retain the existing gates.
+    const concreteComparison = draft?.stage === "comparison" && draft.comparisonFacts &&
+      draft.factPacks?.length >= 2 && draft.factPacks.every(pack => pack.unitId && !pack.knowledgeOnly);
+    if (!contact && !concreteComparison && !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "welcome_back"].includes(draft?.stage)) {
+      const research = researchReply({ buyer, catalog, message: text, advisor });
+      if (research) draft = research;
+    }
     if (!draft && !contact && strategy && (advisoryReady(buyer) || strategy.type === "no_push")) {
       draft = buildAdvisorReply({ buyer, advisor, strategy, message: text });
       if (draft) packs = draft.factPacks || advisor.packs;
@@ -663,6 +672,8 @@ export class ConversationEngine {
       advisor,
       strategy,
       conversationState: state, investmentProfile, investmentTheses, comparison: comparisonFacts,
+      researchClaims: draft.researchClaims || [], projectRelations: draft.projectRelations || null,
+      knowledgeOnly: draft.knowledgeOnly === true, commercialQuote: draft.commercialQuote ?? null,
       check,
       missingData: missingDataHandoff(packs),
       handoffRequired: followUpSubmitted,

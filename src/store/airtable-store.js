@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { unitLabel } from "./airtable-schema.js";
 import { RUNTIME_DIR } from "./local-store.js";
-import { emptyIntelligence, normalizeAreaIntelligence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory } from "../facts/intelligence.js";
+import { emptyIntelligence, normalizeAreaIntelligence, normalizeInvestmentEvidence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory, normalizeProjectRelationship } from "../facts/intelligence.js";
 import { normalizeCommercialOffer } from "../facts/commercial-offers.js";
 
 function headers(apiKey) {
@@ -52,6 +52,8 @@ export class AirtableStore {
       priceHistory: env.AIRTABLE_PRICE_HISTORY_TABLE || "Price History",
       marketSnapshots: env.AIRTABLE_MARKET_SNAPSHOT_TABLE || "Market Snapshot",
       areas: env.AIRTABLE_AREAS_TABLE || "Areas (research)",
+      projectRelations: env.AIRTABLE_PROJECT_RELATIONSHIPS_TABLE || "Project Relationships (research)",
+      investmentEvidence: env.AIRTABLE_INVESTMENT_EVIDENCE_TABLE || "Investment Evidence (research)",
       researchOffers: env.AIRTABLE_RESEARCH_OFFERS_TABLE || "Offers (research)",
       commercialOffers: env.AIRTABLE_OFFERS_TABLE || null,
       paymentSchedules: env.AIRTABLE_PAYMENT_SCHEDULES_TABLE || null
@@ -251,6 +253,8 @@ export class AirtableStore {
       priceHistory: records("priceHistory").map(row => normalizePriceHistory(row)),
       marketSnapshots: records("marketSnapshots").map(row => normalizeMarketSnapshot(row)),
       areas: records("areas").map(row => normalizeAreaIntelligence(row)),
+      projectRelations: records("projectRelations").map(row => normalizeProjectRelationship(row)),
+      investmentEvidence: records("investmentEvidence").map(row => normalizeInvestmentEvidence(row)),
       offers: [
         ...records("researchOffers").map(row => normalizeCommercialOffer(row, { projects: this.projects, researchOnly: true })),
         ...records("commercialOffers").map(row => normalizeCommercialOffer(row, { projects: this.projects, researchOnly: commercialIsResearch }))

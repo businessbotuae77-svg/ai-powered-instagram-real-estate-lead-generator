@@ -1,13 +1,25 @@
 import { buildProjectKnowledgePack } from "../facts/retrieval.js";
 import { buildInvestmentThesis } from "./investment-thesis.js";
 
+/** Selection is identity only: neither interest nor research grants quote access. */
+export function selectKnowledgeProjects({ buyer = {}, catalog = {}, message = "", now = Date.now(), includeActiveRecommendation = false } = {}) {
+  const text = String(message).toLowerCase();
+  const projects = (catalog.projects || []).filter(project => {
+    const checked = Date.parse(project.lastVerified || "");
+    return project.active !== false && project.approved !== false && project.source && project.developerActive !== false &&
+      Number.isFinite(checked) && checked <= now;
+  });
+  const named = projects.filter(project => project.name && (text.includes(project.name.toLowerCase()) ||
+    (project.sheetProjectId && text.includes(String(project.sheetProjectId).toLowerCase()))));
+  if (named.length) return named.slice(0, 2);
+  if (buyer.projectInterest) return projects.filter(project => project.name?.toLowerCase() === buyer.projectInterest.toLowerCase()).slice(0, 1);
+  return includeActiveRecommendation ? projects.filter(project => project.id === buyer.activeRecommendationProjectId).slice(0, 1) : [];
+}
+
 /** Stable project knowledge remains useful even without a price-qualified unit. */
 export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
   const text = String(message).toLowerCase();
-  const projects = catalog.projects.filter(p => p.active && p.source && p.developerActive !== false);
-  const named = projects.filter(p => text.includes(p.name.toLowerCase()));
-  const selected = named.length ? named.slice(0, 2) : buyer.projectInterest
-    ? projects.filter(p => p.name.toLowerCase() === buyer.projectInterest.toLowerCase()).slice(0, 1) : [];
+  const selected = selectKnowledgeProjects({ buyer, catalog, message });
   if (!selected.length) return null;
   const packs = selected.map(buildProjectKnowledgePack);
   const theses = selected.map((project, i) => buildInvestmentThesis({ project, pack: packs[i], buyer, intelligence: catalog.intelligence }));
