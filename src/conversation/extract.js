@@ -12,6 +12,7 @@ import { refineTurnIntent } from "./intent-policy.js";
 import { parseAdvisoryFacts } from "./advisory-memory.js";
 
 const AREA_LABELS = {
+  "yas canal": "Yas Canal",
   yas: "Yas Island",
   "yas island": "Yas Island",
   hudayriyat: "Hudayriyat Island",
@@ -151,7 +152,10 @@ export function detectIntents(message) {
   if (/^\s*(hi|hello|hey|good\s+(morning|afternoon|evening)|salam|assalam)/i.test(message)) {
     intents.push("greet");
   }
-  if (/\b(start\s+fresh|start\s+over|new\s+search|reset\s+(my\s+)?search)\b/i.test(text)) {
+  if (/\b(start\s+fresh|start\s+over|new\s+search|reset\s+(my\s+)?search|start\s+again)\b/i.test(text)) {
+    intents.push("start_fresh");
+  }
+  if (/^\s*(let'?s\s+)?restart(\s+please)?[.!?]?\s*$/i.test(text)) {
     intents.push("start_fresh");
   }
   if (/^(continue|continue\s+please|pick\s+up|keep\s+going)([.!]?)$/i.test(text.trim())) {

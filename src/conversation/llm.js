@@ -97,7 +97,10 @@ export async function composeReplyWithModel(client, options = {}) {
       buyer, packs, requiredQuestion, metadata: composed, allowedActions, forbiddenActions, opportunities,
       strategy, permittedRecommendations
     });
-    if (!validation.ok) return null;
+    if (!validation.ok) {
+      console.warn("[llm] model reply rejected:", validation.violations?.join("; ") || "validation failed");
+      return null;
+    }
     return {
       message: composed.message.trim(),
       askedQuestion: composed.askedQuestion,
@@ -106,7 +109,8 @@ export async function composeReplyWithModel(client, options = {}) {
       proposedActions: composed.proposedActions,
       validation
     };
-  } catch {
+  } catch (err) {
+    console.warn("[llm] model reply error:", err?.message || String(err));
     return null;
   }
 }
