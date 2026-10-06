@@ -4,6 +4,14 @@ The [2 October 2026 specification](https://docs.google.com/document/d/1u9VLg6DFU
 is authoritative. Local tests use synthetic catalogue records and mocked external
 APIs. They demonstrate code behavior, not successful live integrations.
 
+The commercial advisor acceptance in
+[`COMMERCIAL-ADVISOR.md`](COMMERCIAL-ADVISOR.md) supplements this checklist; the
+original permission, factual, freshness and integration cases still apply. Review
+recommendation scope as catalogue starting prices, retain hard ceilings, verify
+one primary plus a justified challenger and exercise objections without resetting
+buyer state. Use current approved records for live testing; never treat the
+synthetic local fixtures or illustrative transcript as production inventory.
+
 | Case | Local coverage | Required live evidence |
 | --- | --- | --- |
 | 01 Greeting | step20 exploration | Instagram greeting without budget form |

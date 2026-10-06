@@ -37,9 +37,10 @@ export function qualificationGaps(
     buyer.preferredAreas?.length ||
       buyer.projectInterest ||
       buyer.openToOtherAreas ||
+      buyer.areaFlexibility === "open" ||
       buyer.intentSignals?.includes("area_flexible")
   );
-  const hasTypeOrBeds = Boolean(buyer.propertyTypes?.length || (buyer.bedrooms && buyer.bedrooms.length));
+  const hasTypeOrBeds = Boolean(buyer.propertyTypes?.length || buyer.bedrooms?.length || buyer.propertyTypeFlexibility);
 
   if (buyer.budgetAed === null || buyer.budgetAed === undefined) missing.push("budgetAed");
   if (!hasAreaOrProject) missing.push("preferredAreas");
@@ -92,5 +93,7 @@ export function summarizeBuyer(buyer) {
   if (buyer.financing && buyer.financing !== "unknown") {
     parts.push(buyer.financing.replace("_", " "));
   }
+  if (buyer.investmentObjective) parts.push(`investment objective ${buyer.investmentObjective.replaceAll("_", " ")}`);
+  if (buyer.holdingPeriod) parts.push(`holding period ${buyer.holdingPeriod} years`);
   return parts.join(", ") || "no filters yet";
 }

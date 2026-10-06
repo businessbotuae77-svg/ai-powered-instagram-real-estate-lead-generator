@@ -29,11 +29,18 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextSignals.push("informational_eoi");
   }
 
-  if (/\b(stop contacting|stop messaging|stop asking|leave me alone|do not contact|don't contact)\b/i.test(text) || /^(i'm good|im good|i am good|all good|stop|that's all|no thanks|no thank you)[.!?]*$/i.test(text.trim())) {
+  if (/\b(stop contacting|stop messaging|stop asking|leave me alone|do not contact|don't contact)\b/i.test(text) || /^(i'm good|im good|i am good|all good|stop|that's all|no thanks|no thank you|(?:i(?:'m| am) )?not interested)[.!?]*$/i.test(text.trim())) {
     nextIntents.push("stop");
     nextFacts.salesPathStopped = true;
   }
   if (/follow[ -]?up|whatsapp me|contact me|متابعة|واتساب/i.test(text)) nextIntents.push("follow_up");
+  if (/\b(?:do not|don'?t|stop)\s+(?:want\s+(?:any\s+|a\s+)?|(?:to |please )?)(?:follow[ -]?up|contact(?:ing)?|messag(?:e|ing))\b|\bno\s+(?:unsolicited\s+)?follow[ -]?up\b/i.test(text)) {
+    nextIntents = without(nextIntents, ["follow_up", "request_call", "callback", "agent", "high_intent"]);
+    nextSignals = without(nextSignals, HIGH_INTENT_SIGNALS.concat(["high_intent", "request_call"]));
+    nextIntents.push("decline_follow_up");
+    nextFacts.contactDeclined = true;
+    nextFacts.followUpStatus = "none";
+  }
   if (isNegatedReserve(text)) {
     nextIntents = without(nextIntents, ["reserve", "high_intent", "request_call"]);
     nextSignals = without(nextSignals, ["reserve_interest", "high_intent", "request_call"]);
@@ -41,6 +48,13 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextSignals.push("decline_reserve");
   }
 
+  // Explicit EOI progression is a transaction discussion, never completed
+  // submission or call consent. Educational and negated EOI stay excluded.
+  if (!isInformationalEoi(text) && !isNegatedReserve(text) &&
+      /\b(?:want|ready|please|let'?s|would like)\b.{0,45}\b(?:proceed with|submit|start|make|put in)\b.{0,20}\b(?:an?\s+)?eoi\b/i.test(text)) {
+    nextIntents.push("reserve");
+    nextSignals.push("reserve_interest");
+  }
   // "book a viewing" is viewing research, not a reservation hold.
   if (/\b(book|booking)\b/i.test(text) && /\b(viewing|visit|tour|see it|site visit)\b/i.test(text)) {
     nextIntents = without(nextIntents, ["reserve"]);
@@ -84,6 +98,11 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
   if (isProcessQuestionOnly(text)) {
     nextIntents = without(nextIntents, ["reserve", "viewing", "high_intent"]);
     nextSignals = without(nextSignals, ["reserve_interest", "viewing_request", "high_intent"]);
+  }
+  if (/\b(?:do not|don'?t|no|cancel)\b.{0,35}\b(?:viewing|visit|tour)\b/i.test(text)) {
+    nextIntents = without(nextIntents, ["viewing", "high_intent"]);
+    nextSignals = without(nextSignals, ["viewing_request", "high_intent"]);
+    nextIntents.push("decline_viewing");
   }
 
   // Buying interest is conversational only. It never becomes an alert by itself.
@@ -174,6 +193,7 @@ export function isNegatedReserve(text) {
 export function isDeclineCallOffer(text) {
   const value = normalizeBuyerText(text).trim();
   return (
+    explicitlyRejectsCalls(value) ||
     /^(i'?m good|im good|i am good|all good|that'?s all|thats all|no thanks|no thank you)([.!?]*)$/i.test(value) ||
     /\b(i'?m good|im good|i am good)\b/i.test(value) && value.length < 48 ||
     /\b(just browsing|i'?ll let you know|no call|don'?t call|do not call)\b/i.test(value) ||
@@ -201,13 +221,17 @@ export function extractContactPreferences(text) {
     prefs.preferredContactChannel = "phone";
   }
   if (
-    /\b(no calls?|don'?t call|do not call|no phone calls?|without (a )?call|prefer not to (be )?call)/i.test(
+    explicitlyRejectsCalls(value) || /\b(no calls?|don'?t call|do not call|no phone calls?|without (a )?call|prefer not to (be )?call)/i.test(
       value
     )
   ) {
     prefs.noCalls = true;
   }
   return prefs;
+}
+
+function explicitlyRejectsCalls(text) {
+  return /\b(?:never|do not|don'?t|stop)\s+(?:(?:want|need)\s+(?:a\s+|any\s+)?|(?:ever |please |to )?)(?:call(?:ing|s)?|phone|ring|telephone)\b|\b(?:no|without)\s+(?:phone\s+|telephone\s+)?calls?\b|\b(?:do not|don'?t)\s+want\s+(?:you\s+)?to\s+(?:call|phone|ring)\b/i.test(normalizeBuyerText(text));
 }
 
 export function buildCallRequestSummary(buyer, { matches = [], reason = "Requested a call" } = {}) {

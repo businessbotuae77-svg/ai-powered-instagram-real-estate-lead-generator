@@ -24,7 +24,8 @@ test("step 12a client scenario progressive Yas flow remembers then recommends", 
   assert.equal(t3.buyer.budgetAed, 3000000);
 
   const t4 = await engine.handleMessage(user, "What do you recommend?");
-  assert.equal(t4.matchCount, 1);
+  assert.ok(t4.matchCount >= 1 && t4.matchCount <= 2);
+  if (t4.advisor.challenger) assert.ok(t4.advisor.challenger.reasonCodes.length);
   assert.equal(t4.matches[0].project.name, "Yas Park Views");
   assert.doesNotMatch(t4.reply, /What budget are you working with/i);
   assert.ok(t4.check.ok);
@@ -79,7 +80,9 @@ test("step 12e returning same buyer keeps saved filters", async () => {
   assert.equal(again.buyer.budgetAed, 3000000);
   assert.deepEqual(again.buyer.preferredAreas, ["Yas Island"]);
   assert.deepEqual(again.buyer.bedrooms, [3]);
-  assert.equal(again.matchCount, 1);
+  assert.ok(again.matchCount >= 1 && again.matchCount <= 2);
+  assert.equal(again.matches[0].project.name, "Yas Park Views");
+  if (again.advisor.challenger) assert.ok(again.advisor.challenger.reasonCodes.length);
 });
 
 test("step 12f declining phone does not keep asking for contact", async () => {

@@ -2,8 +2,10 @@ import { normalizeBuyerText } from "./text.js";
 
 export function contactDecision({ message, buyer, pending, explicitCall = false, highIntent = false, phoneSubmitted = false }) {
   const text = normalizeBuyerText(message);
+  if (/\b(?:do not|don'?t|stop)\s+(?:want\s+(?:any\s+|a\s+)?|(?:to |please )?)(?:follow[ -]?up|contact(?:ing)?|messag(?:e|ing))\b|\bno\s+(?:unsolicited\s+)?follow[ -]?up\b/i.test(text)) return null;
   const follow = /follow[ -]?up|contact me|whatsapp me|message me on whatsapp|متابعة|واتساب/i.test(text);
-  const human = /speak|talk|advisor|human|agent|مستشار/i.test(text);
+  const human = /\b(?:speak|talk|connect|put me in touch)\b.{0,35}\b(?:advisor|human|agent|someone)\b|\b(?:want|need|request)\b.{0,25}\b(?:an?\s+)?(?:advisor|human|agent)\b|أريد.*مستشار/i.test(text) &&
+    !/\b(?:already (?:have|has)|have my own|working with|don'?t (?:need|want))\b.{0,25}\bagent\b/i.test(text);
   const channelReply = pending?.type === "contact_channel" && /\b(instagram|here|dm|whatsapp|phone|call)\b/i.test(text);
   const pendingPhone = pending?.type === "follow_up_phone" && Boolean(buyer.phone);
   if (!follow && !human && !explicitCall && !highIntent && !phoneSubmitted && !channelReply && !pendingPhone) return null;

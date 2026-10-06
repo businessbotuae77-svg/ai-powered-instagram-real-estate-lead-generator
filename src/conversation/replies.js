@@ -1,7 +1,7 @@
 import { answerFactQuestion } from "./fact-answers.js";
 import { resolveAffirmation, isAffirmation } from "./affirmation.js";
 import { bedroomOptionsFromMatches, canPitchBuyer } from "./match-resolve.js";
-import { renderProjectIntro } from "./project-copy.js";
+import { renderProjectIntro, renderProjectCard } from "./project-copy.js";
 import { nextQualificationQuestion, isCoreQualified } from "./qualify.js";
 import { choicesForField } from "./choices.js";
 
@@ -477,7 +477,7 @@ function finish(lines, stage, nextQuestion, pendingOffer, callRequest = null) {
 
 export function fallbackSafeText(packs) {
   if (!packs.length) {
-    return "I can only share confirmed listing details. Tell me a budget and area and I will check what we have.";
+    return "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
   }
   return packs.map((pack) => {
     const bits = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null]
@@ -488,4 +488,168 @@ export function fallbackSafeText(packs) {
       : "starting price not confirmed yet";
     return `${bits} · ${price}`;
   }).join("\n");
+}
+
+/** Natural offline composition of the same deterministic advisory strategy. */
+export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
+  if (strategy.type === "resolve_objection") {
+    const labels = {
+      initial_payment_too_high: "a lower documented initial payment", too_expensive: "a lower entry price",
+      wrong_area: "a different area", wrong_property_type: "a different property type", too_small: "more space",
+      too_large: "a smaller home", handover_too_late: "an earlier documented handover", handover_too_soon: "a later documented handover",
+      payment_plan_bad: "a more suitable documented payment structure", developer_concern: "a different developer"
+    };
+    return { text: buyer.language === "ar" ? "سأستبعد الخيار الذي رفضته. لا أملك حالياً بديلاً يعالج هذا الاعتراض ويلبي متطلباتك الأخرى، ولن أضغط عليك." :
+      `I'll set the option you rejected aside. I don't have an alternative with ${labels[strategy.objection] || "a solution to that concern"} that meets your other requirements right now.`,
+      stage: "objection_unresolved", nextQuestion: null, pendingOffer: null, callRequest: null };
+  }
+  if (strategy.type === "trust_check") {
+    const prompt = buyer.language === "ar" ? "ما الذي تريد التحقق منه: تفاصيل المشروع أم الأسعار أم إجراءات الشراء؟" : "What would you like to verify first — the project details, the figures, or the buying process?";
+    return { text: prompt, stage: "trust_check", nextQuestion: { field: "trustConcern", prompt }, pendingOffer: null, callRequest: null };
+  }
+  if (buyer.language === "ar") return buildArabicAdvisorReply({ buyer, advisor, strategy, message });
+  if (strategy.type === "no_push") return {
+    text: "Take your time. We can pick this up whenever you're ready.", stage: "paused_advice",
+    nextQuestion: null, pendingOffer: null, callRequest: null
+  };
+  const primary = advisor.primary;
+  if (!primary) return null;
+  const primaryPack = advisor.packs.find(p => p.projectId === primary.projectId && p.unitId === primary.unitId);
+  if (!primaryPack) return null;
+  const name = primaryPack.name.value;
+  if (strategy.type === "answer_action") {
+    if (strategy.nextAction === "compare") {
+      return advisorDraft(advisor.matches.map(m => renderProjectCard(m.factPack)).join("\n"), advisor, "availability", "Want me to check current availability?");
+    }
+    const topic = strategy.nextAction === "availability" ? "availability" : "payment plan";
+    const answer = answerFactQuestion(topic, [primaryPack]);
+    return advisorDraft(answer.text, advisor, strategy.nextAction === "availability" ? null : "availability",
+      strategy.nextAction === "availability" ? null : "Want me to check current availability?", [primaryPack]);
+  }
+  const lines = [];
+  if (strategy.objection === "initial_payment_too_high") lines.push("That changes the shortlist. I'd focus on a lower initial commitment.");
+  if (strategy.objection === "too_expensive") lines.push("I'd bring the entry price down and keep the useful features in focus.");
+  const reason = primaryReason(primary.reasonCodes, buyer, primaryPack);
+  lines.push(`For your priorities, I prefer ${name}${reason ? ` because ${reason}` : " as the cleaner fit"}.`);
+  lines.push(renderProjectCard(primaryPack));
+  if (primary.comparedTo) {
+    const benefit = opportunityBenefit(primary);
+    if (benefit) lines.push(benefit);
+  }
+  const primaryTradeoff = opportunityTradeoffs(primary, buyer);
+  if (primaryTradeoff) lines.push(primaryTradeoff);
+  const challenger = advisor.challenger;
+  if (challenger) {
+    const pack = advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
+    if (pack) {
+      lines.push(`${challenger.type === "smart_upgrade" ? "Upgrade" : "Challenger"}: ${renderProjectCard(pack)}`);
+      const benefit = opportunityBenefit(challenger);
+      if (benefit) lines.push(benefit);
+      const tradeoffs = opportunityTradeoffs(challenger, buyer);
+      if (tradeoffs) lines.push(tradeoffs);
+    }
+  }
+  if (advisor.upgradeAssessment?.reasonCodes?.includes("no_material_buyer_benefit_for_extra_price") &&
+      (/\b(upgrade|extra|more expensive|worth|better)\b/i.test(message) || !buyer.shownProjects?.includes(primary.projectId))) {
+    lines.push("I would not pay extra here without a material benefit for your priorities.");
+  }
+  if (strategy.type === "budget_permission") {
+    const prompt = `Is AED ${Number(buyer.budgetAed).toLocaleString("en-US")} a hard ceiling, or would you stretch slightly for a materially better option?`;
+    const draft = advisorDraft(lines.join("\n"), advisor, null, null);
+    return { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "budgetFlexible", prompt }, pendingOffer: null };
+  }
+  const prompt = strategy.lowPressure ? null : challenger ? "Want me to compare these side by side?" : "Want me to break down the payment terms?";
+  return advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt);
+}
+
+function advisorDraft(text, advisor, action, prompt, packs = advisor.packs) {
+  return {
+    text: [text, prompt].filter(Boolean).join("\n"),
+    stage: advisor.matches[0]?.fit?.tier === "exact" ? "matched" : "soft_match",
+    factPacks: packs,
+    nextQuestion: prompt ? { field: "advisoryNextAction", prompt } : null,
+    pendingOffer: action ? { type: "advisory_next_action", action } : null,
+    callRequest: null,
+    advisoryExposure: {
+      projectIds: advisor.matches.map(m => m.project.id),
+      primaryProjectId: advisor.primary.projectId, primaryUnitId: advisor.primary.unitId,
+      upgradeProjectId: advisor.challenger?.type === "smart_upgrade" ? advisor.challenger.projectId : null
+    }
+  };
+}
+
+function primaryReason(codes = [], buyer, pack) {
+  if (codes.includes("lower_initial_commitment_priority")) return "the documented initial payment better fits your cash priority";
+  if (codes.includes("ready_income_route")) return "it is ready, which suits your preference for a rental-income route; rental figures still need checking";
+  if (codes.includes("ready_move_in_route")) return "its ready status suits your move-in priority";
+  if (codes.includes("more_space_priority")) return "the supported size better suits your need for space";
+  if (codes.includes("off_plan_growth_route")) return "its off-plan status and documented payment structure suit the route you want to compare; this is a fit recommendation, not a growth forecast";
+  if (codes.includes("lower_entry_price_priority")) return "it keeps the entry price lower";
+  return buyer.preferredAreas?.includes(pack.area?.value) ? "it fits your preferred area and price range" : "it fits your price range";
+}
+
+function opportunityBenefit(opportunity) {
+  const benefits = opportunity.buyerBenefit || [];
+  const beds = benefits.find(b => b.code === "additional_bedroom");
+  const cash = benefits.find(b => b.code === "lower_initial_commitment");
+  const size = benefits.find(b => b.code === "larger_supported_size_range");
+  const price = opportunity.priceDifferenceAed;
+  const material = beds ? `moves you from ${beds.from} bedroom${beds.from === 1 ? "" : "s"} to ${beds.to} bedrooms`
+    : cash ? `reduces the documented initial commitment by AED ${Math.abs(opportunity.cashDifferenceAed).toLocaleString("en-US")}`
+      : size ? `gives you a larger documented size range` : benefits.some(b => b.code === "documented_developer_plan") ? "adds a documented developer payment plan"
+        : benefits.some(b => b.code === "earlier_handover") ? "brings the documented handover earlier"
+          : benefits.some(b => b.code === "later_handover") ? "moves the documented handover later to suit your timing"
+            : benefits.some(b => b.code === "different_area_as_requested") ? "moves the search away from the area you rejected"
+              : benefits.some(b => b.code === "property_type_as_requested") ? "changes to the property type you want to compare"
+                : benefits.some(b => b.code === "fewer_bedrooms_as_requested" || b.code === "smaller_supported_size_range") ? "offers a smaller home to address your size concern"
+                  : benefits.some(b => b.code === "different_developer_as_requested") ? "offers a different developer to address your concern" : null;
+  if (price > 0 && material) return `The extra AED ${price.toLocaleString("en-US")} in starting price ${material}.`;
+  if (cash && material) return `This alternative ${material}.`;
+  if (price < 0) return `Its starting price is AED ${Math.abs(price).toLocaleString("en-US")} lower.`;
+  return material ? `This alternative ${material}.` : null;
+}
+
+function opportunityTradeoffs(opportunity, buyer) {
+  const bits = [];
+  if (["within_stretch", "above_original_with_permission"].includes(opportunity.budgetStatus)) bits.push(`above your original AED ${Number(buyer.budgetAed).toLocaleString("en-US")} budget`);
+  if (opportunity.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) bits.push(`outside your preferred area; ${buyer.preferredAreas?.join(" or ")} remains the priority`);
+  if (opportunity.cashDifferenceAed > 0) bits.push(`AED ${opportunity.cashDifferenceAed.toLocaleString("en-US")} more in documented initial payment`);
+  if (opportunity.tradeoffs.some(t => t.code === "different_bedroom_count") && !opportunity.buyerBenefit.some(b => b.code === "additional_bedroom")) bits.push("a different bedroom count");
+  if (opportunity.tradeoffs.some(t => t.code === "different_property_type")) bits.push("a different property type");
+  if (opportunity.tradeoffs.some(t => t.code === "different_handover")) bits.push("a different handover date");
+  return bits.length ? `The trade-off: ${bits.join("; ")}.` : null;
+}
+
+function buildArabicAdvisorReply({ buyer, advisor, strategy, message }) {
+  if (strategy.type === "no_push") return { text: "خذ وقتك. يمكننا المتابعة عندما تكون مستعداً.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null };
+  if (!advisor.primary) return null;
+  const pack = advisor.packs.find(p => p.projectId === advisor.primary.projectId && p.unitId === advisor.primary.unitId);
+  const card = p => `${p.name.value} — ${p.area.value}؛ ${p.bedrooms.value} غرف نوم؛ السعر يبدأ من ${p.startingPriceText.value}؛ الدفعة الأولى ${p.downPaymentText.value || "تحتاج تحققاً"}؛ خطة السداد ${p.paymentPlanSummary.value || "تحتاج تحققاً"}؛ التسليم ${p.handover.value || "يحتاج تحققاً"}.`;
+  if (strategy.type === "answer_action") {
+    const text = strategy.nextAction === "compare" ? advisor.matches.map(m => card(m.factPack)).join("\n")
+      : strategy.nextAction === "availability" ? `${pack.name.value}: التوفر ${pack.availability.value || "يحتاج تحققاً حديثاً"}.`
+        : `${pack.name.value}: خطة السداد ${pack.paymentPlanSummary.value || "تحتاج تحققاً"}.`;
+    const action = strategy.nextAction === "availability" ? null : "availability";
+    return advisorDraft(text, advisor, action, action ? "هل تريد التحقق من التوفر الحالي؟" : null);
+  }
+  const lines = [`أفضل ${pack.name.value} وفقاً لأولوياتك وسعر الدخول والتزامات السداد؛ هذا ترجيح للملاءمة وليس توقعاً للعائد.`, card(pack)];
+  const challenger = advisor.challenger;
+  if (challenger) {
+    const other = advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
+    lines.push(`الخيار البديل: ${card(other)}`);
+    if (challenger.priceDifferenceAed > 0) lines.push(`فرق سعر البداية AED ${challenger.priceDifferenceAed.toLocaleString("en-US")}.`);
+    const beds = challenger.buyerBenefit.find(b => b.code === "additional_bedroom");
+    if (beds) lines.push(`تحصل على ${beds.to} غرف نوم بدلاً من ${beds.from}.`);
+    if (challenger.cashDifferenceAed < 0) lines.push(`تنخفض الدفعة الأولى بمقدار AED ${Math.abs(challenger.cashDifferenceAed).toLocaleString("en-US")}.`);
+    if (challenger.cashDifferenceAed > 0) lines.push(`تزداد الدفعة الأولى بمقدار AED ${challenger.cashDifferenceAed.toLocaleString("en-US")}.`);
+    if (challenger.budgetStatus === "above_original_with_permission") lines.push(`هذا أعلى من ميزانيتك الأصلية AED ${buyer.budgetAed.toLocaleString("en-US")}.`);
+    if (challenger.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) lines.push(`خارج منطقتك المفضلة؛ تبقى ${buyer.preferredAreas.join(" أو ")} الأولوية.`);
+  }
+  if (advisor.upgradeAssessment.reasonCodes.includes("no_material_buyer_benefit_for_extra_price") && (/upgrade|extra|worth|better|أغلى|زيادة/.test(message) || !buyer.shownProjects?.includes(advisor.primary.projectId))) lines.push("لا أنصح بدفع الزيادة دون فائدة ملموسة تناسب أولوياتك.");
+  if (strategy.type === "budget_permission") {
+    const prompt = `هل AED ${buyer.budgetAed.toLocaleString("en-US")} سقف ثابت أم يمكن زيادته قليلاً لخيار أفضل بفائدة ملموسة؟`;
+    return { ...advisorDraft(lines.join("\n"), advisor, null, null), text: `${lines.join("\n")}\n${prompt}`, nextQuestion: { field: "budgetFlexible", prompt } };
+  }
+  const prompt = strategy.lowPressure ? null : challenger ? "هل تريد مقارنة الخيارين جنباً إلى جنب؟" : "هل تريد شرح تفاصيل السداد؟";
+  return advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt);
 }

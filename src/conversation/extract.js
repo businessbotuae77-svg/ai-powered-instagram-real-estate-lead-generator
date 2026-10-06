@@ -9,6 +9,7 @@ import {
 import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { applyChoiceFacts } from "./choices.js";
 import { refineTurnIntent } from "./intent-policy.js";
+import { parseAdvisoryFacts } from "./advisory-memory.js";
 
 const AREA_LABELS = {
   yas: "Yas Island",
@@ -76,7 +77,7 @@ export function extractFactsFromMessage(message) {
 
   const arabicBudget = text.match(/ميزانيتي\s*(\d+(?:\.\d+)?\s*[MK]?)/i);
   if (arabicBudget) facts.budget = parseMoney(arabicBudget[1]);
-  if (/عائد|\broi\b/i.test(text)) facts.useType = "investment";
+  if (/عائد|\broi\b/i.test(text) && !/\b(?:not|don'?t|do not)\b.{0,24}\broi\b/i.test(text)) facts.useType = "investment";
   const budget = extractBudget(text);
   if (budget !== null) facts.budget = budget;
 
@@ -133,6 +134,8 @@ export function extractFactsFromMessage(message) {
   if (intents.includes("callback")) signals.push("callback_request");
   if (intents.includes("agent")) signals.push("agent_request");
 
+  facts = { ...facts, ...parseAdvisoryFacts(text) };
+  if (facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined) intents.push("advisory");
   const refined = refineTurnIntent({ intents, signals, facts, message: text });
   return {
     facts: refined.facts,
@@ -178,7 +181,7 @@ export function detectIntents(message) {
   if (/\b(call me|callback|phone me|whatsapp me|contact me)\b/i.test(text)) {
     intents.push("callback");
   }
-  if (/\b(agent|human|advisor|speak to|talk to (a |an )?(person|someone|sales))\b/i.test(text)) {
+  if (/\b(agent|human|advisor|speak to|talk to (a |an )?(person|someone|sales))\b/i.test(text) && !/\b(already (?:have|has) (?:an? )?agent|have my own agent|working with (?:an? )?agent)\b/i.test(text)) {
     intents.push("agent");
   }
   if (/\b(i want to buy|ready to buy|want this unit|buy this)\b/i.test(text)) {
@@ -212,6 +215,8 @@ export function detectIntents(message) {
 const MONEY_TOKEN = "(\\d[\\d,]*(?:\\.\\d+)?\\s*[MmKk]?)";
 
 function extractBudget(text) {
+  // Additional stretch is consent to a disclosed alternative, not a new budget.
+  if (/\bstretch\b|\b(?:extra|another)\s+(?:AED\s*)?\d/i.test(text) && !/\bbudget\s+(?:is|now|of|to)\b/i.test(text)) return null;
   const patterns = [
     new RegExp(
       `(?:budget(?:\\s+is|\\s+of)?|up to|around|about|max(?:imum)?)\\s*(?:of\\s*)?(?:AED|Dhs|Dh)?\\s*${MONEY_TOKEN}`,
@@ -395,10 +400,12 @@ function extractUseType(text) {
     /\bend\s*use\b/i.test(text) ||
     /\blive\s+in\b/i.test(text) ||
     /\bfor\s+(my\s+)?family\b/i.test(text) ||
+    /\b(?:for my (?:own )?home|buying (?:my |a |an? )?home|my own home)\b/i.test(text) ||
     /\bnot\s+(?:an?\s+)?investment\b/i.test(text)
   ) {
     return "end_use";
   }
+  if (/\b(?:not|don'?t|do not)\s+(?:want|need|interested in|looking for)?\s*(?:an?\s+)?(?:investment|investing|roi)\b/i.test(text)) return null;
   if (/\binvest(ment|or|ing)?\b/i.test(text) || /\brental\s+yield\b/i.test(text)) return "investment";
   return USE_TYPES.includes(text) ? text : null;
 }

@@ -10,7 +10,9 @@ test("step 11a matched reply passes fact check", async () => {
     "ig_m2_fc1",
     "AED 3M budget, Yas, 3 bedroom, 500k cash, payment plan"
   );
-  assert.equal(result.matchCount, 1);
+  assert.ok(result.matchCount >= 1 && result.matchCount <= 2);
+  assert.equal(result.matches[0].project.name, "Yas Park Views");
+  if (result.advisor.challenger) assert.ok(result.advisor.challenger.reasonCodes.length);
   assert.ok(result.check.ok);
   assert.equal(result.check.violations.length, 0);
   assert.match(result.reply, /2,600,000|2600000/);

@@ -7,8 +7,12 @@ import { extractFactsFromMessage } from "./extract.js";
 import { ConversationMemory } from "./memory.js";
 import { canPitchBuyer, resolveMatches } from "./match-resolve.js";
 import { summarizeBuyer, isCoreQualified } from "./qualify.js";
-import { buildConversationReply, fallbackSafeText } from "./replies.js";
-import { polishReplyWithModel } from "./llm.js";
+import { buildConversationReply, buildAdvisorReply, fallbackSafeText } from "./replies.js";
+import { composeReplyWithModel } from "./llm.js";
+import { buildAdvisorOpportunities } from "./advisor-opportunities.js";
+import { advisoryReady, determineAdvisorStrategy } from "./advisor-strategy.js";
+import { sanitizeBuyerLanguage, validateBuyerResponse } from "./response-validation.js";
+import { buildFactPack } from "../facts/retrieval.js";
 import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
@@ -38,12 +42,13 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
-  constructor({ buyers, properties, memory, llm = null } = {}) {
+  constructor({ buyers, properties, memory, llm = null, advisorOptions = {} } = {}) {
     if (!buyers || !properties) throw new Error("ConversationEngine requires buyers and properties");
     this.buyers = buyers;
     this.properties = properties;
     this.memory = memory || new ConversationMemory();
     this.llm = llm;
+    this.advisorOptions = advisorOptions;
     this.turnQueue = Promise.resolve();
   }
 
@@ -83,6 +88,21 @@ export class ConversationEngine {
 
     const merged = mergeUnderstanding(base, understanding);
     let { facts, signals, intents, unsure, ack } = merged;
+    // Understanding output is advisory input, never permission. Only the local
+    // interpretation of the buyer's actual words can authorize or revoke an
+    // action/channel, reset a search, or resume a stopped sales path.
+    const deterministic = mergeUnderstanding(base, localUnderstanding);
+    const protectedIntents = new Set(["reserve", "viewing", "request_call", "callback", "agent", "high_intent",
+      "follow_up", "no_calls", "stop", "decline_call", "decline_reserve", "decline_contact", "call_submitted",
+      "start_fresh", "continue", "decline_follow_up", "decline_viewing"]);
+    intents = [...new Set([...intents.filter(i => !protectedIntents.has(i)), ...deterministic.intents.filter(i => protectedIntents.has(i))])];
+    const protectedSignals = /(?:call|callback|agent|reserve|viewing|high_intent|buy_interest|contact_declined)/;
+    signals = [...new Set([...signals.filter(s => !protectedSignals.test(s)), ...deterministic.signals.filter(s => protectedSignals.test(s))])];
+    for (const field of ["noCalls", "salesPathStopped", "preferredContactChannel", "contactDeclined", "requestedAction", "phone",
+      "budget", "cash", "budgetHardCap", "budgetFirm", "budgetFlexible", "budgetStretchAed", "budgetFlexibilityPct", "upgradeDeclined"]) {
+      delete facts[field];
+      if (deterministic.facts[field] !== undefined) facts[field] = deterministic.facts[field];
+    }
     facts.language = buyerLanguage(message) === "ar" ? "ar" : existingBuyer.language || "en";
     const directCashReply =
       (lastAskedField === "cashAvailableAed" || lastAskedField === "cash") &&
@@ -144,8 +164,11 @@ export class ConversationEngine {
     else if (intents.includes("follow_up")) facts.requestedAction = existingBuyer.requestedAction || "Requested follow-up";
 
     // A new search or fact update reopens a previously paused sales path.
+    const pacingRefusalThisTurn = deterministic.facts.objections?.some(o =>
+      ["not_interested", "needs_time", "already_has_agent"].includes(o.category)) || intents.includes("stop");
     if (
-      buyerWouldResume(facts, intents) &&
+      (buyerWouldResume(deterministic.facts, deterministic.intents) || ["request_call", "follow_up", "reserve", "viewing"].some(i => intents.includes(i))) &&
+      !pacingRefusalThisTurn &&
       (existingBuyer.salesPathStopped || existingBuyer.followUpStatus === "paused")
     ) {
       facts.salesPathStopped = false;
@@ -244,6 +267,12 @@ export class ConversationEngine {
     }
 
     let buyer = await this.buyers.remember(instagramUserId, facts);
+    const explicitResume = buyerWouldResume(deterministic.facts, deterministic.intents) ||
+      ["request_call", "follow_up", "reserve", "viewing"].some(i => intents.includes(i));
+    if (explicitResume && !pacingRefusalThisTurn && buyer.objections?.some(o => !o.resolved && ["not_interested", "needs_time", "already_has_agent"].includes(o.category))) {
+      buyer = await this.buyers.patchBuyer(instagramUserId, { objections: buyer.objections.map(o =>
+        ["not_interested", "needs_time", "already_has_agent"].includes(o.category) ? { ...o, resolved: true } : o) });
+    }
     if (facts.openToOtherAreas === true || signals.includes("area_flexible")) {
       buyer = await this.buyers.updateMeta(instagramUserId, {
         intentSignals: ["area_flexible"]
@@ -289,8 +318,52 @@ export class ConversationEngine {
       try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
     }
     const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog();
-    const matchResult = resolveMatches(catalog, buyer);
+    const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
+    if (namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
+        /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
+      facts.project = namedProjects[0].name;
+      buyer = await this.buyers.remember(instagramUserId, { project: facts.project });
+    }
+    // Bind objections to the last displayed primary, never to a freshly ranked
+    // candidate. Contact boundaries are handled independently below.
+    for (const objection of facts.objections || []) {
+      if (["no_calls", "not_interested", "needs_time", "already_has_agent", "trust_concern"].includes(objection.category)) continue;
+      const projectId = buyer.activeRecommendationProjectId;
+      if (projectId && this.buyers.recordObjection) {
+        buyer = await this.buyers.recordObjection(instagramUserId, {
+          projectId, unitId: buyer.activeRecommendationUnitId,
+          category: objection.category
+        });
+      }
+    }
+    if (facts.upgradeDeclined && buyer.lastUpgradeProjectId && this.buyers.recordObjection) {
+      buyer = await this.buyers.recordObjection(instagramUserId, {
+        projectId: buyer.lastUpgradeProjectId, category: "too_expensive"
+      });
+    }
+    let matchResult = resolveMatches(catalog, buyer);
+    const explicitRequestedProjectIds = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()) &&
+      /\b(show|review|reconsider|back to|tell me|focus|want)\b/i.test(text)).map(p => p.id);
+    const advisor = buildAdvisorOpportunities(catalog, buyer, { ...this.advisorOptions, explicitRequestedProjectIds,
+      requestedRecommendation: /\b(recommend|show|compare|options|keep looking)\b/i.test(text) });
+    const strategy = determineAdvisorStrategy({ buyer, advisor, message: text,
+      pendingOffer: this.memory.getPendingOffer(instagramUserId) });
+    if (advisoryReady(buyer) && advisor.primary) {
+      matchResult = { ...matchResult, matches: advisor.matches, matchCount: advisor.matches.length,
+        mode: advisor.matches[0]?.fit?.tier || "exact", fitTier: advisor.matches[0]?.fit?.tier || "exact",
+        compromises: advisor.matches.flatMap(m => m.fit?.compromises || []),
+        mismatches: advisor.matches.flatMap(m => (m.fit?.compromises || []).map(c => c.text)) };
+    }
     let packs = retrieveFacts(matchResult.matches);
+    // A follow-up about "it" uses the same exact offer. Do not replace it with
+    // another unit while answering plan/price/availability questions.
+    if (intents.includes("ask_facts") && !facts.project && buyer.activeRecommendationProjectId) {
+      const project = catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId);
+      const unit = catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === project?.id);
+      if (project && unit) packs = [buildFactPack({ project, unit,
+        downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed,
+        bedroomLabel: String(unit.bedrooms) })];
+    }
     if (!packs.length && intents.includes("ask_facts") && buyer.projectInterest) {
       const project = catalog.projects.find(p => p.name.toLowerCase() === buyer.projectInterest.toLowerCase());
       const unit = project && catalog.units.find(u => u.projectId === project.id);
@@ -312,18 +385,40 @@ export class ConversationEngine {
       (contact.channel !== "phone" || !buyer.noCalls);
     const alertReason = alertRecommended ? (callRequestSubmitted ? "call_request" : "follow_up") : null;
     let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError });
+    if (!contact && ["resolve_objection", "trust_check"].includes(strategy?.type) && !["paused", "permissions_updated", "education", "catalog_unavailable"].includes(draft?.stage)) {
+      draft = buildAdvisorReply({ buyer, advisor, strategy, message: text });
+      matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
+      packs = [];
+    }
     if (contact && draft?.stage === "permissions_updated" && contact.channel === "whatsapp") draft = contact;
+    if (!draft && !contact && strategy && (advisoryReady(buyer) || strategy.type === "no_push")) {
+      draft = buildAdvisorReply({ buyer, advisor, strategy, message: text });
+      if (draft) packs = draft.factPacks || advisor.packs;
+    }
+    // The external handoff uses the offer already discussed, even if a newly
+    // volunteered payment preference would otherwise change internal ranking.
+    if (contact && buyer.activeRecommendationProjectId && !facts.project) {
+      const selected = advisor.candidates.find(m => m.project.id === buyer.activeRecommendationProjectId && m.unit.id === buyer.activeRecommendationUnitId);
+      if (selected) matchResult = { ...matchResult, matches: [selected], matchCount: 1,
+        mode: selected.fit.tier, fitTier: selected.fit.tier,
+        compromises: selected.fit.compromises, mismatches: selected.fit.compromises.map(c => c.text) };
+    }
     if (!draft) draft = contact || buildConversationReply({
       buyer, message: text, intents, packs, matches: matchResult.matches,
       matchMode: matchResult.mode, mismatches: matchResult.mismatches || [],
       highIntent, handoffRequested, offerCallRequest,
       pendingOffer: this.memory.getPendingOffer(instagramUserId), unsure, ack, lastAskedField, updatedFields
     });
-    if (draft.stage === "paused" || draft.stage === "permissions_updated" || contact?.submitted) {
+    if (["paused", "paused_advice", "permissions_updated", "objection_unresolved", "trust_check"].includes(draft.stage) || contact?.submitted) {
       this.memory.setPendingOffer(instagramUserId, null);
     }
 
     if (draft.factPacks) packs = draft.factPacks;
+    if (draft.stage === "fact_answer" && ["paymentPlan", "initial"].includes(draft.factTopic) && buyer.activeRecommendationProjectId && !buyer.salesPathStopped) {
+      const prompt = buyer.language === "ar" ? "هل تريد التحقق من التوفر الحالي؟" : "Want me to check current availability?";
+      draft = { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "advisoryNextAction", prompt },
+        pendingOffer: { type: "advisory_next_action", action: "availability" } };
+    }
     draft = localizeDraft(draft, buyer, packs);
     if (draft.pendingOffer) {
       this.memory.setPendingOffer(instagramUserId, draft.pendingOffer);
@@ -331,19 +426,35 @@ export class ConversationEngine {
       if (!draft.nextQuestion) this.memory.setPendingOffer(instagramUserId, null);
     }
 
-    this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
-
-    // Keep call handoff copy exact — polish must not turn it back into a sales pitch.
-    if (this.llm && options.useLlm !== false && !["call_offer", "call_requested", "follow_up_requested", "paused", "permissions_updated", "education", "comparison", "exploring", "knowledge_answer", "follow_up_channel", "follow_up_phone", "catalog_unavailable"].includes(draft.stage)) {
-      const polished = await polishReplyWithModel(this.llm, {
+    draft = { ...draft, text: sanitizeBuyerLanguage(draft.text) };
+    const allowedActions = allowedResponseActions(buyer, draft);
+    const forbiddenActions = ["execute_reservation", "collect_payment", "claim_action_completed",
+      ...(buyer.noCalls ? ["call"] : []), ...(buyer.salesPathStopped ? ["capture", "follow_up"] : [])];
+    const validationOptions = { buyer, opportunities: advisor.opportunities,
+      allowedBuyerAmounts: [buyer.budgetAed, buyer.cashAvailableAed].filter(v => v != null),
+      educationalSplit: draft.educationalSplit,
+      permittedRecommendations: ["matched", "soft_match"].includes(draft.stage)
+        ? matchResult.matches.map(m => ({ projectId: m.project.id, unitId: m.unit.id })) : [],
+      requiredAdvisory: draft.advisoryExposure && strategy?.type !== "answer_action" ? advisor.opportunities : [] };
+    // Every deterministic stage can be expressed naturally. The model composes
+    // one complete message; rejected output leaves the safe strategy unchanged.
+    if (this.llm && options.useLlm !== false) {
+      const composed = await composeReplyWithModel(this.llm, {
         buyer,
         packs,
         draftText: draft.text,
+        message: text,
+        recentTurns,
         intents,
-        requiredQuestion: draft.nextQuestion?.prompt || null,
+        requiredQuestion: draft.nextQuestion || null,
+        opportunities: advisor.opportunities,
+        strategy: strategy || { type: draft.stage },
+        allowedActions,
+        forbiddenActions,
+        validationOptions,
         language: buyer.language
       });
-      if (polished) draft = { ...draft, text: polished, polished: true };
+      if (composed) draft = { ...draft, text: composed.message, polished: true };
     }
 
     const allowedBuyerAmounts = [buyer.budgetAed, buyer.cashAvailableAed].filter(
@@ -354,20 +465,36 @@ export class ConversationEngine {
       handoffRequested,
       handoffReason: handoffRequested ? "buyer_requested" : null,
       allowedBuyerAmounts,
-      educationalSplit: draft.educationalSplit
+      educationalSplit: draft.educationalSplit,
+      buyer,
+      opportunities: advisor.opportunities
     });
+    const responseCheck = validateBuyerResponse(draft.text, { ...validationOptions,
+      packs, requiredQuestion: draft.nextQuestion, allowedActions, forbiddenActions });
+    if (!responseCheck.ok) check = { ...check, ok: false, violations: [...check.violations, ...responseCheck.violations] };
 
     let replyText = draft.text;
     if (!check.ok) {
-      replyText = packs.length
-        ? fallbackSafeText(packs)
-        : "I can only share confirmed listing details. Tell me a budget and area and I will check what we have.";
+      const fallbackPacks = draft.advisoryExposure ? packs.filter(p => matchResult.matches.some(m => m.project.id === p.projectId && m.unit.id === p.unitId)).slice(0, 2) : packs.slice(0, 2);
+      replyText = fallbackPacks.length
+        ? fallbackSafeText(fallbackPacks)
+        : "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
       check = validateMessage(replyText, packs, {
         handoffRequested,
         handoffReason: handoffRequested ? "buyer_requested" : null,
-        allowedBuyerAmounts
+        allowedBuyerAmounts,
+        buyer,
+        opportunities: advisor.opportunities
       });
-      draft = { ...draft, text: replyText, stage: "fact_check_fallback", polished: false };
+      draft = { ...draft, text: replyText, stage: "fact_check_fallback", polished: false, nextQuestion: null, pendingOffer: null };
+      this.memory.setPendingOffer(instagramUserId, null);
+    }
+    this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
+    if (check.ok && strategy?.type === "budget_permission" && draft.stage !== "fact_check_fallback") {
+      buyer = await this.buyers.patchBuyer(instagramUserId, { budgetFlexibilityAsked: true });
+    }
+    if (check.ok && draft.advisoryExposure && this.buyers.recordAdvisoryExposure) {
+      buyer = await this.buyers.recordAdvisoryExposure(instagramUserId, draft.advisoryExposure);
     }
 
     const status = leadStatusFor(buyer, intents, signals, matchResult.matchCount, callRequestSubmitted);
@@ -423,9 +550,13 @@ export class ConversationEngine {
       salesPathStopped: buyer.salesPathStopped
     });
 
+    const activeProject = catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId);
+    const activeUnit = catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === activeProject?.id);
+    const handoffMatches = activeProject && activeUnit ? [{ project: activeProject, unit: activeUnit,
+      downPaymentAed: activeUnit.initialPaymentAed ?? activeProject.initialPaymentAed }] : matchResult.matches;
     const callSummary = followUpSubmitted
       ? buildCallRequestSummary(buyer, {
-          matches: matchResult.matches,
+          matches: handoffMatches,
           reason: options.callReason || (callRequestSubmitted ? "Buyer submitted Request a Call" : "Buyer requested follow-up")
         })
       : null;
@@ -465,6 +596,8 @@ export class ConversationEngine {
       mismatches: matchResult.mismatches || [],
       compromises: matchResult.compromises || [],
       packs,
+      advisor,
+      strategy,
       check,
       missingData: missingDataHandoff(packs),
       handoffRequired: followUpSubmitted,
@@ -508,6 +641,14 @@ export function createConversationEngine(services, options = {}) {
     buyers: services.buyers,
     properties: services.properties,
     memory: options.memory,
-    llm: options.llm || null
+    llm: options.llm || null,
+    advisorOptions: options.advisorOptions || {}
   });
+}
+
+function allowedResponseActions(buyer, draft) {
+  if (buyer.salesPathStopped || ["paused", "permissions_updated", "catalog_unavailable"].includes(draft.stage)) return [];
+  if (draft.nextQuestion?.field === "phone") return ["request_phone"];
+  if (["call_requested", "follow_up_requested"].includes(draft.stage)) return [];
+  return ["compare", "payment_details", "availability", "focus", "eoi", "viewing", "contact_channel"];
 }

@@ -7,13 +7,14 @@ import { normalizeBuyerText } from "./text.js";
 
 import { parseMoney, normalizeArea, normalizeBedrooms, normalizePropertyType, normalizeDeveloper } from "../matching/normalize.js";
 import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
+import { ADVISORY_FACT_FIELDS, parseAdvisoryFacts, normalizeAdvisoryFacts } from "./advisory-memory.js";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 
 const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "You extract structured buyer requirements from Abu Dhabi off-plan property chat.",
   "Return ONLY valid JSON with this shape:",
-  '{"facts":{"budget":number|null,"cash":number|null,"area":string|null,"areas":string[]|null,"bedrooms":number|number[]|null,"propertyType":string|null,"developer":string|null,"project":string|null,"financing":"cash"|"mortgage"|"payment_plan"|null,"useType":"investment"|"end_use"|null,"contactDeclined":boolean|null,"openToOtherAreas":boolean|null},"unsure":string[],"intents":string[],"signals":string[],"ack":string|null}',
+  '{"facts":{"budget":number|null,"cash":number|null,"area":string|null,"areas":string[]|null,"bedrooms":number|number[]|null,"propertyType":string|null,"developer":string|null,"project":string|null,"financing":"cash"|"mortgage"|"payment_plan"|null,"useType":"investment"|"end_use"|null,"investmentObjective":"rental_income"|"growth"|"balanced"|null,"holdingPeriod":number|null,"explorationState":boolean|null,"areaFlexibility":"open"|"preferred"|"fixed"|null,"propertyTypeFlexibility":boolean|null,"priorities":string[],"objections":[{"category":string}],"contactDeclined":boolean|null,"openToOtherAreas":boolean|null},"unsure":string[],"intents":string[],"signals":string[],"ack":string|null}',
   "Rules:",
   "- Convert money to AED numbers. around/about/roughly 2M → 2000000. 300k → 300000. no more than 150k down → cash 150000.",
   "- bedrooms studio → 0. Corrections like actually make that 2 bedrooms replace bedrooms.",
@@ -22,6 +23,9 @@ const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "- Canonicalize Masdar as Masdar City. If buyer says what about Masdar, forget Yas, or switch to Reem, set area to the newly requested area only.",
   "- If buyer says not sure / unsure / idk / I don't know about a field, put that field name in unsure (budget, cash, area, bedrooms, financing) and leave facts for that field null.",
   "- If the buyer does not know the area, also set openToOtherAreas true so the conversation moves forward across Abu Dhabi instead of asking area again.",
+  "- Best ROI means investment intent. Growth/rental income/both answers update investmentObjective; do not clear the known budget or choose an area on their behalf.",
+  "- Exploring is a valid state. Set explorationState true; do not turn it into a home/investment objective without an explicit buyer preference.",
+  "- holdingPeriod is years, only if buyer supplies it. Objections are buyer concerns, not permission to invent listing facts or contact consent.",
   "- If open to other areas while preferring one, set area plus openToOtherAreas true.",
   "- intents may include greet, unsure, search, correction, decline_contact, high_intent, reserve, viewing, ask_facts, continue, start_fresh.",
   "- ack is one short natural sentence acknowledging the update with NO prices, projects, or commercial claims. null if nothing useful.",
@@ -43,11 +47,18 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
       noCalls: buyer?.noCalls,
       salesPathStopped: buyer?.salesPathStopped,
       budgetAed: buyer?.budgetAed ?? null,
+      budgetHardCap: buyer?.budgetHardCap !== false,
+      budgetFirm: buyer?.budgetFirm || false,
+      budgetFlexible: buyer?.budgetFlexible || false,
       cashAvailableAed: buyer?.cashAvailableAed ?? null,
       preferredAreas: buyer?.preferredAreas || [],
       bedrooms: buyer?.bedrooms || [],
       financing: buyer?.financing || null,
       useType: buyer?.useType || null,
+      investmentObjective: buyer?.investmentObjective || null,
+      holdingPeriod: buyer?.holdingPeriod || null,
+      priorities: buyer?.priorities || [],
+      concerns: buyer?.concerns || [],
       projectInterest: buyer?.projectInterest || null
     },
     recentTurns: recentTurns.slice(-6).map((t) => ({ role: t.role, text: t.text }))
@@ -88,7 +99,7 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
  */
 export function understandMessageLocally(message, { buyer = null, lastAskedField = null } = {}) {
   const text = normalizeBuyerText(message).trim();
-  const facts = {};
+  const facts = parseAdvisoryFacts(text, { buyer, lastAskedField });
   const unsure = [];
   const intents = [];
   const signals = [];
@@ -128,11 +139,14 @@ export function understandMessageLocally(message, { buyer = null, lastAskedField
       !/\d/.test(text));
 
   if (unsureOnly || areaUnsure) {
-    const field = areaUnsure ? "area" : mapAskedField(lastAskedField) || "budget";
-    unsure.push(field);
+    const roiAdvisory = /\b(?:roi|return on investment|investment)\b/i.test(text);
+    const safeAskedField = askedField === "budget" && (buyer?.budgetAed != null || roiAdvisory) ? null : askedField;
+    const field = areaUnsure ? "area" : safeAskedField || (buyer?.budgetAed != null || roiAdvisory ? null : "budget");
+    if (field) unsure.push(field);
     intents.push("unsure");
     if (field === "area") {
       facts.openToOtherAreas = true;
+      facts.areaFlexibility = "open";
       signals.push("area_flexible");
     }
     ack =
@@ -210,6 +224,9 @@ export function understandMessageLocally(message, { buyer = null, lastAskedField
     ack = ack || `Looking at ${facts.bedrooms.join(" or ")} bedroom options.`;
   }
 
+  if (facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined || facts.explorationState === true) intents.push("advisory");
+  if (facts.openToOtherAreas === true) signals.push("area_flexible");
+
   return normalizeUnderstanding({ facts, unsure, intents, signals, ack }, "local");
 }
 
@@ -249,6 +266,8 @@ export function mergeUnderstanding(baseExtract, understanding) {
   if (rawFacts.openToOtherAreas === true) {
     facts.openToOtherAreas = true;
   }
+  if (rawFacts.openToOtherAreas === false) facts.openToOtherAreas = false;
+  for (const field of ADVISORY_FACT_FIELDS) if (rawFacts[field] !== undefined) facts[field] = rawFacts[field];
 
   for (const field of u.unsure || []) {
     if (field === "budget") delete facts.budget;
@@ -313,7 +332,8 @@ export function normalizeUnderstanding(raw, source = "none") {
   }
   if (factsIn.useType && USE_TYPES.includes(factsIn.useType)) facts.useType = factsIn.useType;
   if (factsIn.contactDeclined === true) facts.contactDeclined = true;
-  if (factsIn.openToOtherAreas === true) facts.openToOtherAreas = true;
+  if (typeof factsIn.openToOtherAreas === "boolean") facts.openToOtherAreas = factsIn.openToOtherAreas;
+  Object.assign(facts, normalizeAdvisoryFacts(factsIn, { allowBudgetControls: source !== "claude" }));
 
   const unsure = Array.isArray(input.unsure)
     ? input.unsure.map(mapAskedField).filter(Boolean)

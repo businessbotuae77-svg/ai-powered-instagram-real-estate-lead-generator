@@ -18,7 +18,15 @@ export function resolveMatches(catalog, buyer) {
     return emptyResult(criteria);
   }
 
-  const assessments = assessInventory(catalog, buyer);
+  // Legacy compromise copy may explain a size or financing gap, but must never
+  // smuggle an unpriced or over-ceiling property into the buyer's shortlist.
+  const originalBudget = Number(buyer.budgetAed);
+  const assessments = assessInventory(catalog, buyer).filter(row =>
+    Number.isFinite(row.unit.startingPriceAed) && row.unit.startingPriceAed > 0 &&
+    row.unit.startingPriceAed <= originalBudget &&
+    !(buyer.rejectedProjects || []).includes(row.project.id) &&
+    !(row.project.area === "Hudayriyat Island" && row.unit.bedrooms === 0)
+  );
   const bestTier = bestRecommendableTier(assessments);
   if (bestTier === "none") return emptyResult(criteria, assessments);
 
@@ -26,10 +34,10 @@ export function resolveMatches(catalog, buyer) {
   const rankedTier = rankMatches(tierMatches);
   // A compromise explanation must describe the same unit the buyer sees.
   // Exact results may still show a small choice set; non-exact tiers get one hero.
-  const pitched =
+  const pitched = (
     bestTier === "exact"
       ? limitMatchesForPitch(rankedTier)
-      : rankedTier.slice(0, 1);
+      : rankedTier.slice(0, 1)).slice(0, 2);
   const compromises = pitched.flatMap((row) =>
     row.fit.compromises.map((gap) => ({ ...gap, project: row.project.name }))
   );
@@ -59,7 +67,7 @@ export function canPitchBuyer(buyer) {
   );
   const hasSize = Boolean(buyer.propertyTypes?.length || buyer.bedrooms?.length);
   return Boolean(
-    buyer.budgetAed && (hasSpecificLocation || (areaFlexible && hasSize))
+    buyer.budgetAed && (hasSpecificLocation || (areaFlexible && hasSize) || buyer.investmentObjective)
   );
 }
 

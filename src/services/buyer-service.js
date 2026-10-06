@@ -1,4 +1,5 @@
 import { emptyBuyer, FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
+import { ADVISORY_FACT_FIELDS, OBJECTION_CATEGORIES, normalizeAdvisoryFacts } from "../conversation/advisory-memory.js";
 import {
   normalizeArea,
   normalizeBedrooms,
@@ -19,10 +20,14 @@ function hasValue(value) {
 }
 
 export function mergeBuyer(existing, patch) {
-  const base = existing ? { ...existing } : emptyBuyer(patch.instagramUserId);
+  const base = { ...emptyBuyer(patch.instagramUserId || existing?.instagramUserId), ...(existing || {}) };
   const next = { ...base };
   for (const [key, value] of Object.entries(patch)) {
     if (key === "instagramUserId") continue;
+    if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "investmentObjective"].includes(key)) {
+      if (value === null || (typeof value === "string" && value.trim())) next[key] = value;
+      continue;
+    }
     if (key === "salesPathStopped" || key === "noCalls") {
       if (value === true || value === false) next[key] = value;
       continue;
@@ -56,6 +61,45 @@ export function mergeBuyer(existing, patch) {
   if (hasValue(patch.intentSignals)) {
     next.intentSignals = uniqueStrings(patch.intentSignals);
   }
+  for (const field of ["priorities", "concerns", "shownProjects", "rejectedProjects"]) {
+    if (Array.isArray(patch[field])) next[field] = uniqueStrings([...(base[field] || []), ...patch[field]]).slice(-100);
+  }
+  if (patch.rejectionReasons && typeof patch.rejectionReasons === "object") next.rejectionReasons = { ...base.rejectionReasons, ...patch.rejectionReasons };
+  if (Array.isArray(patch.objections)) {
+    const objections = [...(base.objections || [])];
+    for (const raw of patch.objections) {
+      const objection = typeof raw === "string" ? { category: raw } : raw;
+      if (!OBJECTION_CATEGORIES.includes(objection?.category)) continue;
+      const entry = { ...objection, projectId: objection.projectId || null, unitId: objection.unitId || null, resolved: objection.resolved === true, at: objection.at || nowIso() };
+      const index = objections.findIndex(item => item.category === entry.category && ((item.projectId === entry.projectId && item.unitId === entry.unitId) || (entry.projectId && !item.projectId && !item.resolved)));
+      if (index === -1) objections.push(entry);
+      else objections[index] = { ...objections[index], ...entry };
+    }
+    next.objections = objections.slice(-40);
+  }
+  // Changing the original budget starts a new, firm ceiling unless the buyer also
+  // explicitly grants flexibility in the same update.
+  if (patch.budgetAed != null && Number(patch.budgetAed) !== Number(base.budgetAed) && patch.budgetFlexible === undefined && patch.budgetFirm !== true) {
+    Object.assign(next, { budgetHardCap: true, budgetFirm: false, budgetFlexible: false, budgetFlexibilityPct: 0, budgetStretchAed: 0, budgetFlexibilityAsked: false });
+  }
+  if (patch.budgetFirm === true || patch.budgetFlexible === false) {
+    Object.assign(next, { budgetHardCap: true, budgetFlexible: false, budgetFlexibilityPct: 0, budgetStretchAed: 0 });
+  } else if (patch.budgetFlexible === true) {
+    next.budgetHardCap = false;
+  }
+  if (patch.areaFlexibility === "open") next.openToOtherAreas = true;
+  if (patch.areaFlexibility === "fixed") next.openToOtherAreas = false;
+  if (patch.openToOtherAreas === false && hasValue(patch.preferredAreas) && patch.areaFlexibility === undefined) next.areaFlexibility = "preferred";
+  if (patch.openToOtherAreas === true && patch.areaFlexibility === undefined) next.areaFlexibility = next.preferredAreas?.length ? "preferred" : "open";
+  if (patch.useType && patch.useType !== "unknown") next.explorationState = false;
+  if (patch.useType === "end_use") {
+    next.investmentObjective = null;
+    next.priorities = next.priorities.filter(priority => !["rental_income", "capital_growth", "balanced_returns"].includes(priority));
+  }
+  if (patch.investmentObjective) {
+    const objectivePriorities = { growth: "capital_growth", rental_income: "rental_income", balanced: "balanced_returns" };
+    next.priorities = next.priorities.filter(priority => !["rental_income", "capital_growth", "balanced_returns"].includes(priority) || priority === objectivePriorities[patch.investmentObjective]);
+  }
   if (patch.contactDeclined === true) next.contactDeclined = true;
   if (patch.contactDeclined === false) next.contactDeclined = false;
   const timestamp = nowIso();
@@ -83,6 +127,8 @@ export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   if (facts.areas) patch.preferredAreas = facts.areas.map(normalizeArea).filter(Boolean);
   if (facts.openToOtherAreas === true) patch.openToOtherAreas = true;
   if (facts.openToOtherAreas === false) patch.openToOtherAreas = false;
+  const advisory = normalizeAdvisoryFacts(facts);
+  for (const field of ADVISORY_FACT_FIELDS) if (advisory[field] !== undefined) patch[field] = advisory[field];
   if (facts.emirate) patch.preferredEmirate = facts.emirate;
   if (facts.developer) patch.developerInterest = normalizeDeveloper(facts.developer);
   if (facts.project) patch.projectInterest = facts.project;
@@ -122,7 +168,7 @@ export class BuyerService {
 
   async getOrCreate(instagramUserId) {
     const existing = this.store.getBuyer(instagramUserId);
-    if (existing) return existing;
+    if (existing) return { ...emptyBuyer(instagramUserId), ...existing };
     const created = mergeBuyer(null, { instagramUserId });
     return this.store.saveBuyer(created);
   }
@@ -168,6 +214,41 @@ export class BuyerService {
     return this.store.saveBuyer(mergeBuyer(existing, { ...patch, instagramUserId }));
   }
 
+  /** Record only inventory actually presented, without replacing buyer criteria. */
+  async recordAdvisoryExposure(instagramUserId, { projectIds = [], primaryProjectId = null, primaryUnitId = null, upgradeProjectId = null } = {}) {
+    const patch = { shownProjects: projectIds.filter(Boolean) };
+    if (primaryProjectId) {
+      patch.activeRecommendationProjectId = primaryProjectId;
+      patch.activeRecommendationUnitId = primaryUnitId;
+    }
+    if (upgradeProjectId) patch.lastUpgradeProjectId = upgradeProjectId;
+    return this.patchBuyer(instagramUserId, patch);
+  }
+
+  /** Bind a current objection to its offer so the next suggestion solves it. */
+  async recordObjection(instagramUserId, { projectId = null, unitId = null, category, factFingerprint = null } = {}) {
+    if (!OBJECTION_CATEGORIES.includes(category)) return this.getOrCreate(instagramUserId);
+    const buyer = await this.getOrCreate(instagramUserId);
+    const at = nowIso();
+    const patch = { concerns: [category], objections: [{ category, projectId, unitId, resolved: false, at }] };
+    const propertyRejection = !["needs_time", "already_has_agent", "no_calls", "trust_concern"].includes(category);
+    if (projectId && propertyRejection) {
+      const prior = buyer.rejectionReasons?.[projectId];
+      patch.rejectedProjects = [projectId];
+      patch.rejectionReasons = { [projectId]: { categories: uniqueStrings([...(prior?.categories || []), category]), unitId, factFingerprint, resolved: false, at } };
+      if (projectId === buyer.lastUpgradeProjectId) patch.upgradeDeclined = true;
+    }
+    return this.patchBuyer(instagramUserId, patch);
+  }
+
+  async resolveProjectObjection(instagramUserId, projectId, category = null) {
+    const buyer = await this.getOrCreate(instagramUserId);
+    const objections = (buyer.objections || []).filter(item => item.projectId === projectId && (!category || item.category === category)).map(item => ({ ...item, resolved: true }));
+    const prior = buyer.rejectionReasons?.[projectId];
+    const unresolved = (buyer.objections || []).some(item => item.projectId === projectId && !item.resolved && category && item.category !== category);
+    return this.patchBuyer(instagramUserId, { objections, ...(prior ? { rejectionReasons: { [projectId]: { ...prior, resolved: !unresolved } } } : {}) });
+  }
+
   /** Clear search criteria so a buyer can start a new enquiry on the same IG id. */
   async resetCriteria(instagramUserId) {
     const existing = await this.getOrCreate(instagramUserId);
@@ -191,7 +272,7 @@ export class BuyerService {
   missingQualificationFields(buyer) {
     const missing = [];
     if (!hasValue(buyer.budgetAed)) missing.push("budgetAed");
-    if (!hasValue(buyer.preferredAreas) && !hasValue(buyer.projectInterest)) missing.push("preferredAreas");
+    if (!hasValue(buyer.preferredAreas) && !hasValue(buyer.projectInterest) && !buyer.openToOtherAreas && buyer.areaFlexibility !== "open") missing.push("preferredAreas");
     if (!hasValue(buyer.propertyTypes) && !hasValue(buyer.bedrooms)) missing.push("propertyTypes");
     return missing;
   }
