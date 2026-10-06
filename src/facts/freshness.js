@@ -1,3 +1,5 @@
+import { commercialOfferGate } from "./commercial-offers.js";
+
 export function factPolicy(env = process.env) {
   const days = (key, fallback) => {
     const n = Number(env[key] ?? fallback);
@@ -22,6 +24,13 @@ export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy() }
   });
   const units = catalog.units.filter(u => projects.some(p => p.id === u.projectId)).map(u => {
     const p = projects.find(p => p.id === u.projectId);
+    if (u.commercialOffer) {
+      const gate = commercialOfferGate(u.commercialOffer, { now, policy });
+      return { ...u, commercialGate: gate,
+        startingPriceAed: gate.ok ? u.commercialOffer.price : null,
+        initialPaymentAed: gate.ok ? u.commercialOffer.initialPaymentAed : null,
+        availability: gate.ok ? u.commercialOffer.availability : null };
+    }
     const fresh = approvedFresh(p, { now, maxAgeDays: policy.commercialDays });
     return { ...u, startingPriceAed: fresh ? u.startingPriceAed : null,
       initialPaymentAed: fresh ? u.initialPaymentAed : null,

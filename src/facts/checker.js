@@ -82,8 +82,10 @@ function claimAllowed(claim, allowed) {
 }
 
 export function validateMessage(message, packs, options = {}) {
-  const allowed = collectAllowedClaims(packs);
+  const allowed = collectAllowedClaims(packs, options.allowedClaims || []);
   const derivedAmounts = collectOpportunityAmounts(packs, options.opportunities || [], options.buyer || {});
+  const comparisonDifferences = collectComparisonDifferences(packs, options.comparisonFacts);
+  for (const difference of comparisonDifferences.filter(row => row.monetary)) derivedAmounts.add(Math.abs(difference.delta));
   for (const amount of derivedAmounts) allowed.amounts.add(amount);
   for (const amount of options.allowedBuyerAmounts || []) {
     if (amount !== null && amount !== undefined && Number.isFinite(Number(amount))) {
@@ -99,6 +101,21 @@ export function validateMessage(message, packs, options = {}) {
   }
   const claims = extractCommercialClaims(message);
   const violations = claims.filter((claim) => !claimAllowed(claim, allowed));
+  const monetaryAmounts = new Set(derivedAmounts);
+  for (const pack of packs) {
+    for (const [key, fact] of Object.entries(pack)) if (/Aed$/.test(key) && fact?.confirmed === true && typeof fact.value === "number") monetaryAmounts.add(fact.value);
+  }
+  for (const fact of options.allowedClaims || []) if (/Aed$/.test(fact.field || "") && typeof fact.value === "number") monetaryAmounts.add(fact.value);
+  for (const value of options.allowedBuyerAmounts || []) if (value != null) monetaryAmounts.add(Number(value));
+  for (const claim of claims) {
+    if (claim.type === "amount" && /(?:\b(?:AED|Dhs|Dh)\b|درهم|دراهم)/i.test(claim.raw) && !amountAllowed(claim.value, monetaryAmounts)) violations.push({ type: "non_monetary_amount" });
+  }
+  const ordinaryAmounts = collectAllowedClaims(packs, options.allowedClaims || []).amounts;
+  for (const value of collectOpportunityAmounts(packs, options.opportunities || [], options.buyer || {})) ordinaryAmounts.add(value);
+  for (const value of options.allowedBuyerAmounts || []) if (value != null) ordinaryAmounts.add(Number(value));
+  for (const claim of claims) {
+    if (claim.type === "amount" && !ordinaryAmounts.has(claim.value) && comparisonDifferences.some(row => row.monetary && Math.abs(row.delta) === claim.value) && !comparisonAmountSupported(message, claim, comparisonDifferences)) violations.push({ type: "unsupported_comparison_context" });
+  }
   if (/perfect match|no compromises|guaranteed (?:returns?|roi|to)|(?:will|certain to|sure to)\s+(?:beat inflation|appreciate|deliver returns|grow in value)|reservation confirmed|reserved for you|advisor (?:was |has been )?notified|saved (?:to|in) HubSpot/i.test(String(message))) {
     violations.push({ type: "unsupported_assurance" });
   }
@@ -145,6 +162,58 @@ export function collectOpportunityAmounts(packs, opportunities, buyer = {}) {
   return amounts;
 }
 
+/** Recompute comparison differences from exact fact-pack operands; model metadata is never authority. */
+export function collectComparisonDifferences(packs, comparisonFacts) {
+  const proofs = [];
+  const comparisons = Array.isArray(comparisonFacts) ? comparisonFacts : comparisonFacts ? [comparisonFacts] : [];
+  const fields = {
+    price: "startingPriceAed", initial_cash: "downPaymentAed", bedrooms: "bedrooms",
+    construction_cash: "cashBeforeHandoverAed", handover_cash: "cashAtHandoverAed",
+    post_handover_cash: "cashAfterHandoverAed", booking_cash: "bookingAed",
+    cash_30_days: "cash30DaysAed", cash_6_months: "cash6MonthsAed", cash_12_months: "cash12MonthsAed",
+    size_from: "sizeSqftFrom", size_to: "sizeSqftTo"
+  };
+  const find = identity => identity?.projectId ? packs.find(pack => pack.projectId === identity.projectId && (pack.unitId || null) === (identity.unitId || null)) : null;
+  const supported = (pack, key) => {
+    const fact = pack?.[key];
+    const source = fact?.source || pack?.source?.value;
+    const verifiedAt = fact?.verifiedAt || pack?.lastVerified?.value;
+    return fact?.confirmed === true && typeof fact.value === "number" && Number.isFinite(fact.value) && fact.value >= 0 && source && Number.isFinite(Date.parse(verifiedAt)) ? fact.value : null;
+  };
+  for (const comparison of comparisons) {
+    const a = find(comparison.propertyA), b = find(comparison.propertyB);
+    if (!a || !b || a === b) continue;
+    for (const difference of comparison.differences || []) {
+      const key = fields[difference.dimension];
+      if (!key || difference.field !== key) continue;
+      const left = supported(a, key), right = supported(b, key);
+      if (left == null || right == null || left !== difference.a || right !== difference.b || right - left !== difference.delta || difference.delta === 0) continue;
+      proofs.push({ dimension: difference.dimension, field: key, a: left, b: right, delta: right - left,
+        propertyA: comparison.propertyA, propertyB: comparison.propertyB, monetary: /Aed$/.test(key) });
+    }
+  }
+  return proofs;
+}
+
+export function collectComparisonAmounts(packs, comparisonFacts) {
+  return new Set(collectComparisonDifferences(packs, comparisonFacts).filter(row => row.monetary).map(row => Math.abs(row.delta)));
+}
+
+/** A calculated difference cannot be repurposed as a price, fee or payment quote. */
+export function comparisonAmountSupported(message, claim, proofs) {
+  if (claim.type !== "amount" || !Number.isInteger(claim.index)) return false;
+  const text = String(message);
+  const before = text.slice(0, claim.index);
+  const start = Math.max(before.lastIndexOf(". "), before.lastIndexOf("\n"), before.lastIndexOf("? "));
+  const tail = text.slice(claim.index + claim.raw.length);
+  const end = tail.search(/[.!?](?:\s|$)|\n/);
+  const context = `${before.slice(start + 1)}${claim.raw}${end < 0 ? tail : tail.slice(0, end)}`;
+  if (!/\b(?:extra|additional|more|less|cheaper|saving|save|higher|lower|gap|difference|differs?|reduces?|increase|decrease|premium)\b|إضاف|فرق|أقل|أعلى|توفير/i.test(context)) return false;
+  return proofs.some(row => row.monetary && Math.abs(row.delta) === claim.value && (row.dimension === "price"
+    ? /\b(?:price|cost|pay|extra|cheaper|expensive|premium)\b|سعر|تكلفة|إضاف/i.test(context)
+    : /\b(?:cash|initial|upfront|down.?payment|construction|handover|booking|months?|days?)\b|دفعة|نقد|تسليم|حجز/i.test(context)));
+}
+
 function scopedClaimViolations(message, packs, derivedAmounts, options) {
   const violations = [];
   const text = String(message);
@@ -161,7 +230,7 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
     // Multi-property comparisons are checked globally and by structured model
     // citations; there is no unambiguous single offer for a comparison sentence.
     if (!scoped) continue;
-    const own = collectAllowedClaims([scoped]);
+    const own = collectAllowedClaims([scoped], (options.allowedClaims || []).filter(claim => claim.projectId === scoped.projectId && (!claim.unitId || claim.unitId === scoped.unitId)));
     for (const claim of extractCommercialClaims(segment)) {
       if (claim.type === "amount" && (derivedAmounts.has(claim.value) || (buyerAmounts.has(claim.value) && /\b(your|you have|budget|cash available|ceiling|put down)\b|ميزاني|المتاح|الدفعة التي|لديك|لديك|سقف/i.test(segment)))) continue;
       if (!claimAllowed(claim, own)) violations.push({ ...claim, type: "offer_mismatch", projectId: scoped.projectId, unitId: scoped.unitId });

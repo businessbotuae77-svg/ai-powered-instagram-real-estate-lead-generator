@@ -72,7 +72,8 @@ export function applyChoiceFacts(message, facts = {}) {
   const next = { ...facts };
 
   const useType = resolveChoice("useType", message);
-  if (useType && useType.value !== null && useType.value !== undefined) {
+  if (useType && useType.value !== null && useType.value !== undefined &&
+      (useType.matchedBy === "exact" || useType.value !== "end_use" || /\bend\s*use\b|\blive\s+in\b|\bfor (?:my )?family\b|\b(?:my own|for my) home\b/i.test(String(message)))) {
     next.useType = useType.value;
   }
 

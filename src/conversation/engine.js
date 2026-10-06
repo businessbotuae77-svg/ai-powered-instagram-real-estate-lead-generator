@@ -10,10 +10,15 @@ import { canPitchBuyer, resolveMatches } from "./match-resolve.js";
 import { summarizeBuyer, isCoreQualified } from "./qualify.js";
 import { buildConversationReply, buildAdvisorReply, fallbackSafeText } from "./replies.js";
 import { composeReplyWithModel } from "./llm.js";
-import { buildAdvisorOpportunities } from "./advisor-opportunities.js";
+import { buildAdvisorOpportunities, commercialEvidenceState, commercialEvidenceFingerprint } from "./advisor-opportunities.js";
 import { advisoryReady, determineAdvisorStrategy } from "./advisor-strategy.js";
 import { sanitizeBuyerLanguage, validateBuyerResponse } from "./response-validation.js";
 import { buildFactPack } from "../facts/retrieval.js";
+import { commercialOfferGate } from "../facts/commercial-offers.js";
+import { thesisClaims } from "../facts/advisor-claims.js";
+import { buildInvestmentStrategy, INVESTMENT_PROFILE_FIELDS } from "./investment-strategy.js";
+import { conversationState } from "./conversation-state.js";
+import { knowledgeAdvice } from "./knowledge-advice.js";
 import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
@@ -43,13 +48,14 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
-  constructor({ buyers, properties, memory, llm = null, advisorOptions = {} } = {}) {
+  constructor({ buyers, properties, memory, llm = null, advisorOptions = {}, logger = null } = {}) {
     if (!buyers || !properties) throw new Error("ConversationEngine requires buyers and properties");
     this.buyers = buyers;
     this.properties = properties;
     this.memory = memory || new ConversationMemory();
     this.llm = llm;
     this.advisorOptions = advisorOptions;
+    this.logger = logger || (process.env.NODE_ENV === "production" ? event => console.info("[advisor]", JSON.stringify(event)) : null);
     this.turnQueue = Promise.resolve();
   }
 
@@ -63,11 +69,11 @@ export class ConversationEngine {
   async processTurn(instagramUserId, message, options = {}) {
     const text = normalizeBuyerText(message).trim();
     if (this.memory.ensureReady) await this.memory.ensureReady();
-    let lastAskedField = this.memory.getLastAskedField(instagramUserId);
+    let lastAskedField = this.memory.getLastAskedField(instagramUserId) || this.memory.getLastMeaningfulQuestion?.(instagramUserId);
     const existingBuyer = await this.buyers.getOrCreate(instagramUserId);
     let recentTurns = this.memory.recentContext(instagramUserId, 6);
 
-    let base = extractFactsFromMessage(text);
+    let base = extractFactsFromMessage(text, { buyer: existingBuyer, lastAskedField });
     const scope = conversationalScope(text);
 
     const localUnderstanding = understandMessageLocally(text, {
@@ -101,7 +107,8 @@ export class ConversationEngine {
     const protectedSignals = /(?:call|callback|agent|reserve|viewing|high_intent|buy_interest|contact_declined)/;
     signals = [...new Set([...signals.filter(s => !protectedSignals.test(s)), ...deterministic.signals.filter(s => protectedSignals.test(s))])];
     for (const field of ["noCalls", "salesPathStopped", "preferredContactChannel", "contactDeclined", "requestedAction", "phone",
-      "budget", "cash", "budgetHardCap", "budgetFirm", "budgetFlexible", "budgetStretchAed", "budgetFlexibilityPct", "upgradeDeclined"]) {
+      "investmentObjective", "useType", "budget", "cash", "budgetHardCap", "budgetFirm", "budgetFlexible", "budgetStretchAed", "budgetFlexibilityPct", "upgradeDeclined",
+      ...INVESTMENT_PROFILE_FIELDS]) {
       delete facts[field];
       if (deterministic.facts[field] !== undefined) facts[field] = deterministic.facts[field];
     }
@@ -112,6 +119,10 @@ export class ConversationEngine {
         delete facts[field];
         if (deterministic.facts[field] !== undefined) facts[field] = deterministic.facts[field];
       }
+    }
+    // A contextual exit answer is a strategy preference, not a project's handover-date question.
+    if (deterministic.facts.exitHorizon && ["exitHorizon", "handoverStrategy"].includes(lastAskedField)) {
+      intents = [...new Set([...intents.filter(i => i !== "ask_facts"), "advisory"])];
     }
     facts.language = buyerLanguage(message) === "ar" ? "ar" : existingBuyer.language || "en";
     const directCashReply =
@@ -344,9 +355,14 @@ export class ConversationEngine {
       if (["no_calls", "not_interested", "needs_time", "already_has_agent", "trust_concern"].includes(objection.category)) continue;
       const projectId = buyer.activeRecommendationProjectId;
       if (projectId && this.buyers.recordObjection) {
+        const project = catalog.projects.find(p => p.id === projectId);
+        const unit = catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === projectId);
+        const rejected = project && unit ? { project, unit, factPack: buildFactPack({ project, unit,
+          downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }) } : null;
         buyer = await this.buyers.recordObjection(instagramUserId, {
           projectId, unitId: buyer.activeRecommendationUnitId,
-          category: objection.category
+          category: objection.category,
+          ...(rejected ? { factFingerprint: commercialEvidenceFingerprint(rejected), evidenceState: commercialEvidenceState(rejected) } : {})
         });
       }
     }
@@ -361,12 +377,17 @@ export class ConversationEngine {
     const advisor = buildAdvisorOpportunities(catalog, buyer, { ...this.advisorOptions, explicitRequestedProjectIds,
       requestedRecommendation: /\b(recommend|show|compare|options|keep looking)\b/i.test(text) });
     const strategy = determineAdvisorStrategy({ buyer, advisor, message: text,
-      pendingOffer: this.memory.getPendingOffer(instagramUserId) });
+      intents, recentTurns, pendingOffer: this.memory.getPendingOffer(instagramUserId) });
     if (advisoryReady(buyer) && advisor.primary) {
       matchResult = { ...matchResult, matches: advisor.matches, matchCount: advisor.matches.length,
         mode: advisor.matches[0]?.fit?.tier || "exact", fitTier: advisor.matches[0]?.fit?.tier || "exact",
         compromises: advisor.matches.flatMap(m => m.fit?.compromises || []),
         mismatches: advisor.matches.flatMap(m => (m.fit?.compromises || []).map(c => c.text)) };
+    }
+    if (!advisor.primary && (buildInvestmentStrategy(buyer).strategy === "READY_INCOME" ||
+        matchResult.matches.some(m => m.fit?.hardConstraintFailures?.length || m.fit?.compromises?.some(c => c.key === "area")) ||
+        (buyer.rejectedProjects?.length && !intents.includes("ask_facts")))) {
+      matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
     }
     let packs = retrieveFacts(matchResult.matches);
     // A follow-up about "it" uses the same exact offer. Do not replace it with
@@ -399,17 +420,19 @@ export class ConversationEngine {
     const alertRecommended = followUpSubmitted && !buyer.salesPathStopped &&
       (contact.channel !== "phone" || !buyer.noCalls);
     const alertReason = alertRecommended ? (callRequestSubmitted ? "call_request" : "follow_up") : null;
-    let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError });
+    let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor });
     if (!contact && ["resolve_objection", "trust_check"].includes(strategy?.type) && !["paused", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "exploring", "welcome_back"].includes(draft?.stage)) {
       draft = buildAdvisorReply({ buyer, advisor, strategy, message: text });
       matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
       packs = [];
     }
+    if (contact && !["paused", "permissions_updated"].includes(draft?.stage)) draft = contact;
     if (contact && draft?.stage === "permissions_updated" && contact.channel === "whatsapp") draft = contact;
     if (!draft && !contact && strategy && (advisoryReady(buyer) || strategy.type === "no_push")) {
       draft = buildAdvisorReply({ buyer, advisor, strategy, message: text });
       if (draft) packs = draft.factPacks || advisor.packs;
     }
+    if (!draft && !contact && !advisor.primary) draft = knowledgeAdvice({ buyer, catalog, message: text, advisor });
     // The external handoff uses the offer already discussed, even if a newly
     // volunteered payment preference would otherwise change internal ranking.
     if (contact && buyer.activeRecommendationProjectId && !facts.project) {
@@ -451,8 +474,14 @@ export class ConversationEngine {
     const forbiddenActions = ["execute_reservation", "collect_payment", "claim_action_completed",
       ...(buyer.noCalls ? ["call"] : []), ...(buyer.salesPathStopped ? ["capture", "follow_up"] : [])];
     const responseStrategy = draft.advisoryExposure ? strategy : { type: draft.stage };
-    const responseOpportunities = draft.advisoryExposure || draft.stage === "fact_answer" ? advisor.opportunities : [];
-    const validationOptions = { buyer, opportunities: responseOpportunities,
+    const investmentProfile = buildInvestmentStrategy(buyer);
+    const state = conversationState({ buyer, message: text, intents, recentTurns, advisor });
+    const investmentTheses = draft.investmentTheses || (draft.advisoryExposure || draft.stage === "fact_answer" || draft.stage === "investment_risk" ? advisor.investmentTheses || [] : []);
+    const allowedClaims = thesisClaims(investmentTheses);
+    const comparisonFacts = draft.comparisonFacts || advisor.comparison || null;
+    const validationOpportunities = [...advisor.opportunities, ...(advisor.upgradeAssessment?.opportunities || [])];
+    const responseOpportunities = draft.advisoryExposure || draft.stage === "fact_answer" ? validationOpportunities : [];
+    const validationOptions = { buyer, opportunities: responseOpportunities, allowedClaims, comparisonFacts,
       allowedBuyerAmounts: [buyer.budgetAed, buyer.cashAvailableAed].filter(v => v != null),
       educationalSplit: draft.educationalSplit,
       permittedRecommendations: ["matched", "soft_match"].includes(draft.stage)
@@ -468,6 +497,8 @@ export class ConversationEngine {
         message: text,
         recentTurns,
         intents,
+        investmentProfile, conversationState: state, investmentTheses,
+        comparisonFacts, objectionState: buyer.objections || [], allowedClaims,
         requiredQuestion: draft.nextQuestion || null,
         opportunities: responseOpportunities,
         strategy: responseStrategy,
@@ -488,8 +519,9 @@ export class ConversationEngine {
       handoffReason: handoffRequested ? "buyer_requested" : null,
       allowedBuyerAmounts,
       educationalSplit: draft.educationalSplit,
+      allowedClaims, comparisonFacts,
       buyer,
-      opportunities: advisor.opportunities
+      opportunities: validationOpportunities
     });
     const responseCheck = validateBuyerResponse(draft.text, { ...validationOptions,
       packs, requiredQuestion: draft.nextQuestion, allowedActions, forbiddenActions });
@@ -497,6 +529,7 @@ export class ConversationEngine {
 
     let replyText = draft.text;
     if (!check.ok) {
+      this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type) });
       const fallbackPacks = draft.advisoryExposure ? packs.filter(p => matchResult.matches.some(m => m.project.id === p.projectId && m.unit.id === p.unitId)).slice(0, 2) : packs.slice(0, 2);
       replyText = fallbackPacks.length
         ? fallbackSafeText(fallbackPacks)
@@ -506,7 +539,7 @@ export class ConversationEngine {
         handoffReason: handoffRequested ? "buyer_requested" : null,
         allowedBuyerAmounts,
         buyer,
-        opportunities: advisor.opportunities
+        opportunities: validationOpportunities
       });
       draft = { ...draft, text: replyText, stage: "fact_check_fallback", polished: false, nextQuestion: null, pendingOffer: null };
       this.memory.setPendingOffer(instagramUserId, null);
@@ -589,10 +622,19 @@ export class ConversationEngine {
       stage: draft.stage,
       matchCount: matchResult.matchCount,
       factCheckOk: check.ok,
-      pendingOffer: this.memory.getPendingOffer(instagramUserId)
+      pendingOffer: this.memory.getPendingOffer(instagramUserId),
+      questionField: draft.nextQuestion?.field || null
     });
 
     if (this.memory.flush) await this.memory.flush();
+    this.logger?.({ event: "advisor_turn", conversationStrategy: state, investmentStrategy: investmentProfile.strategy,
+      primaryRecommendation: draft.advisoryExposure ? advisor.primary?.projectId || null : null,
+      challenger: draft.advisoryExposure ? advisor.challenger?.projectId || null : null,
+      opportunityType: draft.advisoryExposure ? advisor.opportunities.map(o => o.type) : [],
+      objectionCategory: strategy?.objection || null, llm: draft.polished ? "used" : this.llm ? "fallback" : "disabled",
+      factSourceCategory: [...new Set(packs.map(p => p.knowledgeOnly ? "project_knowledge" : p.offerId ? "commercial_offer" : "legacy_unit"))],
+      commercialGateRejection: [...new Set((catalog.intelligence?.offers || []).flatMap(o => commercialOfferGate(o).reasons))],
+      nextAction: strategy?.nextAction || draft.pendingOffer?.action || null });
     return {
       reply: replyText,
       stage: draft.stage,
@@ -620,6 +662,7 @@ export class ConversationEngine {
       packs,
       advisor,
       strategy,
+      conversationState: state, investmentProfile, investmentTheses, comparison: comparisonFacts,
       check,
       missingData: missingDataHandoff(packs),
       handoffRequired: followUpSubmitted,

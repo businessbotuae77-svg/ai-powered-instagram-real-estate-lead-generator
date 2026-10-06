@@ -1,5 +1,6 @@
 import { emptyBuyer, FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { ADVISORY_FACT_FIELDS, OBJECTION_CATEGORIES, normalizeAdvisoryFacts } from "../conversation/advisory-memory.js";
+import { INVESTMENT_PROFILE_FIELDS, deriveInvestmentStrategy } from "../conversation/investment-strategy.js";
 import {
   normalizeArea,
   normalizeBedrooms,
@@ -24,6 +25,7 @@ export function mergeBuyer(existing, patch) {
   const next = { ...base };
   for (const [key, value] of Object.entries(patch)) {
     if (key === "instagramUserId") continue;
+    if (key === "removedAreas") continue;
     if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "investmentObjective"].includes(key)) {
       if (value === null || (typeof value === "string" && value.trim())) next[key] = value;
       continue;
@@ -50,6 +52,14 @@ export function mergeBuyer(existing, patch) {
   if (hasValue(patch.preferredAreas)) {
     // Latest explicit area replaces earlier area (buyer corrections).
     next.preferredAreas = uniqueStrings(patch.preferredAreas);
+  }
+  if (Array.isArray(patch.removedAreas) && patch.removedAreas.length) {
+    const removed = patch.removedAreas.map(normalizeArea);
+    next.preferredAreas = next.preferredAreas.filter(area => !removed.includes(normalizeArea(area)));
+    if (!next.preferredAreas.length) {
+      next.areaFlexibility = "open";
+      next.openToOtherAreas = true;
+    }
   }
   if (hasValue(patch.propertyTypes)) {
     next.propertyTypes = uniqueStrings(patch.propertyTypes);
@@ -94,12 +104,17 @@ export function mergeBuyer(existing, patch) {
   if (patch.useType && patch.useType !== "unknown") next.explorationState = false;
   if (patch.useType === "end_use") {
     next.investmentObjective = null;
+    for (const field of INVESTMENT_PROFILE_FIELDS) next[field] = field === "investmentStrategy" ? "UNDECIDED" : null;
     next.priorities = next.priorities.filter(priority => !["rental_income", "capital_growth", "balanced_returns"].includes(priority));
   }
   if (patch.investmentObjective) {
     const objectivePriorities = { growth: "capital_growth", rental_income: "rental_income", balanced: "balanced_returns" };
     next.priorities = next.priorities.filter(priority => !["rental_income", "capital_growth", "balanced_returns"].includes(priority) || priority === objectivePriorities[patch.investmentObjective]);
+    if (patch.investmentObjective !== base.investmentObjective && patch.growthPriority === undefined) next.growthPriority = null;
+    if (patch.investmentObjective !== base.investmentObjective && patch.investmentStrategy === undefined) next.investmentStrategy = "UNDECIDED";
   }
+  if (["handover", "before_handover"].includes(patch.exitHorizon)) next.holdingPeriod = null;
+  if (next.useType === "investment" || next.investmentObjective || next.investmentGoal) next.investmentStrategy = deriveInvestmentStrategy(next);
   if (patch.contactDeclined === true) next.contactDeclined = true;
   if (patch.contactDeclined === false) next.contactDeclined = false;
   const timestamp = nowIso();
@@ -226,7 +241,7 @@ export class BuyerService {
   }
 
   /** Bind a current objection to its offer so the next suggestion solves it. */
-  async recordObjection(instagramUserId, { projectId = null, unitId = null, category, factFingerprint = null } = {}) {
+  async recordObjection(instagramUserId, { projectId = null, unitId = null, category, factFingerprint = null, evidenceState = null } = {}) {
     if (!OBJECTION_CATEGORIES.includes(category)) return this.getOrCreate(instagramUserId);
     const buyer = await this.getOrCreate(instagramUserId);
     const at = nowIso();
@@ -235,7 +250,7 @@ export class BuyerService {
     if (projectId && propertyRejection) {
       const prior = buyer.rejectionReasons?.[projectId];
       patch.rejectedProjects = [projectId];
-      patch.rejectionReasons = { [projectId]: { categories: uniqueStrings([...(prior?.categories || []), category]), unitId, factFingerprint, resolved: false, at } };
+      patch.rejectionReasons = { [projectId]: { categories: uniqueStrings([...(prior?.categories || []), category]), unitId, factFingerprint, evidenceState, resolved: false, at } };
       if (projectId === buyer.lastUpgradeProjectId) patch.upgradeDeclined = true;
     }
     return this.patchBuyer(instagramUserId, patch);

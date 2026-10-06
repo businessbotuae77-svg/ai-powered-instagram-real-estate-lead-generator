@@ -1,0 +1,18 @@
+
+> abu-dhabi-property-leads@1.3.0 verify:m1
+> node scripts/verify-milestone1.js
+
+PASS  1. Load seed catalog and validate schema
+PASS  2. Inactive projects are hidden from matching
+PASS  3. Buyer card stores Yas 3M / 500k / 3BR / payment plan
+PASS  4. Returning Instagram user keeps budget
+PASS  5. Match Yas 3M 500k 3BR payment plan
+PASS  6. Reject studio, missing price, high down, and disabled rows
+PASS  7. Retrieve facts only from approved rows
+PASS  8. Hallucinated AED 2,100,000 is blocked
+PASS  9. Safe reply passes checker and does not handoff
+PASS  10. Missing commercial data stays unconfirmed and does not handoff
+PASS  11. Studio and villa filters respect unit rows
+PASS  12. End-to-end answer for the locked Yas query
+
+Milestone 1 verification passed.

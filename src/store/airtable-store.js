@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { unitLabel } from "./airtable-schema.js";
 import { RUNTIME_DIR } from "./local-store.js";
+import { emptyIntelligence, normalizeAreaIntelligence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory } from "../facts/intelligence.js";
+import { normalizeCommercialOffer } from "../facts/commercial-offers.js";
 
 function headers(apiKey) {
   return {
@@ -33,6 +35,8 @@ export class AirtableStore {
     this.apiKey = env.AIRTABLE_API_KEY;
     this.baseId = env.AIRTABLE_BASE_ID;
     this.fetchFn = env.fetch || fetch;
+    this.rateLimitEnabled = !env.fetch;
+    this.requestTimes = [];
     this.runtimeDir = env.runtimeDir || env.RUNTIME_DATA_DIR || RUNTIME_DIR;
     this.tables = {
       developers: env.AIRTABLE_DEVELOPERS_TABLE || "Developers",
@@ -42,6 +46,20 @@ export class AirtableStore {
     this.developers = [];
     this.projects = [];
     this.units = [];
+    // Research names come from the inspected base. They are optional reads;
+    // commercial offers/schedules are explicit opt-ins for future schemas.
+    this.optionalTables = {
+      priceHistory: env.AIRTABLE_PRICE_HISTORY_TABLE || "Price History",
+      marketSnapshots: env.AIRTABLE_MARKET_SNAPSHOT_TABLE || "Market Snapshot",
+      areas: env.AIRTABLE_AREAS_TABLE || "Areas (research)",
+      researchOffers: env.AIRTABLE_RESEARCH_OFFERS_TABLE || "Offers (research)",
+      commercialOffers: env.AIRTABLE_OFFERS_TABLE || null,
+      paymentSchedules: env.AIRTABLE_PAYMENT_SCHEDULES_TABLE || null
+    };
+    const ttl = Number(env.RESEARCH_CACHE_MS || 900000);
+    this.researchCacheMs = Number.isFinite(ttl) && ttl >= 60000 ? ttl : 900000;
+    this.intelligence = emptyIntelligence();
+    this.optionalState = {};
     this.buyers = new Map();
     this.source = "airtable";
   }
@@ -51,6 +69,16 @@ export class AirtableStore {
   }
 
   async request(url, options = {}) {
+    // Airtable limits a base to five requests per second. Initial optional
+    // discovery may exceed that burst even though steady-state reads do not.
+    if (this.rateLimitEnabled) {
+      while (true) {
+        const now = Date.now();
+        this.requestTimes = this.requestTimes.filter(time => now - time < 1000);
+        if (this.requestTimes.length < 5) { this.requestTimes.push(now); break; }
+        await new Promise(resolve => setTimeout(resolve, Math.max(1, 1000 - (now - this.requestTimes[0]))));
+      }
+    }
     const response = await this.fetchFn(url, {
       ...options,
       signal: options.signal || AbortSignal.timeout(10000),
@@ -58,7 +86,9 @@ export class AirtableStore {
     });
     const body = await response.json();
     if (!response.ok) {
-      throw new Error(`Airtable ${options.method || "GET"} ${url} failed with ${response.status} ${JSON.stringify(body)}`);
+      const error = new Error(`Airtable ${options.method || "GET"} ${url} failed with ${response.status} ${JSON.stringify(body)}`);
+      error.status = response.status;
+      throw error;
     }
     return body;
   }
@@ -111,6 +141,7 @@ export class AirtableStore {
     const developer = developers.find((row) => row.id === developerId);
     return {
       id: record.id,
+      sheetProjectId: f["Sheet Project ID"] || null,
       name: f.Name,
       developerId,
       developerName: developer ? developer.name : null,
@@ -168,15 +199,72 @@ export class AirtableStore {
     if (!force && age < 60000) return;
     if (this.catalogRefresh) return this.catalogRefresh;
     this.catalogRefresh = (async () => {
-      const developerRecords = await this.listTable(this.tables.developers);
-      const projectRecords = await this.listTable(this.tables.projects);
-      const unitRecords = await this.listTable(this.tables.units);
+      const [developerRecords, projectRecords, unitRecords] = await Promise.all([
+        this.listTable(this.tables.developers), this.listTable(this.tables.projects), this.listTable(this.tables.units)
+      ]);
       this.developers = developerRecords.map((row) => this.mapDeveloper(row));
       this.projects = projectRecords.map((row) => this.mapProject(row, this.developers));
       this.units = unitRecords.map((row) => this.mapUnit(row));
       this.catalogLoadedAt = Date.now();
+      await this.refreshIntelligence(force);
     })();
     try { await this.catalogRefresh; } finally { this.catalogRefresh = null; }
+  }
+
+  async readOptionalTable(key) {
+    const table = this.optionalTables[key];
+    if (!table) return { records: [], status: "not_configured" };
+    try {
+      return { records: await this.listTable(table), status: "available" };
+    } catch (error) {
+      // Optional absence and access failures must not take down Projects/Units.
+      // Never expose API error bodies or private record contents in telemetry.
+      return { records: [], status: [403, 404, 422].includes(error.status) ? "unavailable" : "read_failed" };
+    }
+  }
+
+  async refreshIntelligence(force = false) {
+    if (this.intelligenceRefresh) return this.intelligenceRefresh;
+    const now = Date.now();
+    const keys = Object.keys(this.optionalTables).filter(key => {
+      const ttl = ["commercialOffers", "paymentSchedules"].includes(key) ? 60000 : this.researchCacheMs;
+      return force || !this.optionalState[key] || now - this.optionalState[key].loadedAt >= ttl;
+    });
+    if (!keys.length) return;
+    this.intelligenceRefresh = (async () => {
+      const results = await Promise.allSettled(keys.map(key => this.readOptionalTable(key)));
+      results.forEach((result, index) => {
+        const key = keys[index];
+        const value = result.status === "fulfilled" ? result.value : { records: [], status: "read_failed" };
+        this.optionalState[key] = { ...value, loadedAt: Date.now() };
+      });
+      this.rebuildIntelligence();
+    })();
+    try { await this.intelligenceRefresh; } finally { this.intelligenceRefresh = null; }
+  }
+
+  rebuildIntelligence() {
+    const records = key => this.optionalState[key]?.records || [];
+    const researchTable = this.optionalTables.researchOffers;
+    const commercialIsResearch = this.optionalTables.commercialOffers === researchTable || /research/i.test(this.optionalTables.commercialOffers || "");
+    this.intelligence = {
+      priceHistory: records("priceHistory").map(row => normalizePriceHistory(row)),
+      marketSnapshots: records("marketSnapshots").map(row => normalizeMarketSnapshot(row)),
+      areas: records("areas").map(row => normalizeAreaIntelligence(row)),
+      offers: [
+        ...records("researchOffers").map(row => normalizeCommercialOffer(row, { projects: this.projects, researchOnly: true })),
+        ...records("commercialOffers").map(row => normalizeCommercialOffer(row, { projects: this.projects, researchOnly: commercialIsResearch }))
+      ],
+      paymentSchedules: records("paymentSchedules").map(normalizePaymentSchedule),
+      limitations: Object.entries(this.optionalState).filter(([, value]) => value.status !== "available")
+        .map(([category, value]) => ({ category, status: value.status }))
+    };
+  }
+
+  listIntelligence() {
+    // Reapply time-sensitive evidence checks at read time as well as refresh.
+    this.rebuildIntelligence();
+    return structuredClone(this.intelligence);
   }
 
   snapshot() {
@@ -185,6 +273,7 @@ export class AirtableStore {
       developers: this.developers.map((row) => ({ ...row })),
       projects: this.projects.map((row) => ({ ...row })),
       units: this.units.map((row) => ({ ...row })),
+      intelligence: this.listIntelligence(),
       buyers: [...this.buyers.values()].map((row) => ({ ...row }))
     };
   }

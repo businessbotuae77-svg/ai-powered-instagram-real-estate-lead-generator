@@ -1,0 +1,10 @@
+✔ elite context: Hold after exit question cannot become a reservation (68.788782ms)
+✔ elite context: explicit call request remains actionable without live units (11.086308ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 130.7355

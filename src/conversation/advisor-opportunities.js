@@ -3,6 +3,10 @@ import { buildFactPack } from "../facts/retrieval.js";
 import { assessCandidate } from "./fit-assess.js";
 import { bedroomLabel, normalizeArea, normalizePropertyType, sameText } from "../matching/normalize.js";
 import { loadConversationPreferences } from "./preferences.js";
+import { buildInvestmentStrategy, deriveInvestmentStrategy } from "./investment-strategy.js";
+import { buildInvestmentThesis } from "./investment-thesis.js";
+import { compareProperties } from "./comparison.js";
+import { buildProjectRelations } from "./project-relations.js";
 
 const numeric = value => typeof value === "number" && Number.isFinite(value);
 const positive = value => numeric(value) && value > 0;
@@ -41,15 +45,15 @@ function priorities(buyer) {
 }
 
 function wantsSpace(buyer, objectionCodes, priorityCodes) {
-  return objectionCodes.has("too_small") || (buyer.useType === "end_use" && ["more_space", "space", "size", "unit_size", "larger_unit", "family_space", "extra_bedroom", "additional_bedroom"].some(code => priorityCodes.has(code)));
+  return objectionCodes.has("too_small") || (["more_space", "space", "size", "unit_size", "larger_unit", "family_space", "extra_bedroom", "additional_bedroom"].some(code => priorityCodes.has(code)));
 }
 
 function wantsLowCash(buyer, objectionCodes, priorityCodes) {
-  return objectionCodes.has("initial_payment_too_high") || objectionCodes.has("payment_plan_bad") || buyer.cashAvailableAed != null || buyer.financing === "payment_plan" || ["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"].some(code => priorityCodes.has(code));
+  return buyer.cashDeploymentPreference === "lower_initial" || objectionCodes.has("initial_payment_too_high") || objectionCodes.has("payment_plan_bad") || buyer.cashAvailableAed != null || buyer.financing === "payment_plan" || ["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"].some(code => priorityCodes.has(code));
 }
 
 function lowerPriceIsPriority(buyer, context) {
-  return context.objections.has("too_expensive") || (buyer.useType === "investment" && buyer.investmentObjective === "growth") || ["entry_price", "lower_entry_price", "lower_cost", "low_cost", "affordability"].some(code => context.priorities.has(code));
+  return context.objections.has("too_expensive") || (buyer.useType === "investment" && ["OFF_PLAN_APPRECIATION", "HANDOVER_EXIT"].includes(deriveInvestmentStrategy(buyer))) || ["entry_price", "lower_entry_price", "lower_cost", "low_cost", "affordability"].some(code => context.priorities.has(code));
 }
 
 function relevantChallengeBenefits(candidate, reference, buyer, context) {
@@ -79,9 +83,10 @@ function evidence(candidate, key) {
     unitId: candidate.unit.id,
     field: key,
     value: fact.value,
-    source: value(candidate.factPack, "source"),
-    lastVerified: value(candidate.factPack, "lastVerified"),
-    scope: key === "startingPriceAed" ? "unit_type_starting_price" : key === "downPaymentAed" ? (candidate.unit.initialPaymentAed != null ? "unit_type_initial_payment" : "project_initial_payment") : "catalogue_field"
+    source: fact.provenance?.source || fact.source || value(candidate.factPack, "source"),
+    sourceRecordId: fact.provenance?.sourceRecordId || fact.sourceRecordId || fact.recordId || (key === "startingPriceAed" || key.startsWith("size") || key === "bedrooms" ? candidate.unit.id : candidate.project.id),
+    lastVerified: fact.provenance?.verifiedOn || fact.verifiedOn || fact.verifiedAt || value(candidate.factPack, "lastVerified"),
+    scope: fact.provenance?.scope || fact.scope || (key === "startingPriceAed" ? "unit_type_starting_price" : key === "downPaymentAed" ? (candidate.unit.initialPaymentAed != null ? "unit_type_initial_payment" : "project_initial_payment") : "catalogue_field")
   };
 }
 
@@ -100,19 +105,64 @@ function getCandidates(catalog, buyer, options) {
     if (project.developerId && safe.developers?.length && !safe.developers.some(row => row.id === project.developerId && row.active)) continue;
     // A catalogue prohibition cannot be relaxed by sales or buyer flexibility.
     if (sameText(normalizeArea(project.area), "Hudayriyat Island") && (unit.bedrooms === 0 || normalizePropertyType(unit.propertyType) === "studio")) continue;
-    const downPaymentAed = unit.initialPaymentAed ?? project.initialPaymentAed ?? null;
-    const candidate = assessCandidate({ project, unit, downPaymentAed, bedroomLabel: bedroomLabel(unit.bedrooms) }, buyer);
-    candidate.factPack = buildFactPack(candidate, options);
+    const draft = { project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed ?? null, bedroomLabel: bedroomLabel(unit.bedrooms) };
+    const pack = buildFactPack(draft, options);
+    // Commercial assessment follows the selected offer version, never a stale
+    // project's plan/price labels. These copies do not mutate the catalogue.
+    const effectiveProject = { ...project, paymentPlanAvailable: value(pack, "paymentPlanAvailable"), paymentPlanSummary: value(pack, "paymentPlanSummary"), handover: value(pack, "handover") };
+    const effectiveUnit = { ...unit, startingPriceAed: value(pack, "startingPriceAed") };
+    const candidate = assessCandidate({ ...draft, project: effectiveProject, unit: effectiveUnit, downPaymentAed: value(pack, "downPaymentAed") }, buyer);
+    candidate.factPack = { ...pack, fit: candidate.fit };
+    candidate.investmentThesis = buildInvestmentThesis({ project: candidate.project, unit: candidate.unit, factPack: candidate.factPack, buyer, intelligence: catalog.intelligence, now: options.now });
     result.push(candidate);
   }
   return result;
+}
+
+/** Date refresh alone does not reopen a rejected property. */
+export function commercialEvidenceState(candidate) {
+  const pack = candidate.factPack || {};
+  const fields = ["startingPriceAed", "downPaymentAed", "paymentPlanSummary", "handover", "availability", "bedrooms", "sizeSqftFrom", "sizeSqftTo", "area", "propertyType", "developer"];
+  return Object.fromEntries(fields.map(key => [key, value(pack, key)]));
+}
+
+export function commercialEvidenceFingerprint(candidate) {
+  return JSON.stringify(commercialEvidenceState(candidate));
+}
+
+function rejectionResolvedByEvidence(candidate, buyer) {
+  const reasons = buyer.rejectionReasons?.[candidate.project.id];
+  if (!reasons || reasons.resolved) return false;
+  let prior = reasons.evidenceState;
+  if (!prior && reasons.factFingerprint) {
+    try { prior = JSON.parse(reasons.factFingerprint); } catch { return false; }
+  }
+  const current = commercialEvidenceState(candidate);
+  if (!prior || typeof prior !== "object" || Array.isArray(prior)) return false;
+  const codes = reasons.categories || [];
+  const less = field => numeric(prior[field]) && numeric(current[field]) && current[field] < prior[field];
+  const greater = field => numeric(prior[field]) && numeric(current[field]) && current[field] > prior[field];
+  const changed = field => prior[field] != null && current[field] != null && !sameText(prior[field], current[field]);
+  const oldHandover = handoverRange({ handover: { confirmed: prior.handover != null, value: prior.handover }, status: candidate.factPack.status });
+  const newHandover = handoverRange(candidate.factPack);
+  const resolution = {
+    too_expensive: less("startingPriceAed"),
+    initial_payment_too_high: less("downPaymentAed"),
+    too_small: greater("bedrooms") || (positive(prior.sizeSqftTo) && positive(current.sizeSqftFrom) && current.sizeSqftFrom >= prior.sizeSqftTo * 1.1),
+    too_large: less("bedrooms") || (positive(prior.sizeSqftFrom) && positive(current.sizeSqftTo) && current.sizeSqftTo <= prior.sizeSqftFrom * 0.9),
+    handover_too_late: Boolean(oldHandover && newHandover && newHandover.end < oldHandover.start),
+    handover_too_soon: Boolean(oldHandover && newHandover && newHandover.start > oldHandover.end),
+    payment_plan_bad: less("downPaymentAed") || changed("paymentPlanSummary"),
+    wrong_area: changed("area"), wrong_property_type: changed("propertyType"), developer_concern: changed("developer")
+  };
+  return codes.length > 0 && codes.every(code => resolution[code] === true);
 }
 
 function isRejected(candidate, buyer, options) {
   const projectId = candidate.project.id;
   if ((options.explicitRequestedProjectIds || []).includes(projectId)) return false;
   const reasons = buyer.rejectionReasons?.[projectId];
-  if (reasons?.resolved === true) return false;
+  if (reasons?.resolved === true || rejectionResolvedByEvidence(candidate, buyer)) return false;
   return (buyer.rejectedProjects || []).some(item => (typeof item === "string" ? item : item.projectId) === projectId) || Boolean(reasons && reasons.resolved !== true);
 }
 
@@ -143,6 +193,10 @@ function eligibility(candidate, buyer, ceiling, options) {
   const initial = value(pack, "downPaymentAed");
   if (!positive(price)) reasons.push("price_unknown");
   else if (ceiling !== null && price > ceiling) reasons.push("over_budget_ceiling");
+  if (!wantedAreaMatch(candidate, buyer) && ["fixed", false].includes(buyer.areaFlexibility)) reasons.push("fixed_area");
+  if (!wantedTypeMatch(candidate, buyer) && ["fixed", false].includes(buyer.propertyTypeFlexibility)) reasons.push("fixed_property_type");
+  if (!wantedBedroomsMatch(candidate, buyer) && buyer.bedroomsRequired === true) reasons.push("required_bedrooms");
+  if (deriveInvestmentStrategy(buyer) === "READY_INCOME" && !(sameText(value(pack, "status"), "Ready") && handoverRange(pack)?.end === 0)) reasons.push("ready_income_required");
   if (buyer.preferredEmirate && !sameText(candidate.project.emirate, buyer.preferredEmirate)) reasons.push("wrong_emirate");
   if (sameText(value(pack, "availability"), "Sold out")) reasons.push("sold_out");
   if (isRejected(candidate, buyer, options)) reasons.push("previously_rejected");
@@ -150,7 +204,8 @@ function eligibility(candidate, buyer, ceiling, options) {
     if (!numeric(initial) || initial < 0) reasons.push("initial_payment_unknown");
     else if (initial > buyer.cashAvailableAed) reasons.push("initial_payment_over_cash");
   }
-  if (buyer.financing === "payment_plan" && (value(pack, "paymentPlanAvailable") !== true || !value(pack, "paymentPlanSummary"))) reasons.push("payment_plan_unconfirmed");
+  if (buyer.financing === "payment_plan" && buyer.financingOptional !== true && (value(pack, "paymentPlanAvailable") !== true || !value(pack, "paymentPlanSummary"))) reasons.push("payment_plan_unconfirmed");
+  if (buyer.financing === "mortgage" && buyer.financingRequired === true && value(pack, "mortgageEligible") !== true) reasons.push("mortgage_eligibility_unknown");
   if (buyer.moveInBy) {
     const deadline = Date.parse(buyer.moveInBy);
     const handover = handoverRange(pack);
@@ -174,6 +229,7 @@ function canChallenge(candidate, buyer, context) {
   if (gaps.includes("area") && (buyer.areaFlexibility === "fixed" || buyer.areaFlexibility === false)) return false;
   if (gaps.includes("property_type") && buyer.propertyTypeFlexibility !== true) return false;
   if (gaps.includes("bedrooms")) {
+    if (buyer.bedroomsRequired === true) return false;
     const largerAsRequested = context.space && candidate.unit.bedrooms > Math.max(...buyer.bedrooms.map(Number));
     const smallerAsRequested = context.objections.has("too_large") && candidate.unit.bedrooms < Math.min(...buyer.bedrooms.map(Number));
     if (!largerAsRequested && !smallerAsRequested) return false;
@@ -183,11 +239,47 @@ function canChallenge(candidate, buyer, context) {
   return true;
 }
 
+function paymentAmount(candidate, field) {
+  const payment = candidate?.investmentThesis?.paymentCase;
+  return payment?.scheduleStatus === "COMPLETE" && numeric(payment[field]) ? payment[field] : null;
+}
+
+function recommendationRationale(candidate, buyer, context) {
+  const pack = candidate.factPack;
+  const thesis = candidate.investmentThesis;
+  const component = (field, requested, matched) => ({
+    status: value(pack, field) === null ? "UNKNOWN" : requested == null ? "NOT_REQUESTED" : matched ? "MATCH" : "TRADE_OFF",
+    requested: requested ?? null, offered: value(pack, field), evidence: [evidence(candidate, field)].filter(Boolean)
+  });
+  return {
+    priceFit: component("startingPriceAed", buyer.budgetAed, value(pack, "startingPriceAed") <= buyer.budgetAed),
+    cashFit: component("downPaymentAed", buyer.cashAvailableAed, value(pack, "downPaymentAed") <= buyer.cashAvailableAed),
+    areaFit: component("area", buyer.preferredAreas?.length ? [...buyer.preferredAreas] : null, wantedAreaMatch(candidate, buyer)),
+    typeFit: component("propertyType", buyer.propertyTypes?.length ? [...buyer.propertyTypes] : null, wantedTypeMatch(candidate, buyer)),
+    spaceFit: component("bedrooms", buyer.bedrooms?.length ? [...buyer.bedrooms] : null, wantedBedroomsMatch(candidate, buyer)),
+    timingFit: { status: value(pack, "handover") == null ? "UNKNOWN" : buyer.moveInBy ? "DOCUMENTED" : "NOT_REQUESTED", offered: value(pack, "handover"), requested: buyer.moveInBy || null, evidence: [evidence(candidate, "handover")].filter(Boolean) },
+    paymentFit: { status: thesis?.paymentCase?.scheduleStatus === "COMPLETE" ? "DOCUMENTED" : "UNKNOWN", initialCashAed: value(pack, "downPaymentAed"), constructionCashAed: paymentAmount(candidate, "constructionCashAed"), handoverCashAed: paymentAmount(candidate, "handoverCashAed"), evidence: thesis?.paymentCase?.evidence || [] },
+    investmentStrategyFit: { strategy: context.investmentStrategy.strategy, priorities: context.investmentStrategy.priorities, dimensionWeights: context.investmentStrategy.weights, status: buyer.useType === "investment" ? "STRATEGY_APPLIED" : "NOT_REQUESTED", unknowns: thesis?.unknowns || [] },
+    liquidityFit: { status: thesis?.liquidityCase?.status || "UNKNOWN", confidence: thesis?.liquidityCase?.confidence || null, evidence: thesis?.liquidityCase?.evidence || [], conclusion: "UNKNOWN" },
+    riskFit: { status: thesis?.riskCase?.length ? "DOCUMENTED_RISKS" : "UNKNOWN", supportedRisks: thesis?.riskCase || [], unknowns: thesis?.unknowns || [] }
+  };
+}
+
 function ranking(candidate, buyer, context) {
   const pack = candidate.factPack;
   const codes = [];
   let score = 0;
   const initial = value(pack, "downPaymentAed");
+  const strategy = context.investmentStrategy.strategy;
+  if (buyer.useType === "investment" && ["HANDOVER_EXIT", "OFF_PLAN_APPRECIATION"].includes(strategy) && context.maxPrice > 0) {
+    score += 20 * (1 - value(pack, "startingPriceAed") / context.maxPrice);
+    codes.push("entry_price_for_exit_strategy");
+  }
+  const construction = paymentAmount(candidate, "constructionCashAed");
+  if ((strategy === "HANDOVER_EXIT" || buyer.cashDeploymentPreference === "lower_construction") && numeric(construction) && context.maxConstruction > 0) {
+    score += 40 * (1 - construction / context.maxConstruction);
+    codes.push("construction_cash_for_exit_strategy");
+  }
   if (context.lowCash && numeric(initial) && context.maxInitial > 0) {
     score += 50 * (1 - initial / context.maxInitial);
     codes.push("lower_initial_commitment_priority");
@@ -196,21 +288,29 @@ function ranking(candidate, buyer, context) {
     score += 70 * (1 - value(pack, "startingPriceAed") / context.maxPrice);
     codes.push("lower_entry_price_priority");
   }
-  if (buyer.useType === "investment" && buyer.investmentObjective === "growth") {
+  if (buyer.useType === "investment" && ["OFF_PLAN_APPRECIATION", "HANDOVER_EXIT"].includes(strategy)) {
     // These are investment route characteristics, never predicted appreciation.
     if (sameText(value(pack, "status"), "Off-plan")) { score += 18; codes.push("off_plan_growth_route"); }
     if (value(pack, "paymentPlanAvailable") === true && value(pack, "paymentPlanSummary")) { score += 10; codes.push("documented_developer_plan"); }
   }
-  if (buyer.useType === "investment" && ["rental_income", "income"].includes(buyer.investmentObjective)) {
+  if (buyer.useType === "investment" && (strategy === "READY_INCOME" || ["rental_income", "income"].includes(buyer.investmentObjective))) {
     if (sameText(value(pack, "status"), "Ready") && handoverRange(pack)?.end === 0) { score += 25; codes.push("ready_income_route"); }
   }
-  if (buyer.useType === "end_use") {
+  if (buyer.useType === "end_use" || (buyer.useType === "investment" && context.space)) {
     if ((context.priorities.has("move_in_soon") || context.priorities.has("ready") || context.priorities.has("earlier_handover")) && handoverRange(pack)?.end === 0) { score += 30; codes.push("ready_move_in_route"); }
     const materiallyLarger = context.spaceReferences.some(reference => reference.unit.id !== candidate.unit.id && value(reference.factPack, "startingPriceAed") <= value(pack, "startingPriceAed") && (value(pack, "bedrooms") > value(reference.factPack, "bedrooms") || (positive(value(reference.factPack, "sizeSqftTo")) && positive(value(pack, "sizeSqftFrom")) && value(pack, "sizeSqftFrom") >= value(reference.factPack, "sizeSqftTo") * 1.1)));
     if (context.space && materiallyLarger && positive(value(pack, "sizeSqftFrom")) && context.maxSize > 0) { score += 30 * value(pack, "sizeSqftFrom") / context.maxSize; codes.push("more_space_priority"); }
   }
+  if (buyer.useType === "investment" && context.investmentStrategy.weights.liquidity > 0 && context.comparableTransactionScopes.size > 0) {
+    const sample = candidate.investmentThesis?.liquidityCase?.transactionSamples?.find(row => context.comparableTransactionScopes.has(`${row.scope}|${normalizePropertyType(candidate.unit.propertyType)}|${candidate.unit.bedrooms}`));
+    const comparable = sample && context.transactionRanges.get(`${sample.scope}|${normalizePropertyType(candidate.unit.propertyType)}|${candidate.unit.bedrooms}`);
+    if (sample && comparable && comparable.max > comparable.min) {
+      score += context.investmentStrategy.weights.liquidity * 5 * (sample.transactions12m - comparable.min) / (comparable.max - comparable.min);
+      codes.push("documented_transaction_depth_for_strategy");
+    }
+  }
   if (!codes.length) codes.push("requirements_fit");
-  return { score, codes };
+  return { score, codes, methodology: "internal_ordering_of_buyer_relevant_documented_dimensions_not_return_score" };
 }
 
 function compareBenefits(reference, candidate, buyer, context) {
@@ -220,6 +320,11 @@ function compareBenefits(reference, candidate, buyer, context) {
   const to = candidate.factPack;
   const priceDifference = value(from, "startingPriceAed") - value(to, "startingPriceAed");
   if (priceDifference >= Math.max(25_000, value(from, "startingPriceAed") * 0.02)) benefits.push(dimensionDelta("lower_starting_price", "startingPriceAed", reference, candidate, "AED"));
+  const constructionFrom = paymentAmount(reference, "constructionCashAed");
+  const constructionTo = paymentAmount(candidate, "constructionCashAed");
+  if ((context.investmentStrategy.strategy === "HANDOVER_EXIT" || buyer.cashDeploymentPreference === "lower_construction") && numeric(constructionFrom) && numeric(constructionTo) && constructionFrom - constructionTo >= Math.max(10_000, constructionFrom * 0.1)) {
+    benefits.push({ code: "lower_construction_cash", field: "constructionCashAed", from: constructionFrom, to: constructionTo, delta: roundMoney(constructionTo - constructionFrom), unit: "AED", evidence: [...reference.investmentThesis.paymentCase.evidence, ...candidate.investmentThesis.paymentCase.evidence] });
+  }
   const cashFrom = value(from, "downPaymentAed");
   const cashTo = value(to, "downPaymentAed");
   if (context.lowCash && numeric(cashFrom) && numeric(cashTo) && cashFrom - cashTo >= Math.max(10_000, cashFrom * 0.1)) benefits.push(dimensionDelta("lower_initial_commitment", "downPaymentAed", reference, candidate, "AED"));
@@ -237,12 +342,13 @@ function compareBenefits(reference, candidate, buyer, context) {
   if (context.objections.has("wrong_area") && !sameText(value(from, "area"), value(to, "area")) && (buyer.areaFlexibility !== "fixed" || (wantedAreaMatch(candidate, buyer) && !wantedAreaMatch(reference, buyer)))) benefits.push(dimensionDelta("different_area_as_requested", "area", reference, candidate));
   if (context.objections.has("wrong_property_type") && !sameText(value(from, "propertyType"), value(to, "propertyType")) && (buyer.propertyTypeFlexibility === true || (wantedTypeMatch(candidate, buyer) && !wantedTypeMatch(reference, buyer)))) benefits.push(dimensionDelta("property_type_as_requested", "propertyType", reference, candidate));
   if (context.objections.has("developer_concern") && value(from, "developer") && value(to, "developer") && !sameText(value(from, "developer"), value(to, "developer"))) benefits.push(dimensionDelta("different_developer_as_requested", "developer", reference, candidate));
+  if (context.objections.has("payment_plan_bad") && value(from, "paymentPlanSummary") && value(to, "paymentPlanSummary") && !sameText(value(from, "paymentPlanSummary"), value(to, "paymentPlanSummary"))) benefits.push(dimensionDelta("different_documented_payment_structure", "paymentPlanSummary", reference, candidate));
   if ((context.lowCash || context.objections.has("payment_plan_bad")) && value(from, "paymentPlanAvailable") !== true && value(to, "paymentPlanAvailable") === true && value(to, "paymentPlanSummary")) benefits.push(dimensionDelta("documented_developer_plan", "paymentPlanAvailable", reference, candidate));
   const priorHandover = handoverRange(from);
   const nextHandover = handoverRange(to);
   if ((context.objections.has("handover_too_late") || context.priorities.has("move_in_soon") || context.priorities.has("ready") || context.priorities.has("earlier_handover")) && priorHandover && nextHandover && nextHandover.end < priorHandover.start) benefits.push(dimensionDelta("earlier_handover", "handover", reference, candidate));
   if (context.objections.has("handover_too_soon") && priorHandover && nextHandover && nextHandover.start > priorHandover.end) benefits.push(dimensionDelta("later_handover", "handover", reference, candidate));
-  if (buyer.useType === "investment" && ["rental_income", "income"].includes(buyer.investmentObjective) && !sameText(value(from, "status"), "Ready") && sameText(value(to, "status"), "Ready") && nextHandover?.end === 0) benefits.push(dimensionDelta("ready_income_route", "status", reference, candidate));
+  if (buyer.useType === "investment" && (context.investmentStrategy.strategy === "READY_INCOME" || ["rental_income", "income"].includes(buyer.investmentObjective)) && !sameText(value(from, "status"), "Ready") && sameText(value(to, "status"), "Ready") && nextHandover?.end === 0) benefits.push(dimensionDelta("ready_income_route", "status", reference, candidate));
   if (buyer.useType === "investment" && buyer.investmentObjective === "growth" && !sameText(value(from, "status"), "Off-plan") && sameText(value(to, "status"), "Off-plan") && value(to, "paymentPlanAvailable") === true && value(to, "paymentPlanSummary")) benefits.push(dimensionDelta("off_plan_with_documented_plan", "status", reference, candidate));
   return benefits;
 }
@@ -259,7 +365,7 @@ function solvesObjection(benefits, context) {
   if (context.objections.has("developer_concern")) required.push(codes.has("different_developer_as_requested"));
   if (context.objections.has("handover_too_late")) required.push(codes.has("earlier_handover"));
   if (context.objections.has("handover_too_soon")) required.push(codes.has("later_handover"));
-  if (context.objections.has("payment_plan_bad")) required.push(codes.has("lower_initial_commitment") || codes.has("documented_developer_plan"));
+  if (context.objections.has("payment_plan_bad")) required.push(codes.has("lower_initial_commitment") || codes.has("documented_developer_plan") || codes.has("different_documented_payment_structure"));
   return !required.length || required.every(Boolean);
 }
 
@@ -279,6 +385,11 @@ function tradeoffs(reference, candidate, buyer) {
   }
   if (!wantedAreaMatch(candidate, buyer)) rows.push({ code: "outside_preferred_area", field: "area", from: [...buyer.preferredAreas], to: value(candidate.factPack, "area"), delta: null });
   if (!value(candidate.factPack, "availability")) rows.push({ code: "current_availability_unknown", field: "availability", from: null, to: null, delta: null });
+  for (const [code, field] of [["higher_construction_cash", "constructionCashAed"], ["higher_handover_cash", "handoverCashAed"]]) {
+    const from = paymentAmount(reference, field);
+    const to = paymentAmount(candidate, field);
+    if (numeric(from) && numeric(to) && to > from) rows.push({ code, field, from, to, delta: roundMoney(to - from), unit: "AED", evidence: [...reference.investmentThesis.paymentCase.evidence, ...candidate.investmentThesis.paymentCase.evidence] });
+  }
   if (!numeric(value(candidate.factPack, "downPaymentAed"))) rows.push({ code: "initial_commitment_unknown", field: "downPaymentAed", from: null, to: null, delta: null });
   return rows;
 }
@@ -286,7 +397,7 @@ function tradeoffs(reference, candidate, buyer) {
 function opportunityType(candidate, reference, benefits) {
   const codes = new Set(benefits.map(item => item.code));
   if (reference && value(candidate.factPack, "startingPriceAed") > value(reference.factPack, "startingPriceAed")) return "smart_upgrade";
-  if (codes.has("lower_initial_commitment")) return "easier_payment_alternative";
+  if (codes.has("lower_initial_commitment") || codes.has("lower_construction_cash")) return "easier_payment_alternative";
   if (codes.has("lower_starting_price")) return "lower_cost_alternative";
   if (codes.has("earlier_handover") || codes.has("later_handover")) return "better_timing_alternative";
   if (codes.has("ready_income_route")) return "cash_flow_alternative";
@@ -305,6 +416,7 @@ function makeOpportunity(type, candidate, reference, benefits, buyer, budgetPoli
     relevantFields.add("sizeSqftTo");
   }
   const facts = [candidate, ...(reference ? [reference] : [])].flatMap(row => [...relevantFields].map(key => evidence(row, key)).filter(Boolean));
+  facts.push(...benefits.flatMap(benefit => benefit.evidence || []));
   return {
     type,
     projectId: candidate.project.id,
@@ -319,6 +431,8 @@ function makeOpportunity(type, candidate, reference, benefits, buyer, budgetPoli
     amountBasis: "confirmed_starting_prices",
     initialCashBasis: "documented_initial_payment_only_fees_and_schedule_not_inferred",
     supportedFacts: facts,
+    rationale: candidate.rationale || null,
+    opinion: type === "no_push" ? "would_not_pay_extra" : reference && price > referencePrice ? "worth_considering_for_supported_benefit" : "prefer_for_this_buyer",
     confidence: value(candidate.factPack, "availability") && numeric(cash) ? "high" : "medium"
   };
 }
@@ -339,18 +453,30 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const objections = categories(buyer);
   const hasSuitabilityObjection = [...objections].some(category => SUITABILITY_OBJECTIONS.has(category));
   const priorityCodes = priorities(buyer);
+  const investmentStrategy = buildInvestmentStrategy(buyer);
+  const transactionRanges = new Map();
+  const recentSamples = candidates.flatMap(candidate => (candidate.investmentThesis?.liquidityCase?.transactionSamples || []).filter(sample => sample.scope && numeric(sample.transactions12m) && Number.isFinite(Date.parse(sample.latestTransactionDate)) && Date.parse(sample.latestTransactionDate) <= (options.now ?? Date.now())).map(sample => ({ ...sample, unitId: candidate.unit.id, propertyType: normalizePropertyType(candidate.unit.propertyType), bedrooms: candidate.unit.bedrooms })));
+  for (const sample of recentSamples) {
+    const peers = recentSamples.filter(row => row.scope === sample.scope && row.propertyType === sample.propertyType && row.bedrooms === sample.bedrooms && Math.abs(Date.parse(row.latestTransactionDate) - Date.parse(sample.latestTransactionDate)) <= 90 * 86400000);
+    if (new Set(peers.map(row => row.unitId)).size > 1) transactionRanges.set(`${sample.scope}|${sample.propertyType}|${sample.bedrooms}`, { min: Math.min(...peers.map(row => row.transactions12m)), max: Math.max(...peers.map(row => row.transactions12m)) });
+  }
   const context = {
+    investmentStrategy,
+    transactionRanges,
+    comparableTransactionScopes: new Set(transactionRanges.keys()),
     objections,
     priorities: priorityCodes,
     space: wantsSpace(buyer, objections, priorityCodes),
     lowCash: wantsLowCash(buyer, objections, priorityCodes),
     spaceReferences: candidates.filter(candidate => !preferenceGaps(candidate, buyer).length && !eligibility(candidate, buyer, budgetPolicy.ceilingAed, options).length),
     maxInitial: Math.max(0, ...candidates.map(row => value(row.factPack, "downPaymentAed") || 0)),
+    maxConstruction: Math.max(0, ...candidates.map(row => paymentAmount(row, "constructionCashAed") ?? 0)),
     maxPrice: Math.max(0, ...candidates.map(row => value(row.factPack, "startingPriceAed") || 0)),
     maxSize: Math.max(0, ...candidates.map(row => value(row.factPack, "sizeSqftFrom") || 0))
   };
+  for (const candidate of candidates) candidate.rationale = recommendationRationale(candidate, buyer, context);
   const assessments = candidates.map(candidate => ({ candidate, hardConstraintFailures: eligibility(candidate, buyer, budgetPolicy.ceilingAed, options), preferenceGaps: preferenceGaps(candidate, buyer) }));
-  const base = { candidates, assessments, budgetPolicy, directMatches: [], matches: [], primary: null, challenger: null, opportunities: [], packs: [], upgradeAssessment: { permissionCandidate: null, opportunities: [], decision: "no_push", reasonCodes: [] } };
+  const base = { candidates, assessments, budgetPolicy, investmentStrategy, investmentTheses: [], comparison: null, relations: { nodes: [], edges: [] }, rationale: null, directMatches: [], matches: [], primary: null, challenger: null, opportunities: [], packs: [], upgradeAssessment: { permissionCandidate: null, opportunities: [], decision: "no_push", reasonCodes: [] } };
   if (buyer.salesPathStopped || objections.has("not_interested") || (!options.requestedRecommendation && ["needs_time", "already_has_agent"].some(code => objections.has(code)))) return { ...base, opportunities: [noPush(["respect_buyer_pace"])] };
   if (!options.requestedRecommendation && objections.has("trust_concern") && !hasSuitabilityObjection) return { ...base, opportunities: [noPush(["resolve_trust_before_recommending"])] };
   if (budgetPolicy.originalBudgetAed === null) return { ...base, opportunities: [noPush(["budget_unknown"])] };
@@ -370,7 +496,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const referenceFresh = reference && positive(value(reference.factPack, "startingPriceAed")) ? reference : null;
   const withinOriginal = candidate => value(candidate.factPack, "startingPriceAed") <= budgetPolicy.originalBudgetAed;
   const originalBudgetDirect = directMatches.filter(withinOriginal);
-  const relevantDirect = referenceFresh && hasSuitabilityObjection ? originalBudgetDirect.filter(candidate => candidate.unit.id !== referenceFresh.unit.id && solvesObjection(compareBenefits(referenceFresh, candidate, buyer, context), context)) : originalBudgetDirect;
+  const relevantDirect = referenceFresh && hasSuitabilityObjection ? originalBudgetDirect.filter(candidate => (rejectionResolvedByEvidence(candidate, buyer) || candidate.unit.id !== referenceFresh.unit.id && solvesObjection(compareBenefits(referenceFresh, candidate, buyer, context), context))) : originalBudgetDirect;
   let primaryCandidate = relevantDirect[0] || null;
   if (!primaryCandidate && referenceFresh) {
     primaryCandidate = sortByFit(eligible.filter(candidate => withinOriginal(candidate) && canChallenge(candidate, buyer, context) && relevantChallengeBenefits(candidate, referenceFresh, buyer, context).length && solvesObjection(relevantChallengeBenefits(candidate, referenceFresh, buyer, context), context)))[0] || null;
@@ -426,5 +552,11 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const evidenceCandidates = new Map(matches.map(row => [row.unit.id, row]));
   if (baseline) evidenceCandidates.set(baseline.unit.id, baseline);
   if (unhelpfulExtra) evidenceCandidates.set(unhelpfulExtra.unit.id, unhelpfulExtra);
-  return { ...base, directMatches, matches, primary, challenger, opportunities: [primary, ...(challenger ? [challenger] : [])], packs: [...evidenceCandidates.values()].map(row => row.factPack), upgradeAssessment };
+  const comparisonCandidate = challengerRow?.candidate || baseline || unhelpfulExtra;
+  const comparison = comparisonCandidate ? compareProperties(primaryCandidate, comparisonCandidate, buyer, { ...options, budgetPolicy }) : null;
+  return { ...base, directMatches, matches, primary, challenger,
+    investmentTheses: matches.map(row => row.investmentThesis), comparison,
+    relations: buildProjectRelations(matches.map(row => row.project), { factPacks: matches.map(row => row.factPack), units: matches.map(row => row.unit), intelligence: catalog.intelligence || {}, now: options.now }),
+    rationale: primaryCandidate.rationale,
+    opportunities: [primary, ...(challenger ? [challenger] : [])], packs: [...evidenceCandidates.values()].map(row => row.factPack), upgradeAssessment };
 }

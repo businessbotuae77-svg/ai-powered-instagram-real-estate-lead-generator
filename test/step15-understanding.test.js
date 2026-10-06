@@ -80,7 +80,7 @@ test("step 15g unknown area advances to investment objectives without losing bud
   assert.doesNotMatch(result.reply, /Any area you want to start with/i);
   assert.equal(result.buyer.useType, "investment");
   assert.match(result.reply, /rental income|growth/i);
-  assert.equal(result.nextQuestion?.field, "investmentObjective");
+  assert.equal(result.nextQuestion?.field, "exitHorizon");
   assert.doesNotMatch(result.reply, /What budget|approved evidence/i);
   const growth = await engine.handleMessage("ig_m2_u7", "Growth");
   assert.equal(growth.buyer.investmentObjective, "growth");

@@ -1,5 +1,13 @@
 # Newer Milestone 3/4 acceptance
 
+The off-plan upgrade adds the 30 elite broker regression scenarios and adversarial
+composition checks described in [`OFF-PLAN-ADVISOR.md`](OFF-PLAN-ADVISOR.md).
+Its ROI acceptance supersedes the older income/growth gateway below: ROI is
+umbrella return intent, and an unknown exit horizon is the useful off-plan
+strategy question. Existing permission, freshness and live integration
+acceptance requirements remain applicable. See the upgrade report for final
+captured local command output and separate live rollout requirements.
+
 The [2 October 2026 specification](https://docs.google.com/document/d/1u9VLg6DFU0ofDrS8tW5tizsrykP-I0LroPeFsUVWT8Q/edit)
 is authoritative. Local tests use synthetic catalogue records and mocked external
 APIs. They demonstrate code behavior, not successful live integrations.

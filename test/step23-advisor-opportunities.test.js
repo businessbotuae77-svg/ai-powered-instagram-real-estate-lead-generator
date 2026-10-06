@@ -188,7 +188,12 @@ test("end-user space priority and rental-income route rank different supported c
   assert.ok(income.primary.reasonCodes.includes("ready_income_route"));
   assert.equal(endUse.primary.projectId, "offplan");
   assert.ok(endUse.primary.reasonCodes.includes("more_space_priority"));
-  assert.doesNotMatch(JSON.stringify(income.opportunities), /rentalYield|expectedROI|appreciation|guaranteed/i);
+  assert.doesNotMatch(JSON.stringify(income.opportunities.map(row => ({ buyerBenefit: row.buyerBenefit, supportedFacts: row.supportedFacts, reasonCodes: row.reasonCodes }))), /rentalYield|expectedROI|appreciation|guaranteed/i);
+  for (const thesis of income.investmentTheses) {
+    assert.deepEqual(thesis.forecasts, []);
+    assert.equal(thesis.forecastAllowed, false);
+    assert.ok(thesis.unknowns.includes("future_appreciation"));
+  }
 });
 
 test("growth recommendation can keep area and bedrooms open while retaining budget", () => {

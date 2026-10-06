@@ -1,0 +1,13 @@
+
+> abu-dhabi-property-leads@1.3.0 verify:spec
+> node --test test/step20-newer-spec.test.js
+
+✔ test/step20-newer-spec.test.js (2509.017348ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2526.026848

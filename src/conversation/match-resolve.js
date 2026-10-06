@@ -2,6 +2,7 @@ import { criteriaFromBuyer } from "../matching/matcher.js";
 import { limitMatchesForPitch, rankMatches } from "./preferences.js";
 import { formatAed } from "../matching/normalize.js";
 import { assessInventory, bestRecommendableTier } from "./fit-assess.js";
+import { deriveInvestmentStrategy } from "./investment-strategy.js";
 
 /**
  * Project-led recommendation:
@@ -24,7 +25,9 @@ export function resolveMatches(catalog, buyer) {
   const assessments = assessInventory(catalog, buyer).filter(row =>
     Number.isFinite(row.unit.startingPriceAed) && row.unit.startingPriceAed > 0 &&
     row.unit.startingPriceAed <= originalBudget &&
-    !(buyer.rejectedProjects || []).includes(row.project.id) &&
+    !row.fit.hardConstraintFailures?.length &&
+    !(buyer.rejectedProjects || []).some(item => (typeof item === "string" ? item : item.projectId) === row.project.id) &&
+    !(buyer.rejectionReasons?.[row.project.id] && buyer.rejectionReasons[row.project.id].resolved !== true) &&
     !(row.project.area === "Hudayriyat Island" && row.unit.bedrooms === 0)
   );
   const bestTier = bestRecommendableTier(assessments);
@@ -67,7 +70,7 @@ export function canPitchBuyer(buyer) {
   );
   const hasSize = Boolean(buyer.propertyTypes?.length || buyer.bedrooms?.length);
   return Boolean(
-    buyer.budgetAed && (hasSpecificLocation || (areaFlexible && hasSize) || buyer.investmentObjective)
+    buyer.budgetAed && (hasSpecificLocation || (areaFlexible && hasSize) || buyer.investmentObjective || buyer.investmentGoal || deriveInvestmentStrategy(buyer) !== "UNDECIDED")
   );
 }
 

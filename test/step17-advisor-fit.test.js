@@ -8,26 +8,18 @@ import { assessCandidate } from "../src/conversation/fit-assess.js";
  * Run: node --test test/step17-advisor-fit.test.js
  */
 
-test("step 17a Reem Gate is a strong fit with financing compromises", async () => {
+test("step 17a explicit cash ceiling and required payment plan exclude financing compromises", async () => {
   const { engine } = await setupConversation();
   const result = await engine.handleMessage(
     "ig_m2_advisor_1",
     "AED 2M, Reem, 2 bedrooms, no more than 150k down, payment plan"
   );
 
-  assert.equal(result.fitTier, "strong_with_compromise");
-  assert.equal(result.matchCount, 1);
-  assert.equal(result.matches[0].project.name, "Reem Gate");
-  assert.equal(result.matches[0].fit.coreGapCount, 0);
-  assert.equal(result.matches[0].fit.financeGapCount, 2);
-  assert.match(result.reply, /Reem Gate.*strong fit/is);
-  assert.match(result.reply, /Al Reem Island|Reem/i);
-  assert.match(result.reply, /2 bedroom/i);
-  assert.match(result.reply, /2,000,000/i);
-  assert.match(result.reply, /1,600,000/i);
-  assert.match(result.reply, /150,000/i);
-  assert.match(result.reply, /payment plan is not confirmed/i);
-  assert.doesNotMatch(result.reply, /I do not have an exact match/i);
+  assert.equal(result.fitTier, "none");
+  assert.equal(result.matchCount, 0);
+  assert.equal(result.buyer.cashAvailableAed, 150_000);
+  assert.ok(result.advisor.assessments.some(row => row.hardConstraintFailures.includes("initial_payment_over_cash")));
+  assert.doesNotMatch(result.reply, /strong fit|perfect match/i);
   assert.ok(result.check.ok);
 });
 
@@ -72,7 +64,7 @@ test("step 17d multiple material gaps remain a genuine no-match", async () => {
 
   assert.equal(result.fitTier, "none");
   assert.equal(result.matchCount, 0);
-  assert.match(result.reply, /do not have a confirmed option/i);
+  assert.match(result.reply, /current commercial unit|option.*fits/i);
   assert.doesNotMatch(result.reply, /strong fit/i);
   assert.ok(result.check.ok);
 });
@@ -128,18 +120,17 @@ test("step 17f every recommendation carries auditable fit evidence", async () =>
   }
 });
 
-test("step 17g financing compromise selects the smallest real cash gap", async () => {
+test("step 17g cash shortfall remains a hard constraint instead of a recommendation", async () => {
   const { engine } = await setupConversation();
   const result = await engine.handleMessage(
     "ig_m2_advisor_6",
     "AED 3M, Yas, 3 bedrooms, 50k down, payment plan"
   );
 
-  assert.equal(result.fitTier, "strong_with_compromise");
-  assert.equal(result.matchCount, 1);
-  assert.equal(result.matches[0].project.name, "Yas Park Views");
-  assert.equal(result.matches[0].downPaymentAed, 260_000);
-  assert.match(result.reply, /Yas Park Views.*strong fit/is);
-  assert.match(result.reply, /260,000/i);
-  assert.doesNotMatch(result.reply, /Yas Grove|800,000/i);
+  assert.equal(result.fitTier, "none");
+  assert.equal(result.matchCount, 0);
+  assert.equal(result.buyer.cashAvailableAed, 50_000);
+  assert.ok(result.advisor.assessments.some(row => row.hardConstraintFailures.includes("initial_payment_over_cash")));
+  assert.doesNotMatch(result.reply, /strong fit|260,000|800,000/i);
+  assert.ok(result.check.ok);
 });

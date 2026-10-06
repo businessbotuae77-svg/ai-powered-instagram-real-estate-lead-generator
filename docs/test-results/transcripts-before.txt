@@ -1,0 +1,76 @@
+
+Investment strategy with no active units — FICTIONAL OFFLINE FIXTURE; NO LIVE COMMERCIAL QUOTE
+
+Buyer: I have AED 2M. I want the best ROI.
+Advisor: We can keep the area open for now. Rental income and long-term growth can favour different properties. Are you more interested in regular rental income, long-term growth, or a mix?
+
+{"stage":"exploring","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":"investmentObjective","factCheck":true}
+Buyer: Capital growth.
+Advisor: I do not have a confirmed option that fits those details yet. I can look at nearby bedroom sizes or another Abu Dhabi area with current listings.
+
+{"stage":"no_match","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":"preferredAreas","factCheck":true}
+Buyer: Handover.
+Advisor: Which project would you like me to check?
+
+{"stage":"fact_answer","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":"factProject","factCheck":true}
+Buyer: Tell me about Fixture A
+Advisor: I do not have a confirmed option that fits those details yet. I can look at nearby bedroom sizes or another Abu Dhabi area with current listings.
+
+{"stage":"no_match","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":"preferredAreas","factCheck":true}
+Buyer: What are the risks?
+Advisor: I do not have a confirmed option that fits those details yet. I can look at nearby bedroom sizes or another Abu Dhabi area with current listings.
+
+{"stage":"no_match","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":"preferredAreas","factCheck":true}
+Buyer: Will this appreciate 20%?
+Advisor: I do not have a confirmed option that fits those details yet. I can look at nearby bedroom sizes or another Abu Dhabi area with current listings.
+
+{"stage":"no_match","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":"preferredAreas","factCheck":true}
+
+Commercial advice with current fictional records — FICTIONAL OFFLINE FIXTURE; NO LIVE COMMERCIAL QUOTE
+
+Buyer: I have AED 2M. I want the best ROI.
+Advisor: We can keep the area open for now. Rental income and long-term growth can favour different properties. Are you more interested in regular rental income, long-term growth, or a mix?
+
+{"stage":"exploring","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":"investmentObjective","factCheck":true}
+Buyer: Capital growth.
+Advisor: For your priorities, I prefer Fixture A because its off-plan status and documented payment structure suit the route you want to compare; this is a fit recommendation, not a growth forecast.
+Fixture A by Fixture Developer · Yas Island · 1 bedroom apartment · from AED 1,800,000 · 800 to 800 sqft · initial AED 180,000 · 60/40 · handover Q4 2028
+I would not pay extra here without a material benefit for your priorities.
+Want me to break down the payment terms?
+
+{"stage":"matched","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: Handover.
+Advisor: Fixture A: handover Q4 2028
+
+{"stage":"fact_answer","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":null,"factCheck":true}
+Buyer: Compare Fixture A and Fixture B
+Advisor: Fixture A: Yas Island; 1 bedrooms; price AED 1,800,000; plan 60/40.
+Fixture B: Yas Island; 1 bedrooms; price AED 2,000,000; plan 60/40. Compare location and unit size first; any commercial trade-off needs current verified terms.
+
+{"stage":"comparison","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":null,"factCheck":true}
+Buyer: Why should I pay 200k more?
+Advisor: For your priorities, I prefer Fixture A because its off-plan status and documented payment structure suit the route you want to compare; this is a fit recommendation, not a growth forecast.
+Fixture A by Fixture Developer · Yas Island · 1 bedroom apartment · from AED 1,800,000 · 800 to 800 sqft · initial AED 180,000 · 60/40 · handover Q4 2028
+Want me to break down the payment terms?
+
+{"stage":"matched","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: Which would you buy?
+Advisor: For your priorities, I prefer Fixture A because it fits your price range.
+Fixture A by Fixture Developer · Yas Island · 1 bedroom apartment · from AED 1,800,000 · 800 to 800 sqft · initial AED 180,000 · 60/40 · handover Q4 2028
+Want me to break down the payment terms?
+
+{"stage":"matched","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: No calls.
+Advisor: Understood — no calls. We can continue here whenever you need help.
+
+{"stage":"permissions_updated","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":null,"factCheck":true}
+Buyer: I want to proceed.
+Advisor: For your priorities, I prefer Fixture A because it fits your price range.
+Fixture A by Fixture Developer · Yas Island · 1 bedroom apartment · from AED 1,800,000 · 800 to 800 sqft · initial AED 180,000 · 60/40 · handover Q4 2028
+Want me to break down the payment terms?
+
+{"stage":"matched","strategy":null,"exitHorizon":null,"primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: I'm good.
+Advisor: Understood. I'll leave it there. Message me whenever you need help.
+
+{"stage":"paused","strategy":null,"exitHorizon":null,"primary":null,"nextQuestion":null,"factCheck":true}

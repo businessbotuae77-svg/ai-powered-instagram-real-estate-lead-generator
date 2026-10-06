@@ -1,0 +1,72 @@
+
+Investment strategy with no active units — FICTIONAL OFFLINE FIXTURE; NO LIVE COMMERCIAL QUOTE
+
+Buyer: I have AED 2M. I want the best ROI.
+Advisor: I'd treat ROI as the overall investment return: appreciation plus rental income, less costs. For off-plan, I'd compare entry price, project and area stage, cash deployment, future supply and resale competition. Are you thinking of exiting around handover, or holding for a few years after?
+
+{"stage":"investment_advice","strategy":"UNDECIDED","exitHorizon":null,"primary":null,"nextQuestion":"exitHorizon","factCheck":true}
+Buyer: Capital growth.
+Advisor: Then I'd prioritize appreciation as the main return driver. I'd compare entry point, release stage, surrounding development, payment structure and eventual resale competition. Are you thinking of exiting around handover, or holding for a few years after?
+
+{"stage":"investment_advice","strategy":"OFF_PLAN_APPRECIATION","exitHorizon":null,"primary":null,"nextQuestion":"exitHorizon","factCheck":true}
+Buyer: Handover.
+Advisor: For that exit strategy, entry timing, cash deployed before sale, competing handovers and resale liquidity matter most. I'd compare documented entry prices and release stages alongside the payment commitments; higher later-phase pricing alone would not prove your resale profit. I don't have a current commercial unit to quote, but we can still compare project positioning and build the investment case.
+
+{"stage":"investment_advice","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":null,"nextQuestion":null,"factCheck":true}
+Buyer: Tell me about Fixture A
+Advisor: Fixture A is in Yas Island, by Fixture Developer. A documented residential community. I don't have a current commercial unit to quote for this project, but we can still assess its positioning and the evidence needed for your strategy.
+
+{"stage":"knowledge_answer","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":null,"nextQuestion":null,"factCheck":true}
+Buyer: What are the risks?
+Advisor: I'd check the payment exposure at handover, competing stock at your exit, resale liquidity and ownership or exit costs. Missing project evidence leaves the risk unknown; I'd resolve those gaps before a purchase decision rather than assume a smooth exit.
+
+{"stage":"investment_risk","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":null,"nextQuestion":null,"factCheck":true}
+Buyer: Will this appreciate 20%?
+Advisor: I wouldn't promise a future increase. Sourced launch and later-release prices describe historical observations; a hypothetical resale calculation needs explicit assumptions and is not a forecast. I'd assess entry price, costs, timing and liquidity before judging the opportunity.
+
+{"stage":"investment_risk","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":null,"nextQuestion":null,"factCheck":true}
+
+Commercial advice with current fictional records — FICTIONAL OFFLINE FIXTURE; NO LIVE COMMERCIAL QUOTE
+
+Buyer: I have AED 2M. I want the best ROI.
+Advisor: I'd treat ROI as the overall investment return: appreciation plus rental income, less costs. For off-plan, I'd compare entry price, project and area stage, cash deployment, future supply and resale competition. Are you thinking of exiting around handover, or holding for a few years after?
+
+{"stage":"investment_advice","strategy":"UNDECIDED","exitHorizon":null,"primary":"fictional-0","nextQuestion":"exitHorizon","factCheck":true}
+Buyer: Capital growth.
+Advisor: Then I'd prioritize appreciation as the main return driver. I'd compare entry point, release stage, surrounding development, payment structure and eventual resale competition. Are you thinking of exiting around handover, or holding for a few years after?
+
+{"stage":"investment_advice","strategy":"OFF_PLAN_APPRECIATION","exitHorizon":null,"primary":"fictional-0","nextQuestion":"exitHorizon","factCheck":true}
+Buyer: Handover.
+Advisor: For your priorities, I prefer Fixture A because its off-plan status and documented payment structure suit the route you want to compare; this is a fit recommendation, not a growth forecast.
+Fixture A by Fixture Developer · Yas Island · 1 bedroom apartment · from AED 1,800,000 · 800 to 800 sqft · initial AED 180,000 · 60/40 · handover Q4 2028
+I would not pay the extra AED 200,000 here without a material benefit for your priorities.
+Want me to break down the payment terms?
+
+{"stage":"matched","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: Compare Fixture A and Fixture B
+Advisor: Fixture A starts at AED 1,800,000 versus AED 2,000,000 for Fixture B; the entry-price difference is AED 200,000. The documented initial commitments are AED 180,000 and AED 200,000 respectively, a difference of AED 20,000. I wouldn't pay the extra AED 200,000 for your priorities without a supported benefit. For your stated priorities, I prefer Fixture A.
+
+{"stage":"comparison","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":"fictional-0","nextQuestion":null,"factCheck":true}
+Buyer: Why should I pay 200k more?
+Advisor: Fixture A starts at AED 1,800,000 versus AED 2,000,000 for Fixture B; the entry-price difference is AED 200,000. The documented initial commitments are AED 180,000 and AED 200,000 respectively, a difference of AED 20,000. I wouldn't pay the extra AED 200,000 for your priorities without a supported benefit. For you, I'd start with Fixture A.
+Want me to break down the payment commitments?
+
+{"stage":"matched","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: Which would you buy?
+Advisor: Fixture A starts at AED 1,800,000 versus AED 2,000,000 for Fixture B; the entry-price difference is AED 200,000. The documented initial commitments are AED 180,000 and AED 200,000 respectively, a difference of AED 20,000. I wouldn't pay the extra AED 200,000 for your priorities without a supported benefit. For you, I'd start with Fixture A.
+Want me to break down the payment commitments?
+
+{"stage":"matched","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: No calls.
+Advisor: Understood — no calls. We can continue here whenever you need help.
+
+{"stage":"permissions_updated","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":"fictional-0","nextQuestion":null,"factCheck":true}
+Buyer: I want to proceed.
+Advisor: Let's focus on Fixture A. The next step is to check its current availability and the applicable offer and EOI terms; nothing has been reserved or submitted.
+Want me to check the current availability before we discuss the next step?
+
+{"stage":"matched","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":"fictional-0","nextQuestion":"advisoryNextAction","factCheck":true}
+Buyer: I'm good.
+Advisor: Understood. I'll leave it there. Message me whenever you need help.
+
+{"stage":"paused","strategy":"HANDOVER_EXIT","exitHorizon":"handover","primary":null,"nextQuestion":null,"factCheck":true}

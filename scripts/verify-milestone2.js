@@ -66,11 +66,12 @@ step("5. Hallucinated price is blocked", async (ctx) => {
   assert(check.ok === false, "hallucinated claim was allowed");
 });
 
-step("6. High intent stays in AI until Request a Call is submitted", async (ctx) => {
+step("6. Reservation interest asks permission-aware channel choice without a call", async (ctx) => {
   const result = await ctx.engine.handleMessage("ig_v2_1", "I want to reserve");
   assert(result.buyer.leadStatus === "engaged", "high intent must stay engaged, not a handoff lead");
   assert(result.alertRecommended === false, "high intent must not alert before phone submit");
-  assert(result.callRequest?.offered === true, "reserve interest should offer Request a Call");
+  assert(result.callRequest === null, "reserve interest must not invent call consent");
+  assert(result.nextQuestion?.field === "preferredContactChannel", "reserve interest should ask a follow-up channel");
   assert(result.check.ok, "high intent reply failed fact check");
   assert(result.handoffRequired === false, "missing data must not force CRM handoff");
 });
@@ -82,6 +83,8 @@ step("7. Missing listing fields stay unanswered", async (ctx) => {
 
 const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "m2-verify-"));
 const store = await createLocalStore({ runtimeDir });
+// Offline synthetic fixtures are checked today; production seed dates are untouched.
+store.projects = store.projects.map(project => ({ ...project, lastVerified: new Date().toISOString() }));
 const buyers = new BuyerService(store);
 const properties = new PropertyService(store);
 const engine = new ConversationEngine({

@@ -1,0 +1,13 @@
+
+> abu-dhabi-property-leads@1.3.0 verify:m2
+> node scripts/verify-milestone2.js
+
+PASS  1. Extract budget, Yas, 3BR, payment plan from natural text
+PASS  2. Progressive chat qualifies then matches Yas Park Views
+PASS  3. Buyer memory keeps earlier budget on later turns
+PASS  4. Returning visitor skips re-asking budget
+PASS  5. Hallucinated price is blocked
+PASS  6. Reservation interest asks permission-aware channel choice without a call
+PASS  7. Missing listing fields stay unanswered
+
+Milestone 2 verify passed

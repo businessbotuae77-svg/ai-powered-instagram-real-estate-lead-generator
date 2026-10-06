@@ -52,6 +52,8 @@ test("B.1 'Mix' after income-vs-growth question saves investmentObjective and pr
   // The bot should ask about income/growth/mix
   assert.match(roiResult.reply, /rental income|growth|mix|both/i);
   
+  // Legacy saved-question context remains supported, although ROI now asks exit horizon.
+  engine.memory.setLastAskedField("dm_b1", "investmentObjective");
   // Now answer "Mix"
   const mixResult = await engine.handleMessage("dm_b1", "Mix", { useLlm: false });
   // Should NOT get the "no confirmed terms" fallback
@@ -251,12 +253,13 @@ test("E.3 LLM logs warning when model request throws error (no buyer message lea
     assert.equal(result, null, "Error should return null");
     
     // Should have logged a warning about the error
-    const hasErrorLog = warnings.some(w => w.includes("model reply error") && w.includes("Network timeout"));
-    assert.ok(hasErrorLog, "Should log error message");
+    const hasErrorLog = warnings.some(w => w.includes("model reply error") && w.includes("Error"));
+    assert.ok(hasErrorLog, "Should log the error category");
     
     // Buyer message must not appear in any warning
     const allWarnings = warnings.join(" ");
     assert.ok(!allWarnings.includes(secretMessage), "Buyer message must not appear in error logs");
+    assert.ok(!allWarnings.includes("Network timeout"), "Raw transport error text must not appear in logs");
   } finally {
     console.warn = originalWarn;
   }
@@ -483,7 +486,9 @@ test("Transcript: Hi -> Why -> Let's restart -> Roi -> Mix sequence", async () =
   // Bot should explain ROI and ask about income/growth/mix
   assert.match(r4.reply, /rental income|growth|mix/i);
   
-  // 5. Buyer: "Mix" (answering the bot's question)
+  // Legacy saved income/growth context is still understood.
+  engine.memory.setLastAskedField("transcript", "investmentObjective");
+  // 5. Buyer: "Mix" (answering that legacy question)
   const r5 = await engine.handleMessage("transcript", "Mix", { useLlm: false });
   // Should NOT say "I don't have current confirmed terms for that property"
   assert.doesNotMatch(r5.reply, /don't have current confirmed terms for that property/i);

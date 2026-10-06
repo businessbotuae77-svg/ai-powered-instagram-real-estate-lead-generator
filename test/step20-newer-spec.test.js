@@ -79,8 +79,10 @@ test("18 compare supported projects on the same fields without budget", async ()
   const { engine } = await setupConversation();
   const result = await engine.handleMessage("compare", "Compare Yas Park Views and Yas Studio One", { useLlm: false });
   assert.equal(result.stage, "comparison");
-  assert.match(result.reply, /Yas Park Views:.*price.*plan/);
-  assert.match(result.reply, /Yas Studio One:.*price.*plan/);
+  assert.match(result.reply, /Yas Park Views/);
+  assert.match(result.reply, /Yas Studio One/);
+  assert.ok(result.comparison.differences.some(d => d.dimension === "price"));
+  assert.match(result.reply, /difference|extra|prefer/i);
   assert.equal(result.check.ok, true);
 });
 
