@@ -467,10 +467,10 @@ test("Transcript: Hi -> Why -> Let's restart -> Roi -> Mix sequence", async () =
   // First, simulate having an old budget
   await buyers.remember("transcript", { budget: 2000000 });
   const r3 = await engine.handleMessage("transcript", "Let's restart", { useLlm: false });
-  // Should clear state and ask about budget, NOT keep old budget
+  // Clears old search and opens purpose/exploration instead of a budget form
   const buyer3 = await buyers.getOrCreate("transcript");
   assert.equal(buyer3.budgetAed, null, "Budget should be cleared after restart");
-  assert.match(r3.reply, /budget/i);
+  assert.match(r3.reply, /buying.*home.*investing.*exploring/i);
   // Should NOT say "Around AED 2,000,000 — got it"
   assert.doesNotMatch(r3.reply, /Around AED 2,000,000/i);
   

@@ -1,6 +1,7 @@
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
-import { answerFactQuestion } from "./fact-answers.js";
+import { answerFactQuestion, detectFactTopic } from "./fact-answers.js";
 import { buildFactPack } from "../facts/retrieval.js";
+import { conversationalScope } from "./question-scope.js";
 
 function response(text, stage, field = null, prompt = null) {
   return { text, stage, nextQuestion: field ? { field, prompt } : null, pendingOffer: null, callRequest: null };
@@ -26,6 +27,22 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   }
   if (intents.includes("decline_follow_up")) return response(say("Understood. I won't arrange follow-up. You can continue getting property advice here.", "تمام، لن أرتب متابعة. يمكنك الاستمرار في الحصول على المعلومات العقارية هنا."), "permissions_updated");
   if (intents.includes("decline_viewing")) return response(say("Understood. I won't arrange a viewing.", "تمام، لن أرتب معاينة."), "permissions_updated");
+  if (intents.includes("start_fresh")) {
+    const prompt = say("Are you buying a home, investing, or just exploring?", "هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟");
+    return response(say(`Starting fresh. ${prompt}`, `لنبدأ من جديد. ${prompt}`), "exploring", "useType", prompt);
+  }
+  const scope = conversationalScope(text);
+  if (scope === "investment_education") {
+    const explanation = say("Property can generate rental income and, if its value rises, a profit when you sell. I would compare the income or resale proceeds after purchase, financing and ownership costs, alongside your holding period. Neither income nor growth is guaranteed.", "قد يحقق العقار دخلاً من الإيجار وربحاً عند البيع إذا ارتفعت قيمته. أقارن ما يتبقى بعد تكاليف الشراء والتمويل والملكية والمدة التي يمكنك الاحتفاظ بها. دخل الإيجار والنمو غير مضمونين.");
+    const prompt = buyer.investmentObjective ? null : say("Are you more interested in regular rental income, long-term growth, or a mix?", "هل تفضل دخل الإيجار المنتظم أم النمو على المدى الطويل أم كليهما؟");
+    return response([explanation, prompt].filter(Boolean).join(" "), "education", prompt ? "investmentObjective" : null, prompt);
+  }
+  if (scope === "clarify_conversation") {
+    return response(say("I mean what you would like help understanding — areas, prices, investing, or how buying works. You don't need to choose a property to start.", "أقصد ما الذي تود فهمه: المناطق أم الأسعار أم الاستثمار أم إجراءات الشراء. لا تحتاج إلى اختيار عقار كي نبدأ."), "conversation_repair");
+  }
+  if (scope === "correct_conversation") {
+    return response(say("Understood. We can discuss general property questions here, whenever you're ready.", "تمام. يمكننا مناقشة الأسئلة العقارية العامة هنا متى أردت."), "conversation_repair");
+  }
   const split = text.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
   if (split && /mean|explain|what|يعني|معنى/i.test(text) && Number(split[1]) + Number(split[2]) === 100) {
     // No project numbers in this educational draft; the checker remains strict.
@@ -67,12 +84,20 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     });
     return { ...response(`${rows.join("\n")} ${say("Compare location and unit size first; any commercial trade-off needs current verified terms.", "قارن الموقع وحجم الوحدة أولاً؛ أي مفاضلة مالية تحتاج شروطاً حديثة ومعتمدة.")}`, "comparison"), factPacks: comparisonPacks };
   }
-  if (intents.includes("ask_facts") || /is it available|متاح/i.test(text)) {
+  if (detectFactTopic(text) && (intents.includes("ask_facts") || /is it available|متاح/i.test(text))) {
     const answer = answerFactQuestion(text, packs);
-    return { ...response(answer.handled ? answer.text : say("I don't have current confirmed terms for that property yet. Which project are you asking about?", "لا أملك شروطاً حالية مؤكدة لهذا العقار بعد. عن أي مشروع تسأل؟"), "fact_answer"), factTopic: answer.topic };
+    const prompt = say("Which project would you like me to check?", "أي مشروع تريد أن أتحقق منه؟");
+    return { ...response(answer.handled ? answer.text : prompt, "fact_answer", answer.handled ? null : "factProject", answer.handled ? null : prompt), factTopic: answer.topic };
   }
   if (/^(hi|hello|hey|salam|مرحبا|السلام عليكم)[.!?]*$/i.test(text.trim())) {
-    if (buyer.budgetAed || buyer.preferredAreas?.length) return null;
+    if (buyer.budgetAed || buyer.preferredAreas?.length || buyer.projectInterest) {
+      const prompt = say("Want to continue with your last search, or start fresh?", "هل تريد متابعة البحث السابق أم البدء من جديد؟");
+      const welcome = response(say(`Hi. Happy to help with Abu Dhabi property. ${prompt}`, `مرحباً، يسعدني مساعدتك في عقارات أبوظبي. ${prompt}`), "welcome_back", "session_choice", prompt);
+      return { ...welcome, pendingOffer: { type: "session_choice" }, nextQuestion: {
+        ...welcome.nextQuestion,
+        choices: [{ id: "continue", label: "Continue", value: "Continue" }, { id: "start_fresh", label: "Start fresh", value: "Start fresh" }]
+      } };
+    }
     return response(say("Hi 👋 I'm an AI property guide. Are you buying a home, investing, or just exploring?", "مرحباً 👋 أنا دليل عقاري بالذكاء الاصطناعي. هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟"), "exploring", "useType", say("Are you buying a home, investing, or just exploring?", "هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟"));
   }
   if (/^(just )?explor(?:ing|e)[.!?]*$/i.test(text.trim())) {

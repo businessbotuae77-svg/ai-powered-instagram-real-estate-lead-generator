@@ -36,13 +36,13 @@ export function buildConversationReply({
   let callRequest = null;
 
   if (intents.includes("start_fresh")) {
-    lines.push("Fresh start. What budget are you working with?");
+    lines.push("Starting fresh. Are you buying a home, investing, or just exploring?");
     nextQuestion = {
-      field: "budgetAed",
-      prompt: "What budget are you working with?",
-      choices: budgetRangeChoices()
+      field: "useType",
+      prompt: "Are you buying a home, investing, or just exploring?",
+      choices: null
     };
-    return finish(lines, "qualifying", nextQuestion, null);
+    return finish(lines, "exploring", nextQuestion, null);
   }
 
   if (intents.includes("decline_call")) {

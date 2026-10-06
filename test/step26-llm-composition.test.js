@@ -157,3 +157,36 @@ test("exact opportunity differences must be independently recomputable from conf
   b.startingPriceAed = { value: null, confirmed: false };
   assert.equal(collectOpportunityAmounts([a, b], [opportunity], buyer).has(140_000), false);
 });
+
+test("educational composition cannot revive an unretrieved property or reset search from history", async () => {
+  const recentTurns = [{ role: "assistant", text: "Yas Park Views was considered in your previous search." }];
+  for (const message of [
+    "I don't have current terms for that property yet.",
+    "That property requires a larger initial payment.",
+    "There are no suitable options for your last search.",
+    "Yas remains your priority."
+  ]) assert.equal(await composeReplyWithModel(client(result(message)), {
+    buyer: { preferredAreas: [], budgetAed: null }, packs: [], recentTurns,
+    message: "How do I make money from property?", strategy: { type: "education" }
+  }), null);
+  const explanation = "Rental income comes from rent; capital growth is a change in resale value over time.";
+  assert.equal((await composeReplyWithModel(client(result(explanation)), {
+    buyer: { preferredAreas: [], budgetAed: null }, packs: [], recentTurns,
+    message: "How do I make money from property?", strategy: { type: "education" }
+  })).message, explanation);
+});
+
+test("general education cannot declare an unnamed property unsuitable even when inventory packs exist", async () => {
+  const p = pack("Test Gardens");
+  for (const message of [
+    "That property does not fit your budget.",
+    "This property is not suitable for your investment goal.",
+    "It doesn’t match what you need."
+  ]) assert.equal(await composeReplyWithModel(client(result(message)), {
+    buyer, packs: [p], message: "How do I make money from property?", strategy: { type: "education" }
+  }), null);
+  const message = "Property investors may earn rental income or benefit from a change in resale value. Those routes need different comparisons.";
+  assert.equal((await composeReplyWithModel(client(result(message)), {
+    buyer, packs: [p], message: "How do I make money from property?", strategy: { type: "education" }
+  })).message, message);
+});

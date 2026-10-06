@@ -73,8 +73,13 @@ export function extractFactsFromMessage(message) {
   const intents = detectIntents(text);
   if (/سعر|تكلفة|تسليم|متاح|متوفر|خطة السداد|خطة سداد/.test(text)) intents.push("ask_facts");
 
+  const project = extractProject(text);
+  // A project name is a target, not new bedroom/type/area requirements. For
+  // example, "price of Yas Studio One" must not change a saved 1BR to a studio.
+  const namedProject = Object.values(PROJECT_HINTS).includes(project);
+  const criteriaText = namedProject ? text.replace(new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig"), " ") : text;
   // Editable quick-reply / choice aliases first, then free-text extractors.
-  facts = applyChoiceFacts(text, facts);
+  facts = applyChoiceFacts(criteriaText, facts);
 
   const arabicBudget = text.match(/ميزانيتي\s*(\d+(?:\.\d+)?\s*[MK]?)/i);
   if (arabicBudget) facts.budget = parseMoney(arabicBudget[1]);
@@ -94,19 +99,18 @@ export function extractFactsFromMessage(message) {
     delete facts.financing;
   }
 
-  const area = extractArea(text);
+  const area = extractArea(criteriaText);
   if (area) facts.area = area;
 
-  const bedrooms = extractBedrooms(text);
+  const bedrooms = extractBedrooms(criteriaText);
   if (bedrooms !== null) facts.bedrooms = bedrooms;
 
-  const propertyType = extractPropertyType(text);
+  const propertyType = extractPropertyType(criteriaText);
   if (propertyType) facts.propertyType = propertyType;
 
   const developer = extractDeveloper(text);
   if (developer) facts.developer = developer;
 
-  const project = extractProject(text);
   if (project) facts.project = project;
 
   const financing = extractFinancing(text);
@@ -155,7 +159,7 @@ export function detectIntents(message) {
   if (/\b(start\s+fresh|start\s+over|new\s+search|reset\s+(my\s+)?search|start\s+again)\b/i.test(text)) {
     intents.push("start_fresh");
   }
-  if (/^\s*(let'?s\s+)?restart(\s+please)?[.!?]?\s*$/i.test(text)) {
+  if (/^\s*(?:(?:let'?s\s+)?restart|fresh)(\s+please)?[.!?]?\s*$/i.test(text)) {
     intents.push("start_fresh");
   }
   if (/^(continue|continue\s+please|pick\s+up|keep\s+going)([.!]?)$/i.test(text.trim())) {
