@@ -118,6 +118,36 @@ test("C.3 'start over' clears state", async () => {
   assert.equal(buyer.budgetAed, null);
 });
 
+test("C.4 'restart' embedded in a question does not clear state", async () => {
+  const { engine, buyers } = await setupConversation();
+  await engine.handleMessage("dm_c4", "Budget 3M Yas", { useLlm: false });
+  const buyer1 = await buyers.getOrCreate("dm_c4");
+  assert.equal(buyer1.budgetAed, 3000000);
+  
+  // This should NOT trigger start_fresh - it's a question about payment plans
+  await engine.handleMessage("dm_c4", "can the payment plan restart after handover", { useLlm: false });
+  const buyer2 = await buyers.getOrCreate("dm_c4");
+  assert.equal(buyer2.budgetAed, 3000000, "Budget should NOT be cleared by 'restart' in a sentence");
+});
+
+test("C.5 'restart please' clears state", async () => {
+  const { engine, buyers } = await setupConversation();
+  await engine.handleMessage("dm_c5", "Budget 3M Yas", { useLlm: false });
+  const result = await engine.handleMessage("dm_c5", "restart please", { useLlm: false });
+  assert.match(result.reply, /budget|fresh/i);
+  const buyer = await buyers.getOrCreate("dm_c5");
+  assert.equal(buyer.budgetAed, null);
+});
+
+test("C.6 'start again' clears state", async () => {
+  const { engine, buyers } = await setupConversation();
+  await engine.handleMessage("dm_c6", "Budget 3M Yas", { useLlm: false });
+  const result = await engine.handleMessage("dm_c6", "start again", { useLlm: false });
+  assert.match(result.reply, /budget|fresh/i);
+  const buyer = await buyers.getOrCreate("dm_c6");
+  assert.equal(buyer.budgetAed, null);
+});
+
 // ============================================================================
 // D: When there are active projects but no active units (or no matches),
 //    the bot should still converse helpfully per policy without claiming
@@ -167,13 +197,116 @@ test("E.1 LLM module exports logging capability for rejected/errored replies", a
   assert.ok(typeof llm.composeReplyWithModel === "function");
 });
 
-test("E.2 LLM module logs when validation fails", async () => {
-  const { Read } = await import("node:fs/promises").then(m => ({ Read: m.readFile }));
-  const llmSource = await Read(new URL("../src/conversation/llm.js", import.meta.url), "utf8");
-  // Verify there's a console.warn call for rejected replies
-  assert.match(llmSource, /console\.warn.*model reply rejected/);
-  // Verify there's a console.warn call for errors
-  assert.match(llmSource, /console\.warn.*model reply error/);
+test("E.2 LLM logs warning when model reply is invalid (no buyer message leak)", async () => {
+  const { composeReplyWithModel } = await import("../src/conversation/llm.js");
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  
+  const secretMessage = "SECRET_BUYER_MESSAGE_12345";
+  
+  // Stub client that returns invalid JSON structure (missing required message field)
+  const badClient = {
+    apiKey: "test-key",
+    model: "test-model",
+    baseUrl: "https://test",
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{ type: "text", text: JSON.stringify({ notMessage: "bad" }) }]
+      })
+    })
+  };
+  
+  try {
+    const result = await composeReplyWithModel(badClient, { message: secretMessage });
+    assert.equal(result, null, "Invalid reply should return null");
+  } finally {
+    console.warn = originalWarn;
+  }
+  
+  // No warnings for parse failure (returns null silently), but buyer message must not leak
+  const allWarnings = warnings.join(" ");
+  assert.ok(!allWarnings.includes(secretMessage), "Buyer message must not appear in logs");
+});
+
+test("E.3 LLM logs warning when model request throws error (no buyer message leak)", async () => {
+  const { composeReplyWithModel } = await import("../src/conversation/llm.js");
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  
+  const secretMessage = "PRIVATE_BUYER_DATA_67890";
+  
+  // Stub client that throws an error
+  const errorClient = {
+    apiKey: "test-key",
+    model: "test-model",
+    baseUrl: "https://test",
+    fetchImpl: async () => { throw new Error("Network timeout"); }
+  };
+  
+  try {
+    const result = await composeReplyWithModel(errorClient, { message: secretMessage });
+    assert.equal(result, null, "Error should return null");
+    
+    // Should have logged a warning about the error
+    const hasErrorLog = warnings.some(w => w.includes("model reply error") && w.includes("Network timeout"));
+    assert.ok(hasErrorLog, "Should log error message");
+    
+    // Buyer message must not appear in any warning
+    const allWarnings = warnings.join(" ");
+    assert.ok(!allWarnings.includes(secretMessage), "Buyer message must not appear in error logs");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("E.4 LLM logs warning when validation rejects reply (no buyer message leak)", async () => {
+  const { composeReplyWithModel } = await import("../src/conversation/llm.js");
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  
+  const secretMessage = "CONFIDENTIAL_BUYER_INFO_99999";
+  
+  // Stub client that returns a reply that will fail validation (invented price)
+  const validationFailClient = {
+    apiKey: "test-key",
+    model: "test-model",
+    baseUrl: "https://test",
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{ type: "text", text: JSON.stringify({
+          message: "This unit costs AED 5,000,000 with great ROI of 15%!",
+          askedQuestion: false,
+          questionField: null,
+          claims: [],
+          proposedActions: []
+        }) }]
+      })
+    })
+  };
+  
+  try {
+    const result = await composeReplyWithModel(validationFailClient, { 
+      message: secretMessage,
+      packs: [],
+      buyer: {}
+    });
+    assert.equal(result, null, "Validation failure should return null");
+    
+    // Should have logged a warning about rejected reply
+    const hasRejectedLog = warnings.some(w => w.includes("model reply rejected"));
+    assert.ok(hasRejectedLog, "Should log rejection message");
+    
+    // Buyer message must not appear in any warning
+    const allWarnings = warnings.join(" ");
+    assert.ok(!allWarnings.includes(secretMessage), "Buyer message must not appear in rejection logs");
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 // ============================================================================
@@ -182,52 +315,52 @@ test("E.2 LLM module logs when validation fails", async () => {
 // ============================================================================
 
 test("F.1 Unit with availability='Sold out' does not match even if active=true", async () => {
-  const store = await createLocalStore({});
-  // Find an active unit and mark it as sold out
-  const unit = store.units.find(u => u.active);
-  if (unit) {
-    unit.availability = "Sold out";
-  }
+  const { store, engine } = await setupConversation();
+  // Find an active unit with a price and mark it as sold out
+  const unit = store.units.find(u => u.active && u.startingPriceAed);
+  assert.ok(unit, "Test fixture must have at least one active unit with a price");
   
-  const buyers = new BuyerService(store);
-  const properties = new PropertyService(store);
-  const memory = new ConversationMemory();
-  const engine = new ConversationEngine({ buyers, properties, memory });
+  const project = store.projects.find(p => p.id === unit.projectId);
+  assert.ok(project, "Test fixture must have the unit's project");
+  
+  // Mark the unit as sold out
+  unit.availability = "Sold out";
   
   // Create a buyer that would match this unit's criteria
-  const project = store.projects.find(p => p.id === unit?.projectId);
-  if (project && unit) {
-    const result = await engine.handleMessage("dm_f1", 
-      `Budget ${unit.startingPriceAed + 500000} ${project.area} ${unit.bedrooms} bedroom`, 
-      { useLlm: false });
-    // The sold out unit should not appear in matches
-    const soldOutInMatches = result.matches.some(m => 
-      m.unit.id === unit.id && m.unit.availability === "Sold out");
-    assert.equal(soldOutInMatches, false, "Sold out unit should not be in matches");
-  }
+  const result = await engine.handleMessage("dm_f1", 
+    `Budget ${unit.startingPriceAed + 500000} ${project.area} ${unit.bedrooms} bedroom`, 
+    { useLlm: false });
+  
+  // The sold out unit must not appear in matches
+  const soldOutInMatches = result.matches.some(m => m.unit.id === unit.id);
+  assert.equal(soldOutInMatches, false, "Sold out unit must not be in matches");
 });
 
 test("F.2 Unit with availability='Limited' can still match", async () => {
-  const store = await createLocalStore({});
-  const unit = store.units.find(u => u.active && u.startingPriceAed);
-  if (unit) {
-    unit.availability = "Limited";
+  const { store, engine, properties } = await setupConversation();
+  const catalog = properties.catalog();
+  
+  // Mark ALL active units as "Limited" availability
+  const activeUnits = store.units.filter(u => u.active && u.startingPriceAed);
+  assert.ok(activeUnits.length > 0, "Test fixture must have at least one active unit with a price");
+  
+  for (const u of activeUnits) {
+    u.availability = "Limited";
   }
   
-  const buyers = new BuyerService(store);
-  const properties = new PropertyService(store);
-  const memory = new ConversationMemory();
-  const engine = new ConversationEngine({ buyers, properties, memory });
+  // Pick one unit to verify matching
+  const unit = activeUnits[0];
+  const project = store.projects.find(p => p.id === unit.projectId);
+  assert.ok(project, "Test fixture must have the unit's project");
   
-  const project = store.projects.find(p => p.id === unit?.projectId);
-  if (project && unit) {
-    const result = await engine.handleMessage("dm_f2", 
-      `Budget ${unit.startingPriceAed + 500000} ${project.area} ${unit.bedrooms} bedroom`, 
-      { useLlm: false });
-    // Limited availability units can still match
-    const limitedInMatches = result.matches.some(m => m.unit.id === unit.id);
-    assert.ok(limitedInMatches || result.matchCount >= 0); // At least doesn't crash
-  }
+  const result = await engine.handleMessage("dm_f2", 
+    `Budget ${unit.startingPriceAed + 500000} ${project.area} ${unit.bedrooms} bedroom`, 
+    { useLlm: false });
+  
+  // At least one Limited availability unit must match
+  assert.ok(result.matches.length > 0, "Should have at least one match");
+  const limitedInMatches = result.matches.some(m => m.unit.availability === "Limited");
+  assert.ok(limitedInMatches, "Limited availability unit must still be in matches");
 });
 
 // ============================================================================
