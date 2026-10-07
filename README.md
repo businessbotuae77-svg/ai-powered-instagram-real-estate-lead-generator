@@ -4,7 +4,7 @@ Instagram enquiry system for Abu Dhabi real estate.
 
 Milestone 1 covers the property database, buyer records, matching, and confirmed-data replies.
 Milestone 2 adds the test conversation layer: qualification, buyer memory, quick replies, and fact-checked replies.
-Milestone 3 connects that engine to Instagram Messaging, HubSpot, and WhatsApp high-intent alerts.
+Milestone 3 connects that engine to Instagram Messaging and WhatsApp high-intent alerts.
 
 ## Milestone 1
 
@@ -31,7 +31,6 @@ Milestone 3 connects that engine to Instagram Messaging, HubSpot, and WhatsApp h
 
 - Meta Instagram webhook with signature verification and duplicate protection
 - Fact-checked replies sent back through Instagram
-- HubSpot contact upsert by Instagram user id
 - WhatsApp Cloud API alerts for viewing, reservation, and agent requests
 - Informational EOI, negated reserve, and `I'm good` stop-path handling
 - Redacted integration failure logging on a Railway volume
@@ -48,7 +47,6 @@ npm run verify:m3
 npm run match -- --budget 3M --cash 500k --area "Yas" --bedrooms 3 --payment-plan
 npm run chat:web
 npm run chat
-npm run hubspot:setup
 ```
 
 Web test chat opens at `http://127.0.0.1:8787/`

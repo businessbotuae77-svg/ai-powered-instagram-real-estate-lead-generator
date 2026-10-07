@@ -59,7 +59,6 @@ export {
 export { isAffirmation, resolveAffirmation } from "./conversation/affirmation.js";
 export { renderProjectIntro, renderProjectCard } from "./conversation/project-copy.js";
 export { IntegrationOrchestrator } from "./integrations/orchestrator.js";
-export { upsertHubSpotContact, ensureHubSpotProperties } from "./integrations/hubspot.js";
 export { sendWhatsAppAlert, AlertLedger } from "./integrations/whatsapp.js";
 export {
   verifySignature,

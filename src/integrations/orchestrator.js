@@ -3,7 +3,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { IntegrationLog } from "./integration-log.js";
 import { ProcessedEventStore } from "./processed-events.js";
 import { AlertLedger, CallRequestStore, sendWhatsAppAlert } from "./whatsapp.js";
-import { upsertHubSpotContact } from "./hubspot.js";
 import { parseInstagramMessages, sendInstagramText, verifySignature, verifyWebhookChallenge } from "./meta.js";
 import { runtimeRoot } from "./json-store.js";
 
@@ -27,7 +26,7 @@ export function contentDedupKey(event) {
 }
 
 /**
- * Milestone 3 orchestrator: webhook -> engine -> HubSpot -> IG reply.
+ * Milestone 3 orchestrator: webhook -> engine -> IG reply.
  * Advisor alerts follow explicit channel-aware requests. Each integration has durable progress.
  */
 export class IntegrationOrchestrator {
@@ -194,8 +193,6 @@ export class IntegrationOrchestrator {
         ? await this.engine.submitCallRequest(event.senderId, event.phone, { useLlm: false })
         : await this.engine.handleMessage(event.senderId, event.text, { useLlm: options.useLlm }));
       await this.events.save(mid, { result });
-      const hubspot = previous.hubspot || await this.#safeHubSpot(result, event);
-      if (!hubspot.error && !hubspot.skipped) await this.events.save(mid, { hubspot });
       const alert = previous.alert || await this.#safeCallRequestAlert(result, event);
       const needsAlert = result.alertRecommended;
       const revoked = alert.reason === "permission_revoked";
@@ -212,15 +209,15 @@ export class IntegrationOrchestrator {
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
         if (needsAlert && alertOk) result.reply = reply;
       }
-      const failed = hubspot.error || hubspot.skipped || (needsAlert && !alertOk) || !send || send.error || send.skipped;
+      const failed = (needsAlert && !alertOk) || !send || send.error || send.skipped;
       if (failed) {
         await this.events.save(mid, { status: "failed", nextAttemptAt: Date.now() + Math.min(3600000, 30000 * 2 ** (previous.attempts || 0)) });
       } else {
-        await this.events.complete(mid, { hubspotContactId: hubspot.contactId || null, outboundMessageId: send.messageId || null, alertKey: alert.key || null });
+        await this.events.complete(mid, { outboundMessageId: send.messageId || null, alertKey: alert.key || null });
       }
       await this.log.record({ correlationId: mid, integration: "conversation", operation: "decision", status: failed ? "pending" : "ok",
         meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, handoffRequired: result.handoffRequired, catalogError: result.catalogError, buyerState: { budget: result.buyer?.budgetAed, areas: result.buyer?.preferredAreas, bedrooms: result.buyer?.bedrooms, channel: result.buyer?.preferredContactChannel, noCalls: result.buyer?.noCalls }, projectIds: result.matches?.map(m => m.project.id), reply: result.reply } });
-      return { duplicate: false, mid, result, hubspot, send, alert, pending: Boolean(failed) };
+      return { duplicate: false, mid, result, send, alert, pending: Boolean(failed) };
     } catch (error) {
       await this.events.fail(mid, { message: error.message });
       await this.events.save(mid, { nextAttemptAt: Date.now() + 30000 });
@@ -253,37 +250,6 @@ export class IntegrationOrchestrator {
       outputs.push(await this.processMessageEvent(event));
     }
     return outputs;
-  }
-
-  async #safeHubSpot(result, event) {
-    try {
-      const latest = await this.buyers?.getOrCreate?.(result.buyer.instagramUserId);
-      const sync = await upsertHubSpotContact({
-        buyer: latest || result.buyer,
-        matches: result.matches,
-        lastMessage: event.text,
-        alertReason: result.alertReason || null,
-        env: this.env,
-        fetchImpl: this.fetchImpl
-      });
-      if (sync.contactId && this.buyers?.patchBuyer) {
-        await this.buyers.patchBuyer(result.buyer.instagramUserId, {
-          hubspotContactId: sync.contactId
-        });
-      }
-      return sync;
-    } catch (error) {
-      await this.log.record({
-        correlationId: event.mid,
-        integration: "hubspot",
-        operation: "upsert",
-        status: "error",
-        message: error.message,
-        retryable: Boolean(error.retryable),
-        meta: { senderId: event.senderId }
-      });
-      return { skipped: true, error: error.message };
-    }
   }
 
   async #safeInstagramSend(recipientId, text, mid, callRequest = null) {

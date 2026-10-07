@@ -141,7 +141,6 @@ const server = http.createServer(async (req, res) => {
         metaConfigured: Boolean(process.env.META_PAGE_ACCESS_TOKEN && process.env.META_APP_SECRET),
         instagramPoller:
           String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() !== "false",
-        hubspotConfigured: Boolean(process.env.HUBSPOT_ACCESS_TOKEN),
         whatsappConfigured: Boolean(
           process.env.WHATSAPP_ACCESS_TOKEN &&
             process.env.WHATSAPP_PHONE_NUMBER_ID &&

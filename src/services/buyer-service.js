@@ -34,7 +34,7 @@ export function mergeBuyer(existing, patch) {
       if (value === true || value === false) next[key] = value;
       continue;
     }
-    if (key === "preferredContactChannel" || key === "hubspotContactId" || key === "lastAlertKey" || key === "lastAlertAt") {
+    if (key === "preferredContactChannel" || key === "lastAlertKey" || key === "lastAlertAt") {
       if (value !== undefined && value !== null && String(value).trim() !== "") next[key] = value;
       continue;
     }
@@ -167,7 +167,6 @@ export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   if (facts.noCalls === false) patch.noCalls = false;
   if (facts.salesPathStopped === true) patch.salesPathStopped = true;
   if (facts.salesPathStopped === false) patch.salesPathStopped = false;
-  if (facts.hubspotContactId) patch.hubspotContactId = facts.hubspotContactId;
   if (facts.lastAlertKey) patch.lastAlertKey = facts.lastAlertKey;
   if (facts.lastAlertAt) patch.lastAlertAt = facts.lastAlertAt;
   if (facts.conversationSummary) patch.conversationSummary = facts.conversationSummary;
@@ -204,7 +203,6 @@ export class BuyerService {
       followUpStatus: meta.followUpStatus,
       intentSignals: meta.intentSignals,
       preferredContactChannel: meta.preferredContactChannel,
-      hubspotContactId: meta.hubspotContactId,
       lastAlertKey: meta.lastAlertKey,
       lastAlertAt: meta.lastAlertAt,
       ...(meta.noCalls !== undefined ? { noCalls: meta.noCalls } : {}),
@@ -276,7 +274,6 @@ export class BuyerService {
       preferredContactChannel: existing.preferredContactChannel,
       noCalls: existing.noCalls,
       language: existing.language,
-      hubspotContactId: existing.hubspotContactId,
       createdAt: existing.createdAt || nowIso(),
       updatedAt: nowIso(),
       lastSeenAt: nowIso()

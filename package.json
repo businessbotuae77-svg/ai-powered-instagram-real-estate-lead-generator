@@ -3,7 +3,7 @@
   "version": "1.3.0",
   "private": true,
   "type": "module",
-  "description": "Abu Dhabi Instagram property lead system. Milestone 3: intent memory + Request a Call handoff (Instagram, HubSpot, WhatsApp).",
+  "description": "Abu Dhabi Instagram property lead system. Milestone 3: intent memory + Request a Call handoff (Instagram, WhatsApp).",
   "engines": {
     "node": ">=18"
   },
@@ -21,7 +21,6 @@
     "airtable:demo": "node scripts/airtable-demo.js",
     "airtable:provision": "node scripts/provision-airtable.js",
     "airtable:seed": "node scripts/seed-existing-airtable.js",
-    "hubspot:setup": "node scripts/hubspot-setup.js",
     "verify:spec": "node --test test/step20-newer-spec.test.js"
   }
 }
