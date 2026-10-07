@@ -2,7 +2,7 @@ import { criteriaFromBuyer } from "../matching/matcher.js";
 import { limitMatchesForPitch, rankMatches } from "./preferences.js";
 import { formatAed } from "../matching/normalize.js";
 import { assessInventory, bestRecommendableTier } from "./fit-assess.js";
-import { deriveInvestmentStrategy } from "./investment-strategy.js";
+import { deriveInvestmentStrategy, isInvestmentDiscoveryReady } from "./investment-strategy.js";
 
 /**
  * Project-led recommendation:
@@ -62,6 +62,7 @@ export function resolveMatches(catalog, buyer) {
 }
 
 export function canPitchBuyer(buyer) {
+  if (isInvestmentDiscoveryReady(buyer)) return true;
   const hasSpecificLocation = Boolean(
     buyer.preferredAreas?.length || buyer.projectInterest || buyer.developerInterest
   );

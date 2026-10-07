@@ -50,7 +50,7 @@ function wantsSpace(buyer, objectionCodes, priorityCodes) {
 }
 
 function wantsLowCash(buyer, objectionCodes, priorityCodes) {
-  return buyer.cashDeploymentPreference === "lower_initial" || objectionCodes.has("initial_payment_too_high") || objectionCodes.has("payment_plan_bad") || buyer.cashAvailableAed != null || buyer.financing === "payment_plan" || ["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"].some(code => priorityCodes.has(code));
+  return buildInvestmentStrategy(buyer).advisorLedDiscovery || buyer.cashDeploymentPreference === "lower_initial" || objectionCodes.has("initial_payment_too_high") || objectionCodes.has("payment_plan_bad") || buyer.cashAvailableAed != null || buyer.financing === "payment_plan" || ["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"].some(code => priorityCodes.has(code));
 }
 
 function lowerPriceIsPriority(buyer, context) {
@@ -269,6 +269,10 @@ function recommendationRationale(candidate, buyer, context) {
 }
 
 function ranking(candidate, buyer, context) {
+  if (context.investmentStrategy.advisorLedDiscovery) {
+    return { score: 0, codes: ["advisor_led_documented_tradeoff_filter"],
+      methodology: "documented_tradeoffs_without_investment_score" };
+  }
   const pack = candidate.factPack;
   const codes = [];
   let score = 0;
@@ -325,7 +329,7 @@ function compareBenefits(reference, candidate, buyer, context) {
   if (priceDifference >= Math.max(25_000, value(from, "startingPriceAed") * 0.02)) benefits.push(dimensionDelta("lower_starting_price", "startingPriceAed", reference, candidate, "AED"));
   const constructionFrom = paymentAmount(reference, "constructionCashAed");
   const constructionTo = paymentAmount(candidate, "constructionCashAed");
-  if ((context.investmentStrategy.strategy === "HANDOVER_EXIT" || buyer.cashDeploymentPreference === "lower_construction") && numeric(constructionFrom) && numeric(constructionTo) && constructionFrom - constructionTo >= Math.max(10_000, constructionFrom * 0.1)) {
+  if ((context.investmentStrategy.advisorLedDiscovery || context.investmentStrategy.strategy === "HANDOVER_EXIT" || buyer.cashDeploymentPreference === "lower_construction") && numeric(constructionFrom) && numeric(constructionTo) && constructionFrom - constructionTo >= Math.max(10_000, constructionFrom * 0.1)) {
     benefits.push({ code: "lower_construction_cash", field: "constructionCashAed", from: constructionFrom, to: constructionTo, delta: roundMoney(constructionTo - constructionFrom), unit: "AED", evidence: [...reference.investmentThesis.paymentCase.evidence, ...candidate.investmentThesis.paymentCase.evidence] });
   }
   const cashFrom = value(from, "downPaymentAed");
@@ -462,7 +466,9 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const investmentStrategy = buildInvestmentStrategy(buyer);
   const relations = buildProjectRelations(catalog.projects, { units: candidates.map(row => row.unit),
     factPacks: candidates.map(row => row.factPack), intelligence: catalog.intelligence || {}, now: options.now });
-  const graphAllows = (reference, candidate) => reference.project.id === candidate.project.id ||
+  // An open investor can compare different documented plays without claiming
+  // that their projects are geographically related or comparable valuations.
+  const graphAllows = (reference, candidate) => investmentStrategy.advisorLedDiscovery || reference.project.id === candidate.project.id ||
     crossSellCandidateIds(relations, reference.project.id).has(candidate.project.id);
   const context = {
     investmentStrategy,
@@ -484,15 +490,30 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
     projects: catalog.projects, buyer, candidateProjectIds: buyer.activeRecommendationProjectId ?
       new Set([buyer.activeRecommendationProjectId, ...crossSellCandidateIds(relations, buyer.activeRecommendationProjectId)]) : null,
     eligible: candidate => !eligibility(candidate, buyer, budgetPolicy.ceilingAed, options).length && canChallenge(candidate, buyer, context) });
-  const base = { candidates, assessments, budgetPolicy, investmentStrategy, investmentTheses: [], comparison: null, relations, budgetComparisons, rationale: null, directMatches: [], matches: [], primary: null, challenger: null, opportunities: [], packs: [], upgradeAssessment: { permissionCandidate: null, opportunities: [], decision: "no_push", reasonCodes: [] } };
+  const base = { candidates, assessments, budgetPolicy, investmentStrategy, investmentTheses: [],
+    discoveryAnalysis: { dimensions: investmentStrategy.analysisDimensions, candidates: [], forecastAllowed: false },
+    comparison: null, relations, budgetComparisons, rationale: null, directMatches: [], matches: [], primary: null, challenger: null, opportunities: [], packs: [], upgradeAssessment: { permissionCandidate: null, opportunities: [], decision: "no_push", reasonCodes: [] } };
   if (buyer.salesPathStopped || objections.has("not_interested") || (!options.requestedRecommendation && ["needs_time", "already_has_agent"].some(code => objections.has(code)))) return { ...base, opportunities: [noPush(["respect_buyer_pace"])] };
   if (!options.requestedRecommendation && objections.has("trust_concern") && !hasSuitabilityObjection) return { ...base, opportunities: [noPush(["resolve_trust_before_recommending"])] };
   if (budgetPolicy.originalBudgetAed === null) return { ...base, opportunities: [noPush(["budget_unknown"])] };
 
-  const sortByFit = rows => [...rows].sort((a, b) => {
-    const scoreDifference = ranking(b, buyer, context).score - ranking(a, buyer, context).score;
-    return scoreDifference || value(a.factPack, "startingPriceAed") - value(b.factPack, "startingPriceAed") || String(a.unit.id).localeCompare(String(b.unit.id));
-  });
+  const sortByFit = rows => {
+    if (investmentStrategy.advisorLedDiscovery) {
+      // Discard dominated tradeoffs first, then prefer a lower documented entry
+      // price. Unknown dimensions never become positive investment points.
+      const frontier = new Set(rows.filter(candidate => !rows.some(other => other.unit.id !== candidate.unit.id &&
+        compareBenefits(candidate, other, buyer, context).length > 0 &&
+        compareBenefits(other, candidate, buyer, context).length === 0)).map(candidate => candidate.unit.id));
+      return [...rows].sort((a, b) => Number(frontier.has(b.unit.id)) - Number(frontier.has(a.unit.id)) ||
+        value(a.factPack, "startingPriceAed") - value(b.factPack, "startingPriceAed") ||
+        (value(a.factPack, "downPaymentAed") ?? Infinity) - (value(b.factPack, "downPaymentAed") ?? Infinity) ||
+        String(a.unit.id).localeCompare(String(b.unit.id)));
+    }
+    return [...rows].sort((a, b) => {
+      const scoreDifference = ranking(b, buyer, context).score - ranking(a, buyer, context).score;
+      return scoreDifference || value(a.factPack, "startingPriceAed") - value(b.factPack, "startingPriceAed") || String(a.unit.id).localeCompare(String(b.unit.id));
+    });
+  };
   const eligible = assessments.filter(row => !row.hardConstraintFailures.length).map(row => row.candidate);
   const directMatches = sortByFit(eligible.filter(candidate => !preferenceGaps(candidate, buyer).length));
   // Keep solving the objected-to property rather than treating each new primary
@@ -520,6 +541,11 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const baseline = referenceFresh && referenceFresh.unit.id !== primaryCandidate.unit.id ? referenceFresh : null;
   const primaryBenefits = compareBenefits(baseline, primaryCandidate, buyer, context);
   const primary = makeOpportunity("best_fit", primaryCandidate, baseline, primaryBenefits, buyer, budgetPolicy, ranking(primaryCandidate, buyer, context).codes);
+  primary.role = "PRIMARY";
+  if (investmentStrategy.advisorLedDiscovery) {
+    primary.selectionBasis = { method: "documented_non_dominated_tradeoffs", tieBreak: "lower_documented_entry_price",
+      dimensions: investmentStrategy.analysisDimensions, unknowns: primaryCandidate.investmentThesis.unknowns };
+  }
   if (baseline && primaryBenefits.length && (preferenceGaps(primaryCandidate, buyer).length || !withinOriginal(primaryCandidate))) primary.type = opportunityType(primaryCandidate, baseline, primaryBenefits);
 
   const challengerRows = eligible.filter(candidate => candidate.unit.id !== primaryCandidate.unit.id && graphAllows(primaryCandidate, candidate) && canChallenge(candidate, buyer, context)).map(candidate => ({ candidate, benefits: relevantChallengeBenefits(candidate, primaryCandidate, buyer, context) })).filter(row => row.benefits.length && solvesObjection(row.benefits, context));
@@ -537,6 +563,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const limit = Number.isFinite(configuredLimit) ? Math.min(2, Math.max(1, Math.floor(configuredLimit))) : 2;
   const challengerRow = limit > 1 ? usefulChallengers[0] : null;
   const challenger = challengerRow ? makeOpportunity(opportunityType(challengerRow.candidate, primaryCandidate, challengerRow.benefits), challengerRow.candidate, primaryCandidate, challengerRow.benefits, buyer, budgetPolicy) : null;
+  if (challenger) challenger.role = "CHALLENGER";
   const matches = [primaryCandidate, ...(challengerRow ? [challengerRow.candidate] : [])];
 
   const unhelpfulExtra = eligible.find(candidate => candidate.unit.id !== primaryCandidate.unit.id && graphAllows(primaryCandidate, candidate) && value(candidate.factPack, "startingPriceAed") > value(primaryCandidate.factPack, "startingPriceAed") && canChallenge(candidate, buyer, context) && !compareBenefits(primaryCandidate, candidate, buyer, context).length);
@@ -563,6 +590,9 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const comparisonCandidate = challengerRow?.candidate || baseline || unhelpfulExtra;
   const comparison = comparisonCandidate ? compareProperties(primaryCandidate, comparisonCandidate, buyer, { ...options, budgetPolicy }) : null;
   return { ...base, directMatches, matches, primary, challenger,
+    discoveryAnalysis: { dimensions: investmentStrategy.analysisDimensions, forecastAllowed: false,
+      candidates: matches.map((row, index) => ({ projectId: row.project.id, unitId: row.unit.id,
+        role: index === 0 ? "PRIMARY" : "CHALLENGER", comparison: row.investmentThesis.discoveryComparison })) },
     investmentTheses: matches.map(row => row.investmentThesis), comparison,
     relations,
     rationale: primaryCandidate.rationale,

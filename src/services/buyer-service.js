@@ -1,6 +1,7 @@
 import { emptyBuyer, FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { ADVISORY_FACT_FIELDS, OBJECTION_CATEGORIES, normalizeAdvisoryFacts } from "../conversation/advisory-memory.js";
 import { INVESTMENT_PROFILE_FIELDS, deriveInvestmentStrategy } from "../conversation/investment-strategy.js";
+import { canonicalQuestionField, isFlexiblePreference, normalizePreferenceStates } from "../conversation/preference-state.js";
 import {
   normalizeArea,
   normalizeBedrooms,
@@ -26,6 +27,11 @@ export function mergeBuyer(existing, patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (key === "instagramUserId") continue;
     if (key === "removedAreas") continue;
+    if (key === "preferenceStates") continue;
+    if (key === "advisorLed") {
+      if (typeof value === "boolean") next[key] = value;
+      continue;
+    }
     if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "investmentObjective"].includes(key)) {
       if (value === null || (typeof value === "string" && value.trim())) next[key] = value;
       continue;
@@ -49,6 +55,17 @@ export function mergeBuyer(existing, patch) {
     if (!hasValue(value)) continue;
     next[key] = value;
   }
+  next.preferenceStates = { ...normalizePreferenceStates(base.preferenceStates), ...normalizePreferenceStates(patch.preferenceStates) };
+  // A later explicit answer replaces a flexible answer without forgetting other slots.
+  for (const field of ["budgetAed", "cashAvailableAed", "preferredAreas", "bedrooms", "propertyTypes", "financing", "useType", "investmentObjective", ...INVESTMENT_PROFILE_FIELDS]) {
+    const slot = canonicalQuestionField(field);
+    if (!slot || patch.preferenceStates?.[slot] === "flexible" || !hasValue(patch[field]) || patch[field] === "unknown" || patch[field] === "UNDECIDED") continue;
+    next.preferenceStates[slot] = "specified";
+  }
+  if (patch.investmentObjective || patch.investmentGoal || (patch.investmentStrategy && patch.investmentStrategy !== "UNDECIDED")) {
+    next.investmentPreferenceState = "specified";
+    next.advisorLed = false;
+  }
   if (hasValue(patch.preferredAreas)) {
     // Latest explicit area replaces earlier area (buyer corrections).
     next.preferredAreas = uniqueStrings(patch.preferredAreas);
@@ -63,6 +80,7 @@ export function mergeBuyer(existing, patch) {
   }
   if (hasValue(patch.propertyTypes)) {
     next.propertyTypes = uniqueStrings(patch.propertyTypes);
+    if (patch.propertyTypeFlexibility === undefined) next.propertyTypeFlexibility = false;
   }
   if (hasValue(patch.bedrooms)) {
     // Latest bedroom requirement replaces earlier bedroom counts.
@@ -104,6 +122,8 @@ export function mergeBuyer(existing, patch) {
   if (patch.useType && patch.useType !== "unknown") next.explorationState = false;
   if (patch.useType === "end_use") {
     next.investmentObjective = null;
+    next.investmentPreferenceState = null;
+    next.advisorLed = false;
     for (const field of INVESTMENT_PROFILE_FIELDS) next[field] = field === "investmentStrategy" ? "UNDECIDED" : null;
     next.priorities = next.priorities.filter(priority => !["rental_income", "capital_growth", "balanced_returns"].includes(priority));
   }
@@ -286,9 +306,9 @@ export class BuyerService {
 
   missingQualificationFields(buyer) {
     const missing = [];
-    if (!hasValue(buyer.budgetAed)) missing.push("budgetAed");
-    if (!hasValue(buyer.preferredAreas) && !hasValue(buyer.projectInterest) && !buyer.openToOtherAreas && buyer.areaFlexibility !== "open") missing.push("preferredAreas");
-    if (!hasValue(buyer.propertyTypes) && !hasValue(buyer.bedrooms)) missing.push("propertyTypes");
+    if (!hasValue(buyer.budgetAed) && !isFlexiblePreference(buyer, "budgetAed")) missing.push("budgetAed");
+    if (!hasValue(buyer.preferredAreas) && !hasValue(buyer.projectInterest) && !buyer.openToOtherAreas && buyer.areaFlexibility !== "open" && !isFlexiblePreference(buyer, "preferredAreas")) missing.push("preferredAreas");
+    if (!hasValue(buyer.propertyTypes) && !hasValue(buyer.bedrooms) && !isFlexiblePreference(buyer, "propertyTypes") && !isFlexiblePreference(buyer, "bedrooms")) missing.push("propertyTypes");
     return missing;
   }
 }

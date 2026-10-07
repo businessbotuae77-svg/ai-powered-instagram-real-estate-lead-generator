@@ -60,7 +60,17 @@ export function parseInstagramMessages(payload) {
     for (const item of messaging) {
       const message = item.message;
       if (!message || message.is_echo) continue;
-      const text = String(message.text || "").trim();
+      const quickReplyPayload = String(message.quick_reply?.payload || "").trim();
+      let choiceText = "";
+      if (quickReplyPayload) {
+        try {
+          const choice = JSON.parse(quickReplyPayload);
+          if (typeof choice?.id === "string" && typeof choice?.text === "string") choiceText = choice.text;
+        } catch {
+          // Also accept simple stable choice ids from existing integrations.
+        }
+      }
+      const text = String(choiceText || message.text || quickReplyPayload.replace(/_/g, " ")).trim();
       if (!text) continue;
       const senderId = String(item.sender?.id || "").trim();
       const mid = String(message.mid || "").trim();
@@ -70,7 +80,8 @@ export function parseInstagramMessages(payload) {
         senderId,
         text,
         timestamp: item.timestamp || null,
-        entryId: entry.id || null
+        entryId: entry.id || null,
+        ...(quickReplyPayload ? { quickReplyPayload, quickReplyLabel: String(message.text || "").trim() } : {})
       });
     }
   }
@@ -97,6 +108,10 @@ export function instagramSendUrl(env = process.env) {
 export async function sendInstagramText({
   recipientId,
   text,
+  quickReplies = null,
+  choices = null,
+  sentMessageIds = [],
+  onMessageSent = null,
   env = process.env,
   fetchImpl = fetch
 } = {}) {
@@ -106,34 +121,86 @@ export async function sendInstagramText({
     throw new Error("META_PAGE_ACCESS_TOKEN and META_PAGE_ID are required to send Instagram replies");
   }
   const url = instagramSendUrl(env);
-  const payload = {
-    recipient: { id: String(recipientId) },
-    message: { text: String(text || "").slice(0, 1000) }
-  };
-  if (!igToken) payload.messaging_type = "RESPONSE";
+  const parts = instagramTextParts(String(text || ""));
+  const replies = instagramQuickReplies(quickReplies || choices);
+  const messageIds = Array.isArray(sentMessageIds) ? sentMessageIds.slice(0, parts.length) : [];
+  let confirmedRecipientId = recipientId;
+  for (let index = messageIds.length; index < parts.length; index++) {
+    const payload = {
+      recipient: { id: String(recipientId) },
+      message: { text: parts[index] }
+    };
+    if (index === parts.length - 1 && replies.length) payload.message.quick_replies = replies;
+    if (!igToken) payload.messaging_type = "RESPONSE";
 
-  const response = await fetchImpl(url, {
-    method: "POST",
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.pageAccessToken}`
-    },
-    body: JSON.stringify(payload)
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = body?.error?.message || response.statusText || "Instagram send failed";
-    const error = new Error(detail);
-    error.status = response.status;
-    error.retryable = response.status >= 500 || response.status === 429;
-    throw error;
+    const response = await fetchImpl(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.pageAccessToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = body?.error?.message || response.statusText || "Instagram send failed";
+      const error = new Error(detail);
+      error.status = response.status;
+      error.retryable = response.status >= 500 || response.status === 429;
+      throw error;
+    }
+    if (!body.message_id && !body.id) throw new Error("Instagram response did not confirm a message id");
+    messageIds.push(body.message_id || body.id);
+    confirmedRecipientId = body.recipient_id || recipientId;
+    if (onMessageSent) await onMessageSent([...messageIds]);
   }
-  if (!body.message_id && !body.id) throw new Error("Instagram response did not confirm a message id");
   return {
-    recipientId: body.recipient_id || recipientId,
-    messageId: body.message_id || body.id || null
+    recipientId: confirmedRecipientId,
+    messageId: messageIds.at(-1) || null,
+    ...(messageIds.length > 1 ? { messageIds } : {})
   };
+}
+
+function boundedTextEnd(text, start, limit) {
+  let end = Math.min(start + limit, text.length);
+  if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end--;
+  return end;
+}
+
+/** Preserve the complete validated reply, including its evidence and final question. */
+function instagramTextParts(text) {
+  const parts = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = boundedTextEnd(text, start, 1000);
+    if (end < text.length) {
+      const paragraphEnd = text.lastIndexOf("\n", end - 1);
+      const wordEnd = text.lastIndexOf(" ", end - 1);
+      const boundary = paragraphEnd > start + 500 ? paragraphEnd : wordEnd;
+      if (boundary > start + 500) end = boundary + 1;
+    }
+    parts.push(text.slice(start, end));
+    start = end;
+  }
+  return parts.length ? parts : [""];
+}
+
+function instagramQuickReplies(choices) {
+  if (!Array.isArray(choices)) return [];
+  return choices.flatMap(choice => {
+    const label = String(choice?.label || choice?.title || "").trim();
+    if (!label) return [];
+    const title = label.slice(0, boundedTextEnd(label, 0, 20));
+    const payload = choice.payload != null ? String(choice.payload) : JSON.stringify({
+      id: String(choice.id || label),
+      // Labels are the buyer's actual choice. Enum values such as UNDECIDED
+      // or lower_initial belong to the understanding layer, not inbound prose.
+      text: typeof choice.value === "string" && !/^[a-z][a-z0-9_]*$/i.test(choice.value) ? choice.value : label
+    });
+    if (!payload || payload.length > 1000) return [];
+    return [{ content_type: "text", title, payload }];
+  }).slice(0, 13);
 }
 
 /**

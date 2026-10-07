@@ -1,5 +1,6 @@
 import { normalizeArea, normalizePropertyType, sameText } from "../matching/normalize.js";
 import { comparisonEvidence, sourcedCandidatePrice, thesisComparisonDimensions } from "./comparison-evidence.js";
+import { isAdvisorLedDiscovery } from "./investment-strategy.js";
 
 export const UNKNOWN = "UNKNOWN";
 const numeric = value => typeof value === "number" && Number.isFinite(value);
@@ -111,11 +112,12 @@ function buyerContext(buyer) {
   const priorities = new Set([...(buyer.priorities || []), ...(buyer.concerns || [])].filter(value => typeof value === "string"));
   const objections = new Set((buyer.objections || []).filter(row => !row?.resolved).map(row => typeof row === "string" ? row : row.category || row.type).filter(Boolean));
   const any = codes => codes.some(code => priorities.has(code));
+  const advisorLed = isAdvisorLedDiscovery(buyer);
   return {
-    priorities, objections,
-    lowCash: objections.has("initial_payment_too_high") || buyer.cashAvailableAed != null || buyer.cashDeploymentPreference === "lower_initial" || any(["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"]),
-    lowConstructionCash: buyer.investmentStrategy === "HANDOVER_EXIT" || ["low_construction_cash", "lower_construction"].includes(buyer.cashDeploymentPreference) || any(["lower_construction_cash", "low_construction_cash"]),
-    lowHandoverCash: ["low_handover_cash", "lower_handover"].includes(buyer.cashDeploymentPreference) || objections.has("handover_balloon_too_high") || any(["lower_handover_cash", "low_handover_cash", "avoid_handover_balloon"]),
+    priorities, objections, advisorLed,
+    lowCash: advisorLed || objections.has("initial_payment_too_high") || buyer.cashAvailableAed != null || buyer.cashDeploymentPreference === "lower_initial" || any(["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"]),
+    lowConstructionCash: advisorLed || buyer.investmentStrategy === "HANDOVER_EXIT" || ["low_construction_cash", "lower_construction"].includes(buyer.cashDeploymentPreference) || any(["lower_construction_cash", "low_construction_cash"]),
+    lowHandoverCash: advisorLed || ["low_handover_cash", "lower_handover"].includes(buyer.cashDeploymentPreference) || objections.has("handover_balloon_too_high") || any(["lower_handover_cash", "low_handover_cash", "avoid_handover_balloon"]),
     space: objections.has("too_small") || any(["more_space", "space", "size", "unit_size", "larger_unit", "family_space", "extra_bedroom", "additional_bedroom"]),
     smaller: objections.has("too_large"),
     earlier: objections.has("handover_too_late") || any(["move_in_soon", "ready", "earlier_handover"]),
@@ -253,17 +255,25 @@ export function compareProperties(propertyA, propertyB, buyer = {}, options = {}
       if (row) { preferred = row.preferred; reasonCodes = [row.code]; }
     }
     if (!preferred) {
-      const relevantA = aAdvantages.filter(row => row.code !== "lower_starting_price");
-      const relevantB = bAdvantages.filter(row => row.code !== "lower_starting_price");
-      if (relevantA.length && !relevantB.length) { preferred = "a"; reasonCodes = relevantA.map(row => row.code); }
-      else if (relevantB.length && !relevantA.length) { preferred = "b"; reasonCodes = relevantB.map(row => row.code); }
-      else if (!relevantA.length && !relevantB.length && price?.delta) {
-        // Do not infer equal suitability from missing evidence or a different product.
-        const equivalent = ["area", "property_type", "bedrooms", "status", "handover", "payment_plan"].every(key => {
-          const diff = differences.find(row => row.dimension === key);
-          return diff && sameText(diff.a, diff.b);
-        });
-        if (equivalent || context.price) { preferred = price.delta > 0 ? "a" : "b"; reasonCodes = ["lower_starting_price", "no_supported_buyer_benefit_for_extra_price"]; }
+      if (context.advisorLed) {
+        // Open priorities make documented price and cash tradeoffs relevant.
+        // A more expensive lower-cash option is an alternative, not proof that
+        // the extra price is worth paying for an unspecified objective.
+        if (aAdvantages.length && !bAdvantages.length) { preferred = "a"; reasonCodes = aAdvantages.map(row => row.code); }
+        else if (bAdvantages.length && !aAdvantages.length) { preferred = "b"; reasonCodes = bAdvantages.map(row => row.code); }
+      } else {
+        const relevantA = aAdvantages.filter(row => row.code !== "lower_starting_price");
+        const relevantB = bAdvantages.filter(row => row.code !== "lower_starting_price");
+        if (relevantA.length && !relevantB.length) { preferred = "a"; reasonCodes = relevantA.map(row => row.code); }
+        else if (relevantB.length && !relevantA.length) { preferred = "b"; reasonCodes = relevantB.map(row => row.code); }
+        else if (!relevantA.length && !relevantB.length && price?.delta) {
+          // Do not infer equal suitability from missing evidence or a different product.
+          const equivalent = ["area", "property_type", "bedrooms", "status", "handover", "payment_plan"].every(key => {
+            const diff = differences.find(row => row.dimension === key);
+            return diff && sameText(diff.a, diff.b);
+          });
+          if (equivalent || context.price) { preferred = price.delta > 0 ? "a" : "b"; reasonCodes = ["lower_starting_price", "no_supported_buyer_benefit_for_extra_price"]; }
+        }
       }
     }
   }
@@ -284,7 +294,7 @@ export function compareProperties(propertyA, propertyB, buyer = {}, options = {}
     propertyA: identity(propertyA), propertyB: identity(propertyB), differences, aAdvantages, bAdvantages, tradeoffs,
     hardConstraintFailures, unknowns, upgradeAssessment,
     researchDimensions: thesisComparisonDimensions(propertyA, propertyB, options),
-    buyerPreference: preferred ? { ...identity(preferred === "a" ? propertyA : propertyB), reasonCodes, opinion: upgradeAssessment?.worthPaying === false ? "prefer_lower_cost_option" : "prefer_for_stated_priorities" } : null,
+    buyerPreference: preferred ? { ...identity(preferred === "a" ? propertyA : propertyB), reasonCodes, opinion: upgradeAssessment?.worthPaying === false ? "prefer_lower_cost_option" : context.advisorLed ? "prefer_for_documented_tradeoff" : "prefer_for_stated_priorities" } : null,
     evidenceStrength: differences.length >= 6 ? "medium" : "low",
     unsupportedClaims: ["future_appreciation", "forecast_return", "resale_demand", "liquidity", "rental_yield"].map(dimension => ({ dimension, value: UNKNOWN }))
   };

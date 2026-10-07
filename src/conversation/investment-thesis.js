@@ -328,6 +328,47 @@ export function buildInvestmentThesis({ project = {}, unit = {}, pack, factPack,
   thesis.evidenceRegistry = evidenceRegistry([...enrichedCases.flatMap(item => item.evidence),
     ...catalysts.map(item => item.evidence), ...comparisonEvidence, ...marketEvidence, ...researchCalculations.flatMap(row => row.evidence),
     ...riskCase.flatMap(item => item.evidence)]);
+  // The open investor gets the same twelve evidence checks for every option.
+  // These are observations and gaps, never ratings, forecasts or availability.
+  const dimension = (name, rows, details = {}, status = null) => {
+    const documented = evidenceRegistry(rows);
+    return { ...details, dimension: name, status: status || (documented.length ? "SUPPORTED" : "UNKNOWN"), evidence: documented };
+  };
+  const stageEvidence = clean([evidence("status"), ...researchFor("PROJECT_STAGE")]);
+  const structureEvidence = clean([evidence("paymentPlanAvailable"), evidence("paymentPlanSummary"), ...payment.evidence, ...researchFor("PAYMENT")]);
+  const productEvidence = projectCase.evidence.filter(row => ["propertyType", "bedrooms", "sizeSqftFrom", "sizeSqftTo", "features", "description"].includes(row.field));
+  const maturityEvidence = clean([...areaCase.evidence.filter(row => ["maturity", "masterplan"].includes(row.field)), ...researchFor("AREA")]);
+  const catalystEvidence = clean([...catalysts.map(row => row.evidence), ...researchFor("AREA_CATALYST")]);
+  const supplyEvidence = supplyCase.evidence;
+  const rentalEvidence = rentalCase.evidence;
+  thesis.discoveryComparison = [
+    dimension("entry_position", entryCase.evidence, { currentEntryPriceAed: price?.value ?? null,
+      historicalMovementBasis: movement?.basis || null }),
+    dimension("project_release_stage", stageEvidence, { documentedStatus: value(facts, "status"),
+      releaseStage: projectCase.launchStage || entryCase.launchStage || null },
+      stageEvidence.length ? researchFor("PROJECT_STAGE").length ? "SUPPORTED" : "PARTIAL" : "UNKNOWN"),
+    dimension("area_masterplan_maturity", maturityEvidence, { maturity: areaCase.maturity, masterplan: areaCase.masterplan }),
+    dimension("documented_catalysts", catalystEvidence, { documentedItems: catalysts }),
+    dimension("product_differentiation", productEvidence, { documentedFeatures: projectCase.documentedDifferentiators,
+      qualityConclusion: "UNKNOWN" }, productEvidence.length ? "PARTIAL" : "UNKNOWN"),
+    dimension("payment_structure", structureEvidence, { documentedSummary: value(facts, "paymentPlanSummary"),
+      reconciledScheduleStatus: payment.status }, structureEvidence.length ? payment.status === "COMPLETE" ? "SUPPORTED" : "PARTIAL" : "UNKNOWN"),
+    dimension("cash_deployment", paymentCase.evidence, { initialCashAed: initial?.value ?? null,
+      cashBeforeHandoverAed: payment.status === "COMPLETE" ? payment.cashBeforeHandoverAed : null,
+      cashAtHandoverAed: payment.status === "COMPLETE" ? payment.cashAtHandoverAed : null,
+      feesAed: payment.status === "COMPLETE" ? payment.feesAed : null },
+      payment.status === "COMPLETE" ? "SUPPORTED" : paymentCase.evidence.length ? "PARTIAL" : "UNKNOWN"),
+    dimension("handover_timing", clean([evidence("handover")]), { documentedHandover: value(facts, "handover") }),
+    dimension("competing_exit_supply", supplyEvidence, { documentedSupply: supplyCase.competingProjects,
+      exitHorizon: buyer.exitHorizon || null, exitTimingConclusion: "UNKNOWN" }, supplyEvidence.length ? "PARTIAL" : "UNKNOWN"),
+    dimension("transaction_resale_evidence", clean([...liquidityCase.evidence, ...marketEvidence]), {
+      observedTransactions: liquidityCase.transactionSamples, futureResaleConclusion: "UNKNOWN" },
+      resale.length ? "SUPPORTED" : liquidityCase.evidence.length || marketEvidence.length ? "PARTIAL" : "UNKNOWN"),
+    dimension("rental_fallback", rentalEvidence, { rentalConclusion: "UNKNOWN", netRentalIncomeAed: null },
+      rentalEvidence.length ? "PARTIAL" : "UNKNOWN"),
+    dimension("factual_risks", riskCase.flatMap(row => row.evidence || []), { documentedRisks: riskCase,
+      absenceOfEvidenceDoesNotEstablishLowRisk: true })
+  ];
   thesis.researchReadiness = assessResearchReadiness({ thesis, pack: facts });
   return thesis;
 }
