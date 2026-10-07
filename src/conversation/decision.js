@@ -120,8 +120,12 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     return { ...response(answer.handled ? answer.text : prompt, "fact_answer", answer.handled ? null : "factProject", answer.handled ? null : prompt), factTopic: answer.topic };
   }
   if (/^(hi|hello|hey|salam|مرحبا|السلام عليكم)[.!?]*$/i.test(text.trim())) {
-    if (buyer.budgetAed || buyer.preferredAreas?.length || buyer.projectInterest) {
-      const prompt = say("Want to continue with your last search, or start fresh?", "هل تريد متابعة البحث السابق أم البدء من جديد؟");
+    // A returning buyer who already told us something is never asked it again.
+    const knownUse = buyer.useType === "investment" ? say("investment options", "الخيارات الاستثمارية") : buyer.useType === "end_use" ? say("homes to live in", "المنازل للسكن") : null;
+    if (buyer.budgetAed || buyer.preferredAreas?.length || buyer.projectInterest || knownUse) {
+      const prompt = !buyer.budgetAed && !buyer.preferredAreas?.length && !buyer.projectInterest
+        ? say(`Want to keep looking at ${knownUse}, or start fresh?`, `هل تريد متابعة ${knownUse} أم البدء من جديد؟`)
+        : say("Want to continue with your last search, or start fresh?", "هل تريد متابعة البحث السابق أم البدء من جديد؟");
       const welcome = response(say(`Hi. Happy to help with Abu Dhabi property. ${prompt}`, `مرحباً، يسعدني مساعدتك في عقارات أبوظبي. ${prompt}`), "welcome_back", "session_choice", prompt);
       return { ...welcome, pendingOffer: { type: "session_choice" }, nextQuestion: {
         ...welcome.nextQuestion,

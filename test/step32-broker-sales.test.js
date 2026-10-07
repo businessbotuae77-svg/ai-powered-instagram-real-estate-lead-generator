@@ -323,3 +323,13 @@ test("step 32x ordinary questions are not mistaken for sales or professional mom
   assert.equal(transactionMoment("Is the price negotiable?"), "discount");
   assert.equal(isIdentityQuestion("Who are you?"), true);
 });
+
+test("step 32y a returning greeting never re-asks a known purpose (live DM regression)", async () => {
+  const { engine } = await setup();
+  const [, , hi, fresh] = await chat(engine, "returning", ["Hi", "Investing", "Hi", "Start fresh"]);
+  assert.equal(hi.stage, "welcome_back");
+  assert.match(hi.reply, /keep looking at investment options, or start fresh\?/);
+  assert.equal(hi.check.ok, true);
+  assert.equal(fresh.stage, "exploring");
+  assert.match(fresh.reply, /^Starting fresh\./);
+});

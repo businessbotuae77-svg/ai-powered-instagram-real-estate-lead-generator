@@ -6,7 +6,9 @@ import { JsonFileStore, runtimeRoot } from "./json-store.js";
  */
 export class ProcessedEventStore {
   constructor({ rootDir } = {}) {
-    this.store = new JsonFileStore(path.join(rootDir || runtimeRoot(), "processed-events.json"));
+    // An idempotency log, not an archive: if an older version left it oversized,
+    // set it aside rather than load it into memory.
+    this.store = new JsonFileStore(path.join(rootDir || runtimeRoot(), "processed-events.json"), { maxBytes: 50 * 1024 * 1024 });
   }
 
   async has(eventId) {
@@ -75,7 +77,7 @@ export class ProcessedEventStore {
         completedAt: new Date().toISOString(),
         ...meta
       };
-      return prune(data);
+      return compactCompleted(prune(data));
     }, { events: {} });
   }
 
@@ -102,5 +104,13 @@ function prune(data, max = 2000) {
   const pending = entries.filter(([, row]) => row.status !== "completed");
   const completed = entries.filter(([, row]) => row.status === "completed");
   data.events = Object.fromEntries([...completed.slice(-max), ...pending]);
+  return data;
+}
+
+// Completed events only need their id and outcome for duplicate detection.
+function compactCompleted(data) {
+  for (const row of Object.values(data.events || {})) {
+    if (row?.status === "completed" && row.result && !row.result.compact) delete row.result;
+  }
   return data;
 }
