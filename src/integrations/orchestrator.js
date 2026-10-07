@@ -14,6 +14,15 @@ export function messageEventAgeMs(event, now = Date.now()) {
   return Math.max(0, now - timestampMs);
 }
 
+/** The parts of an engine result a retry or a duplicate lookup reads. */
+export function retryResult(result) {
+  const { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
+    followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired } = result;
+  return { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
+    followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, compact: true,
+    matches: (result.matches || []).map(m => ({ project: { id: m.project?.id, name: m.project?.name }, unit: { id: m.unit?.id } })) };
+}
+
 /** Blocks webhook+poller double replies when Meta message ids differ. */
 export function contentDedupKey(event) {
   const senderId = String(event?.senderId || "").trim();
@@ -193,7 +202,9 @@ export class IntegrationOrchestrator {
       const result = previous.result || (event.callRequest
         ? await this.engine.submitCallRequest(event.senderId, event.phone, { useLlm: false })
         : await this.engine.handleMessage(event.senderId, event.text, { useLlm: options.useLlm }));
-      await this.events.save(mid, { result });
+      // Store only what a retry needs. The full result carries the whole
+      // catalogue analysis and made this file grow by megabytes per message.
+      await this.events.save(mid, { result: retryResult(result) });
       const alert = previous.alert || await this.#safeCallRequestAlert(result, event);
       const needsAlert = result.alertRecommended;
       const revoked = alert.reason === "permission_revoked";

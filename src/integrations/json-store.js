@@ -1,17 +1,27 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
  * Atomic JSON file helpers for Railway volume persistence.
  */
 export class JsonFileStore {
-  constructor(filePath) {
+  constructor(filePath, { maxBytes = null } = {}) {
     this.filePath = filePath;
+    this.maxBytes = maxBytes;
     this.writeQueue = Promise.resolve();
   }
 
   async read(fallback) {
     try {
+      if (this.maxBytes) {
+        const { size } = await stat(this.filePath);
+        if (size > this.maxBytes) {
+          // Too large to parse safely: keep it for inspection, start empty.
+          await rename(this.filePath, `${this.filePath}.oversized-${Date.now()}`);
+          console.warn(`[store] ${path.basename(this.filePath)} was ${size} bytes; moved aside and started fresh`);
+          return typeof fallback === "function" ? fallback() : structuredClone(fallback);
+        }
+      }
       const raw = await readFile(this.filePath, "utf8");
       return JSON.parse(raw);
     } catch (error) {
