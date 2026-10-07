@@ -47,5 +47,53 @@
       { "id": "3", "label": "3 bedrooms", "aliases": ["3", "3br", "3 bedroom", "3 bedrooms", "three bedroom", "three bedrooms"], "value": 3 },
       { "id": "4", "label": "4+ bedrooms", "aliases": ["4", "4br", "4 bedroom", "4 bedrooms", "four bedroom"], "value": 4 }
     ]
+  },
+  "investmentObjective": {
+    "field": "investmentObjective",
+    "prompt": "What should I optimise for — best overall, growth potential, lowest cash upfront, safer exit, or should I choose?",
+    "choices": [
+      {
+        "id": "best_overall",
+        "label": "Best overall",
+        "aliases": [
+          "best overall",
+          "best option"
+        ],
+        "value": "UNDECIDED"
+      },
+      {
+        "id": "growth_potential",
+        "label": "Growth potential",
+        "aliases": [
+          "growth potential"
+        ],
+        "value": "growth"
+      },
+      {
+        "id": "lowest_cash_upfront",
+        "label": "Lowest cash upfront",
+        "aliases": [
+          "lowest cash upfront"
+        ],
+        "value": "lower_initial"
+      },
+      {
+        "id": "safer_exit",
+        "label": "Safer exit",
+        "aliases": [
+          "safer exit"
+        ],
+        "value": "high_liquidity"
+      },
+      {
+        "id": "you_choose",
+        "label": "You choose",
+        "aliases": [
+          "you choose",
+          "whatever you think"
+        ],
+        "value": "UNDECIDED"
+      }
+    ]
   }
 }

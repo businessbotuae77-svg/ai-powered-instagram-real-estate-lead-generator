@@ -1,4 +1,4 @@
-import { buildInvestmentStrategy } from "./investment-strategy.js";
+import { buildInvestmentStrategy, isInvestmentDiscoveryReady } from "./investment-strategy.js";
 import { conversationState } from "./conversation-state.js";
 
 // Sales strategy chooses a small useful commitment. Facts and candidates are
@@ -22,10 +22,6 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
     nextAction: "availability", questionField: "advisoryNextAction", investmentStrategy: investment.strategy };
   if (state === "COMPARING") return { type: "compare", conversationState: state,
     nextAction: "payment_details", questionField: "advisoryNextAction", investmentStrategy: investment.strategy };
-  const candidate = advisor.upgradeAssessment?.permissionCandidate;
-  const askFlexibility = candidate && !buyer.budgetFlexible && !buyer.budgetFirm &&
-    !buyer.budgetFlexibilityAsked && !buyer.upgradeDeclined;
-  if (askFlexibility) return { type: "budget_permission", nextAction: "budget_flexibility", questionField: "budgetFlexible" };
   const yes = /^(yes|sure|ok|okay|please|go ahead)[.!]*$/.test(text.trim());
   if (yes && pendingOffer?.type === "advisory_next_action") {
     return { type: "answer_action", nextAction: pendingOffer.action, questionField: null };
@@ -36,6 +32,7 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
     type: "recommend",
     conversationState: state,
     investmentStrategy: investment.strategy,
+    advisorLedDiscovery: investment.advisorLedDiscovery,
     nextAction,
     questionField: "advisoryNextAction",
     objection: objection?.category || null,
@@ -47,6 +44,7 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
 }
 
 export function advisoryReady(buyer) {
+  if (isInvestmentDiscoveryReady(buyer)) return true;
   return Boolean(buyer.budgetAed && (
     buyer.investmentGoal || buyer.investmentObjective || buyer.exitHorizon || buyer.useType === "end_use" ||
     ((buyer.preferredAreas?.length || buyer.projectInterest || buyer.openToOtherAreas) &&

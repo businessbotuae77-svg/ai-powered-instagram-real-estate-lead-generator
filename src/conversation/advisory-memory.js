@@ -2,6 +2,7 @@ import { normalizeArea, parseMoney } from "../matching/normalize.js";
 import { normalizeBuyerText } from "./text.js";
 import { conversationalScope } from "./question-scope.js";
 import { INVESTMENT_PROFILE_FIELDS, normalizeInvestmentProfile, parseInvestmentFacts } from "./investment-strategy.js";
+import { PREFERENCE_FACT_FIELDS, canonicalQuestionField, isExplicitUncertainty, isPropertyFactUncertainty, normalizePreferenceFacts, parseFlexiblePreferences } from "./preference-state.js";
 
 export const INVESTMENT_OBJECTIVES = ["rental_income", "growth", "balanced"];
 export const OBJECTION_CATEGORIES = [
@@ -17,7 +18,7 @@ export const ADVISORY_BOOLEAN_FIELDS = [
 ];
 export const ADVISORY_FACT_FIELDS = [
   ...ADVISORY_BOOLEAN_FIELDS, "budgetFlexibilityPct", "budgetStretchAed",
-  "investmentObjective", ...INVESTMENT_PROFILE_FIELDS, "areaFlexibility", "removedAreas", "priorities", "concerns", "objections"
+  "investmentObjective", ...INVESTMENT_PROFILE_FIELDS, ...PREFERENCE_FACT_FIELDS, "areaFlexibility", "removedAreas", "priorities", "concerns", "objections"
 ];
 const BUDGET_CONTROL_FIELDS = ["budgetHardCap", "budgetFirm", "budgetFlexible", "budgetFlexibilityPct", "budgetStretchAed", "budgetFlexibilityAsked", "upgradeDeclined"];
 
@@ -34,6 +35,7 @@ export function normalizeAdvisoryFacts(input = {}, { allowBudgetControls = true 
   }
   if (INVESTMENT_OBJECTIVES.includes(input.investmentObjective)) facts.investmentObjective = input.investmentObjective;
   Object.assign(facts, normalizeInvestmentProfile(input));
+  Object.assign(facts, normalizePreferenceFacts(input));
   if (Array.isArray(input.removedAreas)) facts.removedAreas = [...new Set(input.removedAreas.filter(v => typeof v === "string" && v.length < 80))];
   if (["open", "preferred", "fixed"].includes(input.areaFlexibility)) facts.areaFlexibility = input.areaFlexibility;
   for (const field of ["budgetFlexibilityPct", "budgetStretchAed"]) {
@@ -57,9 +59,14 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
   const text = normalizeBuyerText(message).trim().toLowerCase();
   const facts = {};
   const priorities = [];
+  const flexibleAnswer = parseFlexiblePreferences(text, { buyer, lastAskedField });
   if (/\b(?:just\s+)?(?:exploring|browsing|looking around)\b/.test(text)) facts.explorationState = true;
 
-  Object.assign(facts, parseInvestmentFacts(text, { buyer, lastAskedField }));
+  if (!isPropertyFactUncertainty(text)) Object.assign(facts, parseInvestmentFacts(text, { buyer, lastAskedField }));
+  // Mentioning alternatives while undecided does not select both alternatives.
+  for (const field of ["investmentObjective", ...INVESTMENT_PROFILE_FIELDS]) {
+    if (flexibleAnswer.unsure.includes(canonicalQuestionField(field))) delete facts[field];
+  }
   const investment = facts.useType === "investment" || conversationalScope(text) === "investment_education";
   if (conversationalScope(text) === "investment_education" && facts.useType !== "end_use") facts.useType = "investment";
   if (facts.investmentObjective) priorities.push(facts.investmentObjective === "rental_income" ? "rental_income" : facts.investmentObjective === "growth" ? "capital_growth" : "balanced_returns");
@@ -73,7 +80,7 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
     facts.openToOtherAreas = true;
   }
 
-  if (/\b(?:don'?t know|do not know|not sure|idk|no idea)\b.{0,50}\b(?:area|where)\b|\b(?:area|where)\b.{0,50}\b(?:don'?t know|not sure|idk|no idea)\b|\b(?:any area|anywhere|you choose|advise me|recommend (?:an? |the )?area)\b/.test(text) || /لا أعرف (?:المنطقة|أي منطقة)|مو متأكد (?:من )?المنطقة|أي منطقة مناسبة/.test(text)) {
+  if (!isPropertyFactUncertainty(text) && (flexibleAnswer.facts.areaFlexibility === "open" || /\b(?:any area|anywhere|recommend (?:an? |the )?area)\b/.test(text) || /لا أعرف (?:المنطقة|أي منطقة)|مو متأكد (?:من )?المنطقة|أي منطقة مناسبة/.test(text))) {
     facts.areaFlexibility = "open";
     facts.openToOtherAreas = true;
   } else if (/\b(?:only|strictly|must be|has to be)\b.{0,30}\b(?:yas|reem|saadiyat|hudayriyat|masdar|area)\b|\b(?:yas|reem|saadiyat|hudayriyat|masdar)\b.{0,20}\bonly\b/.test(text)) {
@@ -83,7 +90,7 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
     facts.areaFlexibility = buyer?.preferredAreas?.length ? "preferred" : "open";
     facts.openToOtherAreas = true;
   }
-  if (investment && /\b(?:idk|don'?t know|not sure|no idea)\b/.test(text) && !buyer?.preferredAreas?.length) {
+  if (investment && flexibleAnswer.facts.advisorLed && !buyer?.preferredAreas?.length) {
     facts.areaFlexibility = "open";
     facts.openToOtherAreas = true;
   }
@@ -95,10 +102,11 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
   if (/\b(?:must|need to|have to|only)\b.{0,25}\b(?:mortgage|financing|finance)\b/.test(text) && !/\b(?:don'?t|do not|no)\b.{0,12}\b(?:mortgage|financing|finance)\b/.test(text)) facts.financingRequired = true;
 
   const flexibilityQuestion = ["budgetFlexibility", "budgetFlexible", "budgetHardCap"].includes(lastAskedField);
+  const budgetConsentText = text.split(/[.!?;]|\bbut\b/).map(clause => clause.trim()).filter(clause => clause && !isExplicitUncertainty(clause)).join(" ");
   const firm = /\b(?:hard (?:cap|ceiling|limit)|budget (?:is )?(?:firm|fixed|strict)|firm budget|no (?:budget )?stretch|can'?t (?:stretch|go over|exceed)|cannot (?:stretch|go over|exceed)|don'?t (?:want to )?(?:stretch|go (?:above|over)))\b|\bbudget\b.{0,20}\b(?:isn'?t|not) flexible\b/.test(text) || /ميزاني(?:ة|تي) (?:ثابتة|ثابته|نهائية)|حد أقصى|لا أستطيع (?:الزيادة|تجاوز)/.test(text)
     || (flexibilityQuestion && /^(?:it'?s )?(?:firm|fixed|strict|hard ceiling|no|stay within (?:it|budget))[.!?]*$/.test(text));
-  const flexible = /\b(?:can|could|would|will|willing to|happy to)\s+(?:go a little higher|stretch|spend (?:a little|slightly) more)\b|\b(?:budget (?:is )?flexible|flexible budget)\b|\bbudget\b.{0,30}\bflexible\b/.test(text) || /ميزاني(?:ة|تي) مرنة|(?:يمكنني|أستطيع|استطيع) (?:زيادة|الزيادة|رفع) (?:الميزانية|ميزانيتي)/.test(text)
-    || (flexibilityQuestion && (/^(?:a (?:little|bit)|slightly|some flexibility|flexible|i can stretch)[.!?]*$/.test(text) || /^(?:قليلا|قليلًا|شوي|مرنة)[.!؟?]*$/.test(text)));
+  const flexible = /\b(?:can|could|would|will|willing to|happy to)\s+(?:go a little higher|stretch|spend (?:a little|slightly) more)\b|\b(?:budget (?:is )?flexible|flexible budget)\b|\bbudget\b.{0,30}\bflexible\b/.test(budgetConsentText) || /ميزاني(?:ة|تي) مرنة|(?:يمكنني|أستطيع|استطيع) (?:زيادة|الزيادة|رفع) (?:الميزانية|ميزانيتي)/.test(budgetConsentText)
+    || (flexibilityQuestion && (/^(?:a (?:little|bit)|slightly|some flexibility|flexible|i can stretch)[.!?]*$/.test(budgetConsentText) || /^(?:قليلا|قليلًا|شوي|مرنة)[.!؟?]*$/.test(budgetConsentText)));
   if (firm) Object.assign(facts, { budgetHardCap: true, budgetFirm: true, budgetFlexible: false, budgetFlexibilityPct: 0, budgetStretchAed: 0 });
   else if (flexible) {
     Object.assign(facts, { budgetHardCap: false, budgetFirm: false, budgetFlexible: true, budgetFlexibilityPct: defaultBudgetStretchPct(), budgetStretchAed: 0 });
@@ -146,5 +154,6 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
   if (/\b(?:larger|bigger|more space|spacious|extra bedroom|additional bedroom)\b/.test(text)) priorities.push("more_space");
   if (/\b(?:move in (?:now|soon)|ready (?:home|property)|earlier handover)\b/.test(text)) priorities.push("earlier_handover");
   if (priorities.length) facts.priorities = [...new Set(priorities)];
+  Object.assign(facts, flexibleAnswer.facts);
   return { ...facts, ...normalizeAdvisoryFacts(facts) };
 }

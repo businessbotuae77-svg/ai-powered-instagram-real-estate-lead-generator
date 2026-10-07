@@ -12,7 +12,7 @@ import { buildConversationReply, buildAdvisorReply, fallbackSafeText } from "./r
 import { composeReplyWithModel } from "./llm.js";
 import { buildAdvisorOpportunities, commercialEvidenceState, commercialEvidenceFingerprint } from "./advisor-opportunities.js";
 import { advisoryReady, determineAdvisorStrategy } from "./advisor-strategy.js";
-import { sanitizeBuyerLanguage, validateBuyerResponse } from "./response-validation.js";
+import { knownField, sanitizeBuyerLanguage, validateBuyerResponse } from "./response-validation.js";
 import { buildFactPack } from "../facts/retrieval.js";
 import { commercialOfferGate } from "../facts/commercial-offers.js";
 import { thesisClaims } from "../facts/advisor-claims.js";
@@ -20,6 +20,7 @@ import { buildInvestmentStrategy, INVESTMENT_PROFILE_FIELDS } from "./investment
 import { conversationState } from "./conversation-state.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
 import { researchReply } from "./research-reply.js";
+import { isFlexiblePreference, PREFERENCE_FACT_FIELDS } from "./preference-state.js";
 import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
@@ -115,10 +116,13 @@ export class ConversationEngine {
     signals = [...new Set([...signals.filter(s => !protectedSignals.test(s)), ...deterministic.signals.filter(s => protectedSignals.test(s))])];
     for (const field of ["noCalls", "salesPathStopped", "preferredContactChannel", "contactDeclined", "requestedAction", "phone",
       "investmentObjective", "useType", "budget", "cash", "budgetHardCap", "budgetFirm", "budgetFlexible", "budgetStretchAed", "budgetFlexibilityPct", "upgradeDeclined",
-      ...INVESTMENT_PROFILE_FIELDS]) {
+      ...INVESTMENT_PROFILE_FIELDS, ...PREFERENCE_FACT_FIELDS]) {
       delete facts[field];
       if (deterministic.facts[field] !== undefined) facts[field] = deterministic.facts[field];
     }
+    // A model cannot undo explicit uncertainty or manufacture permission to
+    // choose preferences. Flexible answers come from the buyer's actual words.
+    unsure = [...new Set(deterministic.unsure || [])];
     if (deterministic.intents.includes("ask_facts") && deterministic.facts.project) {
       // A listing question cannot infer new requirements from words in its
       // name. Preserve only preferences explicitly supplied outside that name.
@@ -320,6 +324,7 @@ export class ConversationEngine {
     }
 
     let buyer = await this.buyers.remember(instagramUserId, facts);
+    this.memory.recordPreferenceStates?.(instagramUserId, buyer.preferenceStates);
     const explicitResume = buyerWouldResume(deterministic.facts, deterministic.intents) ||
       ["request_call", "follow_up", "reserve", "viewing", "agent"].some(i => intents.includes(i));
     if (explicitResume && !pacingRefusalThisTurn && buyer.objections?.some(o => !o.resolved && ["not_interested", "needs_time", "already_has_agent"].includes(o.category))) {
@@ -528,6 +533,27 @@ export class ConversationEngine {
       draft = { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "advisoryNextAction", prompt },
         pendingOffer: { type: "advisory_next_action", action: "availability" } };
     }
+    // Last-line protection also applies to deterministic and offline replies.
+    // Rephrasing a closed qualification slot cannot restart the interview.
+    if (draft.nextQuestion && (isFlexiblePreference(buyer, draft.nextQuestion.field) || knownField(buyer, draft.nextQuestion.field) ||
+        this.memory.getQuestionState?.(instagramUserId, draft.nextQuestion.field) === "flexible")) {
+      const prompt = draft.nextQuestion.prompt;
+      const textWithoutQuestion = prompt && draft.text.includes(prompt)
+        ? draft.text.replace(prompt, "").trim()
+        : draft.text.replace(/[^.!?\n]*[?؟]/g, "").trim();
+      draft = { ...draft, text: textWithoutQuestion || "You're open, so I'll work with the details you've shared and explain the choices as we go.",
+        nextQuestion: null, pendingOffer: null };
+      this.memory.setPendingOffer(instagramUserId, null);
+      // A bare acknowledgement is a dead end: offer a concrete next step instead.
+      if (draft.text.length < 60 && buyer.budgetAed && !draft.advisoryExposure && !buyer.salesPathStopped) {
+        const amount = Number(buyer.budgetAed).toLocaleString("en-US");
+        const prompt = buyer.language === "ar" ? "أيهما أفيد لك؟" : "Which would help more?";
+        draft = { ...draft, text: buyer.language === "ar"
+          ? `لا مشكلة. بميزانية حوالي AED ${amount} يمكنني أن أعرض ما تتيحه في مناطق مختلفة، أو أشرح خطوات الشراء. ${prompt}`
+          : `No problem. With around AED ${amount}, I can show you what that buys in different areas, or explain how buying works. ${prompt}`,
+          nextQuestion: { field: "explorationTopic", prompt } };
+      }
+    }
     // At most one relevant complementary service, then at most one connection
     // offer. Both are skipped when the buyer declined them or paused.
     let serviceSuggestion = null;
@@ -586,7 +612,7 @@ export class ConversationEngine {
         message: text,
         recentTurns,
         intents,
-        investmentProfile, conversationState: state, investmentTheses,
+        investmentProfile, conversationState: state, investmentTheses, discoveryAnalysis: advisor.discoveryAnalysis || null,
         handoffContact: { label: brokerLabel(this.broker, buyer.language), directContact: directContactLine(this.broker, buyer.language) },
         comparisonFacts, objectionState: buyer.objections || [], allowedClaims,
         requiredQuestion: draft.nextQuestion || null,
@@ -619,12 +645,32 @@ export class ConversationEngine {
     if (!responseCheck.ok) check = { ...check, ok: false, violations: [...check.violations, ...responseCheck.violations] };
 
     let replyText = draft.text;
+    // Never send the same reply twice in a row; move the conversation on instead.
+    // Compared without a trailing question, so new information is never treated as a repeat.
+    const body = text => String(text || "").trim().replace(/\n[^\n]*[?؟]\s*$/, "").trim();
+    const recentReplies = this.memory.getTurns(instagramUserId).filter(turn => turn.role === "assistant").slice(-3).map(turn => body(turn.text));
+    if (check.ok && replyText && recentReplies.includes(body(replyText)) && !contact && !["paused", "permissions_updated", "acknowledged"].includes(draft.stage)) {
+      const name = draft.advisoryExposure && advisor.primary ? packs.find(p => p.projectId === advisor.primary.projectId)?.name?.value : null;
+      const ar = buyer.language === "ar";
+      const alternatives = [
+        ...(draft.advisoryExposure ? [ar ? "لا مشكلة. يبقى ترشيحي كما هو. عندما تكون مستعداً يمكنني شرح جدول السداد أو مقارنة الخيارين."
+          : `No problem. My recommendation stays ${name ? `with ${name}` : "the same"}. When you're ready, I can break down the payment schedule or compare the options side by side.`] : []),
+        ar ? "لا داعي للعجلة. اسألني عن أي شيء يخص عقارات أبوظبي متى كنت مستعداً." : "No rush. Ask me anything about Abu Dhabi property whenever you're ready."
+      ];
+      const fresh = alternatives.find(text => !recentReplies.includes(body(text)));
+      if (fresh) {
+        replyText = fresh;
+        draft = { ...draft, text: fresh, nextQuestion: null, pendingOffer: null };
+      }
+    }
     if (!check.ok) {
       this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type) });
       const fallbackPacks = draft.advisoryExposure ? packs.filter(p => matchResult.matches.some(m => m.project.id === p.projectId && m.unit.id === p.unitId)).slice(0, 2) : packs.slice(0, 2);
       replyText = fallbackPacks.length
         ? fallbackSafeText(fallbackPacks)
-        : "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
+        : buyer.advisorLed
+          ? "You're open, so I'll do the filtering using the budget and constraints you've shared. I don't have enough current evidence for a reliable shortlist yet. I'll check entry price, payment commitments, timing and resale evidence before suggesting a property."
+          : "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
       check = validateMessage(replyText, packs, {
         handoffRequested,
         handoffReason: handoffRequested ? "buyer_requested" : null,

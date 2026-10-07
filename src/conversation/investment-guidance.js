@@ -1,14 +1,38 @@
 import { buildInvestmentStrategy } from "./investment-strategy.js";
+import { isFlexiblePreference } from "./preference-state.js";
 
 function draft(text, stage, question = null) {
   return { text, stage, nextQuestion: question, pendingOffer: null, callRequest: null };
 }
 
 export function exitQuestion(buyer) {
-  if (buyer.exitHorizon || buyer.holdingPeriod || buyer.incomeRequirement === "immediate") return null;
+  if (buyer.exitHorizon || buyer.holdingPeriod || buyer.incomeRequirement === "immediate" ||
+      buyer.advisorLed === true || isFlexiblePreference(buyer, "investmentObjective") || isFlexiblePreference(buyer, "exitHorizon")) return null;
   return { field: "exitHorizon", prompt: buyer.language === "ar"
     ? "هل تفكر في البيع عند التسليم أم الاحتفاظ بالعقار لعدة سنوات بعده؟"
     : "Are you thinking of exiting around handover, or holding for a few years after?" };
+}
+
+/** A missing approved offer is an evidence gap, not a reason to restart the interview. */
+export function advisorLedDiscoveryGuidance({ buyer, catalogError = null }) {
+  if (!buildInvestmentStrategy(buyer).advisorLedDiscovery) return null;
+  const ar = buyer.language === "ar";
+  const budget = Number(buyer.budgetAed).toLocaleString("en-US");
+  const text = ar
+    ? `لا بأس — سأقوم بالتصفية لك ضمن ميزانية ${budget} درهم. سأقارن سعر الدخول ومرحلة المشروع وتطور المنطقة والمحركات الموثقة وجودة المنتج وخطة السداد والمبالغ المدفوعة وتوقيت التسليم والمعروض المنافس وأدلة إعادة البيع وخيار الإيجار والمخاطر المدعومة بالأدلة. لا تتوفر لدي حالياً خيارات بشروط تجارية حديثة ومعتمدة تكفي لإعداد قائمة موثقة.`
+    : `That's fine — you're open, so I'll do the filtering for you. With around AED ${budget} for investment, I'll compare entry price, project stage, area development, documented catalysts, product differences, payment structure, cash exposure, handover timing, competing supply, resale evidence, rental fallback where supported, and factual risks. I don't currently have enough approved, current commercial evidence to present a useful shortlist.`;
+  let question = null;
+  if (buyer.cashAvailableAed == null && !isFlexiblePreference(buyer, "cashAvailableAed")) {
+    question = { field: "cashAvailableAed", prompt: ar
+      ? "ما المبلغ النقدي الذي تريد تخصيصه للدفعة الأولى؟"
+      : "What initial cash amount should I use when checking payment commitments?" };
+  } else if ((!buyer.financing || buyer.financing === "unknown") && !isFlexiblePreference(buyer, "financing")) {
+    question = { field: "financing", prompt: ar
+      ? "هل تفضل الدفع النقدي أم الرهن العقاري أم خطة سداد من المطور؟"
+      : "Do you prefer cash, mortgage, or a developer payment plan?" };
+  }
+  const unavailable = catalogError ? ar ? " التحقق الحالي من العقارات غير متاح." : " The current property check is unavailable." : "";
+  return draft([text + unavailable, question?.prompt].filter(Boolean).join(" "), "advisor_discovery", question);
 }
 
 /** General strategy advice uses no property claims and works with no units. */
@@ -16,6 +40,9 @@ export function investmentGuidance({ buyer, message = "", hasCommercialOptions =
   if (buyer.useType !== "investment") return null;
   const text = String(message).toLowerCase();
   const profile = buildInvestmentStrategy(buyer);
+  if (profile.advisorLedDiscovery) {
+    return hasCommercialOptions ? null : advisorLedDiscoveryGuidance({ buyer, catalogError });
+  }
   const ar = buyer.language === "ar";
   const say = (en, arabic) => ar ? arabic : en;
   const roi = /\b(?:roi|return on investment|best returns?|strongest investment)\b|أفضل عائد/.test(text);

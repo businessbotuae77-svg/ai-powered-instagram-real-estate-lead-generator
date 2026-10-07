@@ -8,6 +8,7 @@ import { normalizeBuyerText } from "./text.js";
 import { parseMoney, normalizeArea, normalizeBedrooms, normalizePropertyType, normalizeDeveloper } from "../matching/normalize.js";
 import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { ADVISORY_FACT_FIELDS, parseAdvisoryFacts, normalizeAdvisoryFacts } from "./advisory-memory.js";
+import { canonicalQuestionField, isPropertyFactUncertainty, parseFlexiblePreferences } from "./preference-state.js";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -21,7 +22,7 @@ const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "- If buyer says 1 or 2 bed / 1 or 2 bedrooms, set bedrooms to [1,2].",
   "- Extract any clearly named Abu Dhabi area, including Yas Island, Saadiyat Island, Hudayriyat Island, Al Reem Island, Masdar City, Al Raha Beach, Al Maryah Island, Khalifa City, and Al Reef.",
   "- Canonicalize Masdar as Masdar City. If buyer says what about Masdar, forget Yas, or switch to Reem, set area to the newly requested area only.",
-  "- If buyer says not sure / unsure / idk / I don't know about a field, put that field name in unsure (budget, cash, area, bedrooms, financing) and leave facts for that field null.",
+  "- If buyer says not sure / unsure / idk / I don't know / you choose / best option / no preference about a field, put that semantic field name in unsure (budget, cash, area, bedrooms, propertyType, financing, investmentObjective, exitHorizon, riskTolerance, cashDeploymentPreference) and leave facts for that field null. Treat uncertainty as flexible/advisor-led, never ask the same conceptual question again or invent a preference.",
   "- If the buyer does not know the area, also set openToOtherAreas true so the conversation moves forward across Abu Dhabi instead of asking area again.",
   "- Best ROI is umbrella total_return intent; capital appreciation and rental income are return drivers, not opposites to ROI. Do not pick a return driver or strategy from ROI alone. Never clear a known budget or choose an area on the buyer's behalf.",
   "- Extract volunteered investmentGoal, investmentStrategy, exitHorizon, incomeRequirement, growthPriority, liquidityPriority, riskTolerance, cashDeploymentPreference, handoverStrategy only when explicit. Short 'handover' after an exit question means handover exit; a project handover question does not. 'Hold 5 years' is a holding period, never a reservation request. A forecast question is not a preference.",
@@ -60,6 +61,9 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
       investmentObjective: buyer?.investmentObjective || null,
       investmentGoal: buyer?.investmentGoal || null,
       investmentStrategy: buyer?.investmentStrategy || "UNDECIDED",
+      preferenceStates: buyer?.preferenceStates || {},
+      investmentPreferenceState: buyer?.investmentPreferenceState || null,
+      advisorLed: buyer?.advisorLed === true,
       exitHorizon: buyer?.exitHorizon || null,
       holdingPeriod: buyer?.holdingPeriod || null,
       incomeRequirement: buyer?.incomeRequirement || null,
@@ -149,7 +153,7 @@ export function understandMessageLocally(message, { buyer = null, lastAskedField
       text.length < 48 &&
       !/\d/.test(text));
 
-  if (unsureOnly || areaUnsure) {
+  if ((unsureOnly || areaUnsure) && !isPropertyFactUncertainty(text)) {
     const roiAdvisory = /\b(?:roi|return on investment|investment)\b/i.test(text);
     const safeAskedField = askedField === "budget" && (buyer?.budgetAed != null || roiAdvisory) ? null : askedField;
     const field = areaUnsure ? "area" : safeAskedField || (buyer?.budgetAed != null || roiAdvisory ? null : "budget");
@@ -170,6 +174,18 @@ export function understandMessageLocally(message, { buyer = null, lastAskedField
             : field === "cash"
               ? "No problem if the initial cash is still open."
               : "No problem if that detail is still open.";
+  }
+
+  const flexible = parseFlexiblePreferences(text, { buyer: { ...buyer, ...(facts.useType ? { useType: facts.useType } : {}) }, lastAskedField });
+  Object.assign(facts, flexible.facts);
+  unsure.push(...flexible.unsure.map(mapAskedField).filter(Boolean));
+  if (flexible.unsure.length) {
+    intents.push("unsure");
+    if (facts.advisorLed) {
+      intents.push("advisory");
+      signals.push("advisor_led");
+      ack = "That's fine — I'll do the filtering for you.";
+    }
   }
 
   // around / about / roughly budget
@@ -291,6 +307,14 @@ export function mergeUnderstanding(baseExtract, understanding) {
     }
     if (field === "bedrooms") delete facts.bedrooms;
     if (field === "financing") delete facts.financing;
+    if (field === "propertyType") delete facts.propertyType;
+    if (field === "investmentObjective") {
+      for (const key of ["investmentObjective", "investmentGoal", "growthPriority"]) delete facts[key];
+    }
+    if (field === "exitHorizon") {
+      for (const key of ["exitHorizon", "holdingPeriod", "handoverStrategy"]) delete facts[key];
+    }
+    if (["riskTolerance", "cashDeploymentPreference", "liquidityPriority", "incomeRequirement"].includes(field)) delete facts[field];
   }
 
   const intents = [...new Set([...(base.intents || []), ...(u.intents || [])])];
@@ -305,7 +329,7 @@ export function mergeUnderstanding(baseExtract, understanding) {
     facts,
     signals,
     intents,
-    unsure: u.unsure || [],
+    unsure: [...new Set([...(base.unsure || []), ...(u.unsure || [])].map(mapAskedField).filter(Boolean))],
     ack: u.ack || null,
     source: u.source || "none"
   };
@@ -365,15 +389,8 @@ export function normalizeUnderstanding(raw, source = "none") {
 }
 
 function mapAskedField(field) {
-  if (!field) return null;
-  const key = String(field);
-  if (key === "budgetAed" || key === "budget") return "budget";
-  if (key === "cashAvailableAed" || key === "cash") return "cash";
-  if (key === "preferredAreas" || key === "area") return "area";
-  if (key === "bedrooms") return "bedrooms";
-  if (key === "financing") return "financing";
-  if (key === "propertyTypes" || key === "propertyType") return "propertyType";
-  return null;
+  const canonical = canonicalQuestionField(field);
+  return ({ budgetAed: "budget", cashAvailableAed: "cash", preferredAreas: "area", propertyTypes: "propertyType" })[canonical] || canonical;
 }
 
 function looksCommercial(text) {

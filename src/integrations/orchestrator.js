@@ -20,13 +20,15 @@ export function retryResult(result) {
     followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired } = result;
   return { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
     followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, compact: true,
+    // Quick-reply buttons are re-sent on a retry, so keep the question.
+    nextQuestion: result.nextQuestion ? { field: result.nextQuestion.field, prompt: result.nextQuestion.prompt, choices: result.nextQuestion.choices || null } : null,
     matches: (result.matches || []).map(m => ({ project: { id: m.project?.id, name: m.project?.name }, unit: { id: m.unit?.id } })) };
 }
 
 /** Blocks webhook+poller double replies when Meta message ids differ. */
 export function contentDedupKey(event) {
   const senderId = String(event?.senderId || "").trim();
-  const text = String(event?.text || "").trim().toLowerCase();
+  const text = String(event?.quickReplyLabel || event?.text || "").trim().toLowerCase();
   if (!senderId || !text) return null;
   const ageMs = messageEventAgeMs(event);
   const bucketMs = ageMs === null ? Date.now() : Date.now() - ageMs;
@@ -224,7 +226,10 @@ export class IntegrationOrchestrator {
         const reply = revoked ? "Your contact preferences changed, so the earlier follow-up request was cancelled." : needsAlert
           ? handoffConfirmation(result.buyer, this.engine.broker)
           : result.reply;
-        send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(event.senderId, reply, mid, result.callRequest);
+        send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(
+          event.senderId, reply, mid, result.callRequest,
+          !needsAlert && !revoked ? result.nextQuestion?.choices : null, previous.sendProgress
+        );
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
         if (needsAlert && alertOk) result.reply = reply;
       }
@@ -284,15 +289,19 @@ export class IntegrationOrchestrator {
     return outputs;
   }
 
-  async #safeInstagramSend(recipientId, text, mid, callRequest = null) {
+  async #safeInstagramSend(recipientId, text, mid, callRequest = null, choices = null, sendProgress = null) {
     try {
       let outbound = text;
       if (callRequest?.offered) {
         outbound = `${text}\n\nRequest a Call: reply with the phone number you want us to use.`;
       }
+      const replyHash = createHash("sha256").update(JSON.stringify({ text: outbound, choices })).digest("hex");
       return await sendInstagramText({
         recipientId,
         text: outbound,
+        choices,
+        sentMessageIds: sendProgress?.replyHash === replyHash ? sendProgress.messageIds : [],
+        onMessageSent: messageIds => this.events.save(mid, { sendProgress: { replyHash, messageIds } }),
         env: this.env,
         fetchImpl: this.fetchImpl
       });

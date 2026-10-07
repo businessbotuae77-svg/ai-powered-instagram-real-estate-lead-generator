@@ -5,14 +5,16 @@ import { understandMessageLocally, mergeUnderstanding } from "../src/conversatio
 import { extractFactsFromMessage } from "../src/conversation/extract.js";
 import { polishReplyWithModel } from "../src/conversation/llm.js";
 
-test("step 15a unsure buyer explores priorities without a budget form", async () => {
+test("step 15a uncertainty closes the asked use-type slot and advances with an explanation", async () => {
   const { engine } = await setupConversation();
   await engine.handleMessage("ig_m2_u1", "Hi");
   const unsure = await engine.handleMessage("ig_m2_u1", "Not sure");
   assert.equal(unsure.stage, "exploring");
-  assert.match(unsure.reply, /range|No problem/i);
+  assert.match(unsure.reply, /No problem.*explain|entry price/i);
   assert.doesNotMatch(unsure.reply, /^What budget are you working with\?$/m);
-  assert.equal(unsure.nextQuestion?.field, "useType");
+  assert.equal(unsure.buyer.preferenceStates.useType, "flexible");
+  assert.equal(unsure.nextQuestion, null);
+  assert.doesNotMatch(unsure.reply, /buying.*investing.*exploring\?/i);
   assert.ok(unsure.unsure?.includes("budget") || unsure.intents.includes("unsure"));
 });
 
@@ -20,8 +22,9 @@ test("step 15b around 2M remembers budget and opens a useful priorities conversa
   const { engine } = await setupConversation();
   const result = await engine.handleMessage("ig_m2_u2", "around 2M");
   assert.equal(result.buyer.budgetAed, 2_000_000);
-  assert.match(result.reply, /what matters most/i);
-  assert.equal(result.nextQuestion?.field, "priorities");
+  assert.match(result.reply, /what should i optimise for/i);
+  assert.equal(result.nextQuestion?.field, "investmentObjective");
+  assert.ok(result.nextQuestion.choices.some(choice => choice.id === "you_choose" && choice.value === "UNDECIDED"));
   assert.doesNotMatch(result.reply, /What budget|Which area/i);
 });
 
