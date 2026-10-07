@@ -239,7 +239,7 @@ test("step 32r browsing never triggers a handoff offer by message count", async 
     assert.notEqual(reply.nextQuestion?.field, "handoffOffer");
     assert.doesNotMatch(reply.reply, /connect you|reach Sam/);
   }
-  assert.match(replies[2].reply, /areas I cover include/);
+  assert.match(replies[2].reply, /Yas: Abu Dhabi's entertainment island/);
   assert.equal(replies.at(-1).stage, "acknowledged");
 });
 

@@ -1,5 +1,6 @@
 import { buildInvestmentStrategy } from "./investment-strategy.js";
 import { isFlexiblePreference } from "./preference-state.js";
+import { loadAreaGuide } from "../facts/area-guide.js";
 
 function draft(text, stage, question = null) {
   return { text, stage, nextQuestion: question, pendingOffer: null, callRequest: null };
@@ -14,18 +15,29 @@ export function exitQuestion(buyer) {
 }
 
 /** A missing approved offer is an evidence gap, not a reason to restart the interview. */
-export function advisorLedDiscoveryGuidance({ buyer, catalogError = null }) {
+// A quick tour of the areas gives an open investor something useful while
+// the shortlist still needs current prices.
+function areaTour(guide, buyer) {
+  const preferred = new Set(buyer.preferredAreas || []);
+  const rows = guide.filter(entry => entry.tagline && (!preferred.size || preferred.has(entry.area)))
+    .slice(0, 4).map(entry => `${entry.area.replace(/ Island$/, "")} is ${entry.tagline}`);
+  return rows.length ? `Quick lay of the land: ${rows.join("; ")}.` : "";
+}
+
+export function advisorLedDiscoveryGuidance({ buyer, catalogError = null, areaGuide = loadAreaGuide() }) {
   if (!buildInvestmentStrategy(buyer).advisorLedDiscovery) return null;
   const ar = buyer.language === "ar";
   const budget = Number(buyer.budgetAed).toLocaleString("en-US");
   const text = ar
     ? `لا بأس — سأقوم بالتصفية لك ضمن ميزانية ${budget} درهم. سأقارن سعر الدخول ومرحلة المشروع وتطور المنطقة والمحركات الموثقة وجودة المنتج وخطة السداد والمبالغ المدفوعة وتوقيت التسليم والمعروض المنافس وأدلة إعادة البيع وخيار الإيجار والمخاطر المدعومة بالأدلة. لا تتوفر لدي حالياً خيارات بشروط تجارية حديثة ومعتمدة تكفي لإعداد قائمة موثقة.`
-    : `That's fine — you're open, so I'll do the filtering for you. With around AED ${budget} for investment, I'll compare entry price, project stage, area development, documented catalysts, product differences, payment structure, cash exposure, handover timing, competing supply, resale evidence, rental fallback where supported, and factual risks. I don't currently have enough approved, current commercial evidence to present a useful shortlist.`;
+    : [`That's fine — you're open, so I'll do the filtering for you. With around AED ${budget} for investment, I'll weigh entry price, payment plan, handover timing and each area's stage of development.`,
+      areaTour(areaGuide, buyer),
+      "I'll narrow that to specific projects once current prices and payment terms are confirmed."].filter(Boolean).join(" ");
   let question = null;
   if (buyer.cashAvailableAed == null && !isFlexiblePreference(buyer, "cashAvailableAed")) {
     question = { field: "cashAvailableAed", prompt: ar
       ? "ما المبلغ النقدي الذي تريد تخصيصه للدفعة الأولى؟"
-      : "What initial cash amount should I use when checking payment commitments?" };
+      : "How much cash could you put down upfront?" };
   } else if ((!buyer.financing || buyer.financing === "unknown") && !isFlexiblePreference(buyer, "financing")) {
     question = { field: "financing", prompt: ar
       ? "هل تفضل الدفع النقدي أم الرهن العقاري أم خطة سداد من المطور؟"
@@ -36,12 +48,12 @@ export function advisorLedDiscoveryGuidance({ buyer, catalogError = null }) {
 }
 
 /** General strategy advice uses no property claims and works with no units. */
-export function investmentGuidance({ buyer, message = "", hasCommercialOptions = false, catalogError = null }) {
+export function investmentGuidance({ buyer, message = "", hasCommercialOptions = false, catalogError = null, areaGuide = undefined }) {
   if (buyer.useType !== "investment") return null;
   const text = String(message).toLowerCase();
   const profile = buildInvestmentStrategy(buyer);
   if (profile.advisorLedDiscovery) {
-    return hasCommercialOptions ? null : advisorLedDiscoveryGuidance({ buyer, catalogError });
+    return hasCommercialOptions ? null : advisorLedDiscoveryGuidance({ buyer, catalogError, areaGuide });
   }
   const ar = buyer.language === "ar";
   const say = (en, arabic) => ar ? arabic : en;

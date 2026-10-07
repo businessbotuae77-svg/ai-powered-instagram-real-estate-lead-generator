@@ -10,6 +10,8 @@ import { brokerProfile } from "./broker-profile.js";
 import { handoffTopic, identityReply, isBareDecline, isIdentityQuestion, judgmentAnswer, judgmentTopic } from "./sales-moments.js";
 import { choicesForField } from "./choices.js";
 import { isFlexiblePreference } from "./preference-state.js";
+import { areaAnswer } from "./area-answers.js";
+import { areaGuideFromCatalog } from "../facts/area-guide.js";
 
 function response(text, stage, field = null, prompt = null) {
   return { text, stage, nextQuestion: field ? { field, prompt } : null, pendingOffer: null, callRequest: null };
@@ -82,7 +84,9 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     const knowledge = knowledgeAdvice({ buyer, catalog, message: text, advisor });
     if (knowledge) return knowledge;
   }
-  const guidance = investmentGuidance({ buyer, message: text, hasCommercialOptions: Boolean(advisor?.primary), catalogError });
+  const area = areaAnswer({ text, buyer, catalog, lastAskedField, ar });
+  if (area) return area;
+  const guidance = investmentGuidance({ buyer, message: text, hasCommercialOptions: Boolean(advisor?.primary), catalogError, areaGuide: areaGuideFromCatalog(catalog) });
   if (guidance) return guidance;
   const projects = catalog.projects.filter(p => p.active && p.source && p.developerActive);
   if (/areas?.*(potential|best|know|recommend|cover|have|offer)|which areas|مناطق|منطقة.*أفضل/i.test(text)) {

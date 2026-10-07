@@ -5,6 +5,7 @@ import { unitLabel } from "./airtable-schema.js";
 import { RUNTIME_DIR } from "./local-store.js";
 import { emptyIntelligence, normalizeAreaIntelligence, normalizeInvestmentEvidence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory, normalizeProjectRelationship } from "../facts/intelligence.js";
 import { normalizeCommercialOffer } from "../facts/commercial-offers.js";
+import { normalizeAreaGuideRecord } from "../facts/area-guide.js";
 
 function headers(apiKey) {
   return {
@@ -52,6 +53,7 @@ export class AirtableStore {
       priceHistory: env.AIRTABLE_PRICE_HISTORY_TABLE || "Price History",
       marketSnapshots: env.AIRTABLE_MARKET_SNAPSHOT_TABLE || "Market Snapshot",
       areas: env.AIRTABLE_AREAS_TABLE || "Areas (research)",
+      areaGuide: env.AIRTABLE_AREA_GUIDE_TABLE || "Area Guide",
       projectRelations: env.AIRTABLE_PROJECT_RELATIONSHIPS_TABLE || "Project Relationships (research)",
       investmentEvidence: env.AIRTABLE_INVESTMENT_EVIDENCE_TABLE || "Investment Evidence (research)",
       researchOffers: env.AIRTABLE_RESEARCH_OFFERS_TABLE || "Offers (research)",
@@ -253,6 +255,7 @@ export class AirtableStore {
       priceHistory: records("priceHistory").map(row => normalizePriceHistory(row)),
       marketSnapshots: records("marketSnapshots").map(row => normalizeMarketSnapshot(row)),
       areas: records("areas").map(row => normalizeAreaIntelligence(row)),
+      areaGuide: records("areaGuide").map(normalizeAreaGuideRecord).filter(Boolean),
       projectRelations: records("projectRelations").map(row => normalizeProjectRelationship(row)),
       investmentEvidence: records("investmentEvidence").map(row => normalizeInvestmentEvidence(row)),
       offers: [

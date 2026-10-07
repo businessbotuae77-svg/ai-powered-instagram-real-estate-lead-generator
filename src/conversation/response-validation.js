@@ -227,7 +227,7 @@ function validateClaimCitations(message, claims, packs, options) {
   ];
   for (const [type, pattern] of attributes) {
     for (const match of message.matchAll(new RegExp(pattern.source, "gi"))) {
-      const fields = type === "bedrooms" ? ["bedrooms", "bedroomLabel", "investmentEvidence"] : type === "size" ? ["sizeSqftFrom", "sizeSqftTo", "investmentEvidence"] : ["features", "description", "investmentEvidence"];
+      const fields = type === "bedrooms" ? ["bedrooms", "bedroomLabel", "investmentEvidence"] : type === "size" ? ["sizeSqftFrom", "sizeSqftTo", "investmentEvidence"] : ["features", "description", "investmentEvidence", "areaHighlight"];
       if (!supported.some(row => fields.includes(row.field) && row.text.toLowerCase().includes(match[0].toLowerCase()) && assertedAttributeSupported(match[0], row, type))) violations.push({ type: "uncited_attribute", attribute: type });
     }
   }
@@ -322,17 +322,37 @@ function assertedAttributeSupported(text, citation, type) {
   return String(citation.value).toLowerCase().includes(text.toLowerCase());
 }
 
+// Wording around a cited description ("on", "nearby", "great") is not a new
+// fact. A digit-free fragment is supported when every content word appears in
+// the cited value; prices, dates and percentages stay under the exact checks.
+const FILLER = new Set(["the", "and", "with", "its", "this", "that", "also", "very", "really", "just", "located", "set", "sits", "sitting",
+  "right", "near", "nearby", "close", "next", "from", "for", "there", "which", "plus", "lots", "plenty", "some", "great", "lovely",
+  "nice", "wonderful", "beautiful", "popular", "well", "real", "true", "proper", "known", "famous", "home", "part", "heart", "middle"]);
+function wordSet(text) {
+  return new Set((String(text).toLowerCase().match(/[a-z][a-z'-]+/g) || []).flatMap(word => [word, word.replace(/e?s$/, "")]));
+}
+function wordsCovered(fragment, value) {
+  if (/\d/.test(fragment)) return false;
+  const known = wordSet(value);
+  const words = (fragment.toLowerCase().match(/[a-z][a-z'-]+/g) || []).filter(word => word.length > 2 && !FILLER.has(word));
+  return words.length > 0 && words.every(word => known.has(word) || known.has(word.replace(/e?s$/, "")));
+}
+
 function validatePropertyPredicates(message, citations, packs, options) {
   const violations = [];
+  // Owner-approved lifestyle positioning (tagline, character, who it suits)
+  // may describe a project's area without a citation; named amenities may not.
+  const areaPositioning = (options.allowedClaims || []).filter(row => row.field === "areaHighlight" && row.scope?.kind !== "highlights");
   const sentences = message.split(/\n|(?<=[.!?])\s+(?=[A-Z])/);
   let previousProperty = false;
   for (const sentence of sentences) {
-    const relevant = citations.filter(row => sentence.includes(row.text) || row.text.includes(sentence));
+    const cited = citations.filter(row => sentence.includes(row.text) || row.text.includes(sentence));
+    const relevant = [...cited, ...areaPositioning];
     const directlyNamed = packs.some(pack => pack.name?.confirmed && pack.name.value && sentence.includes(String(pack.name.value)));
     const mentionsProperty = directlyNamed || (previousProperty && /^(?:It|This|That|The (?:project|property|unit)|Its)\b|^(?:هذا|هذه|وهو|وهي|يتوفر|يتضمن)/i.test(sentence));
     if (directlyNamed) previousProperty = true;
     if (!mentionsProperty) continue;
-    if (directlyNamed && relevant.length && relevant.every(row => row.field === "name")) {
+    if (directlyNamed && cited.length && cited.every(row => row.field === "name")) {
       let remainder = sentence.toLowerCase();
       for (const pack of packs) remainder = remainder.replaceAll(String(pack.name?.value || "").toLowerCase(), " ");
       const comparisonProofs = collectComparisonDifferences(packs, options.comparisonFacts);
@@ -343,6 +363,9 @@ function validatePropertyPredicates(message, citations, packs, options) {
       }
       // Name-only citations can support a preference sentence, never a fresh
       // descriptive claim hidden after a colon or inside the preference reason.
+      // Approved area positioning words are not a fresh property description.
+      const positioning = wordSet(areaPositioning.map(row => row.value).join(" "));
+      if (positioning.size) remainder = remainder.replace(/[a-z][a-z'-]+/g, word => positioning.has(word) || FILLER.has(word) ? " " : word);
       remainder = remainder.replace(/\b(?:i|for|you|your|our|my|we|would|only|not|pay|the|extra|prefer|recommend|choose|pick|start|with|focus|on|this|that|it|is|a|an|option|choice|primary|challenger|fit|fits|cleaner|better|good|strong|preferred|because|inside|within|outside|budget|price|range|area|priorities|priority|objective|and|or|if|matters|to|more|sense|than)\b/g, "").replace(/[\s:;,—.!?'-]/g, "");
       if (remainder && !questionRequests(sentence).length) violations.push({ type: "uncited_property_description" });
     }
@@ -356,8 +379,9 @@ function validatePropertyPredicates(message, citations, packs, options) {
         const supported = relevant.some(row => {
           if (["name", "source", "lastVerified", "fit"].includes(row.field)) return false;
           const value = String(row.value).toLowerCase();
-          if (row.evidenceId && typeof row.value === "string") return value.includes(lower) || lower === value;
-          if (["features", "description", "area", "status", "propertyType", "handover", "availability", "developer", "bedroomLabel"].includes(row.field)) return value.includes(lower) || lower === value;
+          if (row.evidenceId && typeof row.value === "string") return value.includes(lower) || lower === value || wordsCovered(lower, value);
+          if (["features", "description", "area", "developer"].includes(row.field)) return value.includes(lower) || lower === value || wordsCovered(lower, value);
+          if (["status", "propertyType", "handover", "availability", "bedroomLabel"].includes(row.field)) return value.includes(lower) || lower === value;
           if (row.field === "bedrooms") return /^(\d+)\s*(?:bedrooms?|br)$/i.test(fragment) && Number(fragment.match(/\d+/)[0]) === row.value;
           if (row.field === "paymentPlanSummary") return value.includes(lower) || (/^(?:a )?\d+\s*\/\s*\d+\s+(?:payment )?plan$/i.test(fragment) && value.includes(fragment.match(/\d+\s*\/\s*\d+/)[0].replace(/\s/g, "")));
           if (["startingPriceAed", "startingPriceText", "downPaymentAed", "downPaymentText", "bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed"].includes(row.field)) return /^(?:starting price|initial payment|initial commitment|down payment|price|booking|cash|construction.?period cash|handover cash)\b/i.test(fragment);

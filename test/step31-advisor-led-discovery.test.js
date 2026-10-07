@@ -189,7 +189,8 @@ test("insufficient evidence offers value and only one different useful question"
   assert.equal(result.stage, "advisor_discovery");
   assert.match(result.text, /open.*filter/);
   assert.match(result.text, /AED 3,000,000/);
-  assert.match(result.text, /approved, current commercial evidence/);
+  assert.match(result.text, /once current prices and payment terms are confirmed/);
+  assert.match(result.text, /Hudayriyat is the family-friendly, fitness-first island/, "an open investor gets the lay of the land");
   assert.equal(result.nextQuestion.field, "cashAvailableAed");
   assert.equal((result.text.match(/\?/g) || []).length, 1);
   assert.doesNotMatch(result.text, /what matters|what.*priority|which area|what size|exit.*holding/i);

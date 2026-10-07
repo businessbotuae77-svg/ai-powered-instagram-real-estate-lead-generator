@@ -97,7 +97,7 @@ export async function composeReplyWithModel(client, options = {}) {
     opportunities = [], strategy = null, permittedRecommendations = null, allowedActions = [], forbiddenActions = [], language = "en",
     investmentProfile = null, conversationState = null, investmentTheses = [], comparisonFacts = null,
     objectionState = null, allowedClaims = [], handoffContact = null, discoveryAnalysis = null,
-    validationOptions = {}
+    validationOptions = {}, areaGuide = []
   } = options;
   const requiredQuestion = questionContract(options.requiredQuestion, buyer);
   const compactBuyer = Object.fromEntries(BUYER_FIELDS.filter(key => buyer[key] !== undefined).map(key => [key, buyer[key]]));
@@ -121,6 +121,8 @@ export async function composeReplyWithModel(client, options = {}) {
     "Never claim a reservation, EOI, viewing, CRM write, deletion or advisor notification is complete. proposedActions are suggestions in this reply, not executions. Respect noCalls, salesPathStopped and contactDeclined.",
     "Compose the useful answer before the next step. Ask at most one question, only the required question or one of the allowed response next steps. Paraphrase the required question naturally once; do not append a second version. Do not ask for a known, declined or explicitly flexible value. If no question is needed, end without one. A question comparing the top options or their cash requirements is a next action, not a new request for the buyer's cash preference.",
     "Give an evidence-backed opinion when the deterministic recommendation supports it. A challenger must solve a stated need; preserve fixed area/type/budget boundaries. Explain an upsell's exact computed extra cost, supported buyer benefit and trade-off. Higher price is not a benefit. State the supported bull case and material risk, and identify specific evidence gaps without false reassurance.",
+    "Talk like a local Abu Dhabi expert. areaGuide is owner-approved knowledge of what each area is known for, who it suits and one honest caveat. Use it in your own words whenever an area or a project in that area comes up, e.g. a project on Hudayriyat sits on the family-friendly, fitness-first island. General lifestyle descriptions from areaGuide need no citation. When you name a specific landmark, amenity or facility from it, cite the matching allowedClaims item (field areaHighlight, projectId null, unitId null) and quote its value exactly. Area appeal never becomes a price, rental, demand, resale or appreciation claim.",
+    "Lead with what is good about the option for this buyer. Do not list missing evidence, disclaimers or what you cannot assume unless the buyer asks about risk or evidence; one short caveat is enough.",
     "Keep approved evidence, approved matrix, confirmed options, fact pack, verified stock, matching engine and approved catalogue out of buyer copy. Use ordinary language for a specific missing fact.",
     "Refer to the human only as handoffContact.label. Copy any phone number, email or link from handoffContact.directContact exactly; never invent a person, title, licence, phone number, email, link, response time, discount, testimonial or deadline. Keep any complementary-service sentence or connection offer in the draft with its meaning and any fee exactly as written, or omit it; never add a service, upgrade or connection offer that is not in the draft. Internal labels such as challenger, upsell, cross-sell or smart upgrade never appear in buyer copy.",
     'Return a single JSON object, no markdown: {"message":"...","askedQuestion":true,"questionField":"exact required field or allowed next step","claims":[{"text":"exact quoted span in message","projectId":"...","unitId":"...","field":"exact fact-pack field","value":"exact field value (preserve number/boolean type)"}],"proposedActions":[]}. Set askedQuestion false and questionField null if none.',
@@ -153,7 +155,8 @@ export async function composeReplyWithModel(client, options = {}) {
     forbiddenActions,
     draftReply: draftText,
     handoffContact,
-    requiredQuestion
+    requiredQuestion,
+    areaGuide
   };
   let response;
   try {

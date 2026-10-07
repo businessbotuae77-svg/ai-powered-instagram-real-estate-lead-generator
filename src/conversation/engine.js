@@ -20,6 +20,8 @@ import { buildInvestmentStrategy, INVESTMENT_PROFILE_FIELDS } from "./investment
 import { conversationState } from "./conversation-state.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
 import { researchReply } from "./research-reply.js";
+import { isAreaComparison } from "./area-answers.js";
+import { areaGuideClaims, areaGuideForModel, areaGuideFromCatalog, findAreaEntry } from "../facts/area-guide.js";
 import { isFlexiblePreference, PREFERENCE_FACT_FIELDS } from "./preference-state.js";
 import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
@@ -136,6 +138,10 @@ export class ConversationEngine {
       intents = [...new Set([...intents.filter(i => i !== "ask_facts"), "advisory"])];
     }
     facts.language = buyerLanguage(message) === "ar" ? "ar" : existingBuyer.language || "en";
+    if (isAreaComparison(text)) {
+      delete facts.area;
+      delete facts.areas;
+    }
     const directCashReply =
       (lastAskedField === "cashAvailableAed" || lastAskedField === "cash") &&
       /^\s*(?:AED|Dhs|Dh)?\s*\d[\d,]*(?:\.\d+)?\s*[MmKk]?\s*$/i.test(text);
@@ -409,6 +415,7 @@ export class ConversationEngine {
       /\b(show|review|reconsider|back to|tell me|focus|want)\b/i.test(text)).map(p => p.id);
     const advisor = buildAdvisorOpportunities(catalog, buyer, { ...this.advisorOptions, explicitRequestedProjectIds,
       requestedRecommendation: /\b(recommend|show|compare|options|keep looking)\b/i.test(text) });
+    advisor.areaGuide = areaGuideFromCatalog(catalog);
     const strategy = determineAdvisorStrategy({ buyer, advisor, message: text,
       intents, recentTurns, pendingOffer: this.memory.getPendingOffer(instagramUserId) });
     if (advisoryReady(buyer) && advisor.primary) {
@@ -588,7 +595,11 @@ export class ConversationEngine {
     const investmentProfile = buildInvestmentStrategy(buyer);
     const state = conversationState({ buyer, message: text, intents, recentTurns, advisor });
     const investmentTheses = draft.investmentTheses || (draft.advisoryExposure || draft.stage === "fact_answer" || draft.stage === "investment_risk" ? advisor.investmentTheses || [] : []);
-    const allowedClaims = thesisClaims(investmentTheses);
+    // Owner-approved area knowledge for the areas in play this turn.
+    const areaGuide = advisor.areaGuide;
+    const areaEntries = [...new Set([...(draft.areaGuideAreas || []), ...packs.map(p => p.area?.value), ...(buyer.preferredAreas || [])])]
+      .map(area => findAreaEntry(areaGuide, area)).filter(Boolean).slice(0, 6);
+    const allowedClaims = [...thesisClaims(investmentTheses), ...areaGuideClaims(areaEntries)];
     const comparisonFacts = draft.comparisonFacts || advisor.comparison || null;
     const validationOpportunities = [...advisor.opportunities, ...(advisor.upgradeAssessment?.opportunities || [])];
     const responseOpportunities = draft.advisoryExposure || draft.stage === "fact_answer" ? validationOpportunities : [];
@@ -621,7 +632,8 @@ export class ConversationEngine {
         allowedActions,
         forbiddenActions,
         validationOptions,
-        language: buyer.language
+        language: buyer.language,
+        areaGuide: areaGuideForModel(areaEntries)
       });
       if (composed) draft = { ...draft, text: composed.message, polished: true };
     }
@@ -657,10 +669,19 @@ export class ConversationEngine {
           : `No problem. My recommendation stays ${name ? `with ${name}` : "the same"}. When you're ready, I can break down the payment schedule or compare the options side by side.`] : []),
         ar ? "لا داعي للعجلة. اسألني عن أي شيء يخص عقارات أبوظبي متى كنت مستعداً." : "No rush. Ask me anything about Abu Dhabi property whenever you're ready."
       ];
-      const fresh = alternatives.find(text => !recentReplies.includes(body(text)));
-      if (fresh) {
+      // A pending offer or open question survives the rewording, so a later
+      // "yes" still has something to accept instead of meeting "No rush".
+      const leads = ar ? ["تمام.", "لا مشكلة، خذ وقتك."]
+        : draft.pendingOffer ? ["That's everything I have on that so far.", "No problem, take your time."] : ["Got it.", "No problem, take your time."];
+      const keepQuestions = draft.nextQuestion?.prompt && !buyer.salesPathStopped ? leads.map(lead => `${lead}\n${draft.nextQuestion.prompt}`) : [];
+      const fresh = [...keepQuestions, ...alternatives].find(text => !recentReplies.includes(body(text)));
+      if (fresh && keepQuestions.includes(fresh)) {
         replyText = fresh;
-        draft = { ...draft, text: fresh, nextQuestion: null, pendingOffer: null };
+        draft = { ...draft, text: fresh };
+      } else if (fresh) {
+        replyText = fresh;
+        const offer = fresh.includes("break down the payment schedule") ? { type: "advisory_next_action", action: "payment_details" } : null;
+        draft = { ...draft, text: fresh, nextQuestion: offer ? { field: "advisoryNextAction", prompt: fresh } : null, pendingOffer: offer };
       }
     }
     if (!check.ok) {

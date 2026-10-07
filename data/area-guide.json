@@ -1,0 +1,154 @@
+{
+  "_note": "Owner-approved area positioning. The bot may say anything written here in its own words. Avoid prices, percentages, years and drive times; those need a sourced record. Set approved to false to hide an area. An Airtable table named 'Area Guide' overrides an area with the same name.",
+  "source": "Owner area brief",
+  "lastVerified": "2026-10-07",
+  "areas": [
+    {
+      "area": "Hudayriyat Island",
+      "aliases": [
+        "hudayriyat",
+        "al hudayriyat",
+        "hudayriyat island",
+        "al hudayriyat island"
+      ],
+      "approved": true,
+      "tagline": "the family-friendly, fitness-first island",
+      "character": "Hudayriyat is built around an active outdoor life: cycling and running tracks, beaches, sports and open green space, with a calm family feel.",
+      "highlights": [
+        "cycling and running tracks across the island",
+        "the Surf Abu Dhabi wave pool",
+        "Marsana beachfront cafes and restaurants",
+        "beaches, bike parks and outdoor sports",
+        "a short bridge from the city centre"
+      ],
+      "bestFor": [
+        "families",
+        "people who want an active outdoor lifestyle",
+        "buyers who want a newer master community close to the city"
+      ],
+      "considerations": [
+        "it is a newer community that is still being built out, so services will keep growing over the coming years"
+      ]
+    },
+    {
+      "area": "Yas Island",
+      "aliases": [
+        "yas",
+        "yas island"
+      ],
+      "approved": true,
+      "tagline": "Abu Dhabi's entertainment island",
+      "character": "Yas is where Abu Dhabi goes out: theme parks, the Formula 1 circuit, concerts, a major mall and golf, all on one island.",
+      "highlights": [
+        "Ferrari World, Yas Waterworld, Warner Bros. World and SeaWorld",
+        "Yas Marina Circuit, home of the Formula 1 Abu Dhabi Grand Prix",
+        "Etihad Arena for concerts and live events",
+        "Yas Mall and the Yas Bay waterfront",
+        "Yas Links golf course"
+      ],
+      "bestFor": [
+        "young professionals",
+        "families who want plenty to do",
+        "investors looking at holiday-home and short-stay demand"
+      ],
+      "considerations": [
+        "there are many launches on Yas, so it pays to compare projects carefully",
+        "it gets busy on major event weekends"
+      ]
+    },
+    {
+      "area": "Saadiyat Island",
+      "aliases": [
+        "saadiyat",
+        "saadiyat island"
+      ],
+      "approved": true,
+      "tagline": "the island of luxury and style",
+      "character": "Saadiyat is Abu Dhabi's premium address: natural beaches, the Cultural District and upscale, low-rise living.",
+      "highlights": [
+        "Louvre Abu Dhabi and the Saadiyat Cultural District",
+        "long natural beaches",
+        "Mamsha Al Saadiyat beachfront dining",
+        "Saadiyat Beach Golf Club",
+        "NYU Abu Dhabi and leading international schools"
+      ],
+      "bestFor": [
+        "buyers who want a prestige beachfront address",
+        "families who value top schools and culture",
+        "end users looking for a premium lifestyle"
+      ],
+      "considerations": [
+        "entry prices are among the highest in Abu Dhabi"
+      ]
+    },
+    {
+      "area": "Ramhan Island",
+      "aliases": [
+        "ramhan",
+        "ramhan island"
+      ],
+      "approved": true,
+      "tagline": "peace and quiet, with everything close by",
+      "character": "Ramhan offers calm, low-density island living, with Yas and Saadiyat close at hand when you want them.",
+      "highlights": [
+        "a quiet, low-density island setting",
+        "a resort-style beach lifestyle",
+        "Yas and Saadiyat close by"
+      ],
+      "bestFor": [
+        "buyers who want privacy and calm",
+        "families looking for a quieter island home"
+      ],
+      "considerations": [
+        "it is an early-stage community, so day-to-day amenities will build up over time"
+      ]
+    },
+    {
+      "area": "Fahid Island",
+      "aliases": [
+        "fahid",
+        "fahid island"
+      ],
+      "approved": true,
+      "tagline": "peace and quiet, with everything close by",
+      "character": "Fahid is a calm island community surrounded by nature, close to both Yas and Saadiyat.",
+      "highlights": [
+        "a peaceful island setting surrounded by mangroves and nature",
+        "beachfront living",
+        "Yas and Saadiyat close by"
+      ],
+      "bestFor": [
+        "buyers who want a quiet home near the main islands",
+        "families who like nature and space"
+      ],
+      "considerations": [
+        "it is an early-stage community, so day-to-day amenities will build up over time"
+      ]
+    },
+    {
+      "area": "Al Reem Island",
+      "aliases": [
+        "reem",
+        "al reem",
+        "reem island",
+        "al reem island"
+      ],
+      "approved": true,
+      "tagline": "city living next to the financial district",
+      "character": "Reem is high-rise city living, next to Al Maryah Island and a short hop from downtown Abu Dhabi.",
+      "highlights": [
+        "next to Al Maryah Island, Abu Dhabi's financial district",
+        "Reem Mall and the Galleria close by",
+        "waterfront promenades and parks",
+        "quick access to downtown Abu Dhabi"
+      ],
+      "bestFor": [
+        "professionals working in the city",
+        "buyers who want an established community today"
+      ],
+      "considerations": [
+        "it is dense and urban rather than quiet"
+      ]
+    }
+  ]
+}
