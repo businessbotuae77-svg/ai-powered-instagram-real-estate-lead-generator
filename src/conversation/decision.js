@@ -6,6 +6,8 @@ import { compareProperties } from "./comparison.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
 import { conversationalScope } from "./question-scope.js";
 import { investmentGuidance, performanceQuestion, investmentRiskReply, exitQuestion } from "./investment-guidance.js";
+import { brokerProfile } from "./broker-profile.js";
+import { handoffTopic, identityReply, isBareDecline, isIdentityQuestion, judgmentAnswer, judgmentTopic } from "./sales-moments.js";
 
 function response(text, stage, field = null, prompt = null) {
   return { text, stage, nextQuestion: field ? { field, prompt } : null, pendingOffer: null, callRequest: null };
@@ -13,7 +15,7 @@ function response(text, stage, field = null, prompt = null) {
 
 // Answer-first decisions run before commercial qualification. Content comes from
 // the approved catalogue, or clearly identified general education.
-export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null, advisor = null, lastAskedField = null, askedFields = new Set() }) {
+export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null, advisor = null, lastAskedField = null, askedFields = new Set(), broker = brokerProfile() }) {
   const text = normalizeBuyerText(message);
   const ar = buyer.language === "ar" || buyerLanguage(message) === "ar";
   const say = (en, arabic) => ar ? arabic : en;
@@ -31,6 +33,19 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   }
   if (intents.includes("decline_follow_up")) return response(say("Understood. I won't arrange follow-up. You can continue getting property advice here.", "تمام، لن أرتب متابعة. يمكنك الاستمرار في الحصول على المعلومات العقارية هنا."), "permissions_updated");
   if (intents.includes("decline_viewing")) return response(say("Understood. I won't arrange a viewing.", "تمام، لن أرتب معاينة."), "permissions_updated");
+  if (intents.includes("decline_handoff") && isBareDecline(text)) {
+    return response(say("No problem. I'm happy to keep helping here whenever you have more questions.", "لا مشكلة. يسعدني متابعة المساعدة هنا متى كانت لديك أسئلة."), "handoff_declined");
+  }
+  // A simple thanks closes the turn politely; it is not a new question.
+  if (/^(?:ok(?:ay)?[,!.]?\s*)?(?:thanks|thank you|thx|cheers|great,? thanks)(?: (?:a lot|so much))?[.!]*$|^شكرا/i.test(text.trim())) {
+    return response(say("You're welcome. I'm here if you want to look at anything else.", "على الرحب. أنا هنا إذا أردت الاطلاع على أي شيء آخر."), "acknowledged");
+  }
+  // Be plain about what this assistant is before anything else.
+  if (isIdentityQuestion(text)) return response(identityReply({ buyer, broker }), "identity");
+  // Visa, mortgage eligibility and legal or tax questions need a professional:
+  // give the general answer, then the engine may add a service and an offer.
+  const topic = judgmentTopic(text);
+  if (topic) return { ...response(judgmentAnswer(topic, buyer), "professional_topic"), handoffReason: topic, handoffTopic: handoffTopic(topic), serviceTopic: topic };
   if (intents.includes("start_fresh")) {
     const prompt = say("Are you buying a home, investing, or just exploring?", "هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟");
     return response(say(`Starting fresh. ${prompt}`, `لنبدأ من جديد. ${prompt}`), "exploring", "useType", prompt);
@@ -68,7 +83,7 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   const guidance = investmentGuidance({ buyer, message: text, hasCommercialOptions: Boolean(advisor?.primary), catalogError });
   if (guidance) return guidance;
   const projects = catalog.projects.filter(p => p.active && p.source && p.developerActive);
-  if (/areas?.*(potential|best|know|recommend)|which areas|مناطق|منطقة.*أفضل/i.test(text)) {
+  if (/areas?.*(potential|best|know|recommend|cover|have|offer)|which areas|مناطق|منطقة.*أفضل/i.test(text)) {
     const areas = [...new Set(projects.map(p => p.area))].slice(0, 4);
     const differences = areas.map(area => `${area}: ${[...new Set(projects.filter(p => p.area === area).flatMap(p => p.propertyTypes || []))].join(" and ") || "project details available"}`).join("; ");
     return response(say(areas.length ? `The areas I cover include ${differences}. I would compare entry price, payment commitments and timing before choosing; future returns need comparable rental and cost figures.` : "Area details are unavailable right now. I can still explain how to compare rental demand, costs, and investment horizons.", areas.length ? `تشمل المناطق التي أغطيها ${areas.join("، ")}. أقارن سعر الدخول والتزامات السداد والتوقيت قبل الاختيار؛ مقارنة العوائد تحتاج أرقام إيجار وتكاليف قابلة للمقارنة.` : "تفاصيل المناطق غير متاحة حالياً. يمكنني شرح مقارنة الطلب الإيجاري والتكاليف ومدة الاستثمار."), "knowledge_answer");

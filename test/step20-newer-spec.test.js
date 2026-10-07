@@ -193,11 +193,19 @@ for (const service of ["whatsapp", "instagram"]) {
     const event = { mid: `retry-${service}`, senderId: "retry", text: "I'd like a follow up here on Instagram" };
     const first = await create().processMessageEvent(event, { useLlm: false });
     assert.equal(first.pending, true);
-    if (service === "whatsapp") assert.equal(calls.filter(c => c.service === "instagram").length, 0);
+    // A failed advisor alert gets one honest notice, never a success claim.
+    const instagramText = () => calls.filter(c => c.service === "instagram").map(c => c.body.message.text);
+    if (service === "whatsapp") {
+      assert.equal(instagramText().length, 1);
+      assert.match(instagramText()[0], /saved.*can't confirm it has reached/is);
+      assert.doesNotMatch(instagramText()[0], /request has reached|will follow up/i);
+    }
     const second = await create().processMessageEvent(event, { useLlm: false, retry: true });
     assert.equal(second.pending, false);
     assert.equal(turns, 1);
-    for (const name of ["whatsapp", "instagram"]) assert.equal(calls.filter(c => c.service === name).length, name === service ? 2 : 1);
+    assert.match(instagramText().at(-1), /request has reached/i);
+    // Retries never repeat a step that already succeeded.
+    for (const name of ["whatsapp", "instagram"]) assert.equal(calls.filter(c => c.service === name).length, name === service || (service === "whatsapp" && name === "instagram") ? 2 : 1);
     const duplicate = await create().processMessageEvent(event);
     assert.equal(duplicate.duplicate, true);
     assert.equal(turns, 1);

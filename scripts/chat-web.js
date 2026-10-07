@@ -2,6 +2,7 @@ import { POLICY_VERSION } from "../src/conversation/policy.js";
 import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./load-env.js";
 import { createCatalogStore } from "../src/store/create-store.js";
@@ -17,6 +18,8 @@ import { InstagramConversationPoller } from "../src/integrations/instagram-polle
 import { runtimeRoot } from "../src/integrations/json-store.js";
 import { getInstagramAccountIdentity, subscribeInstagramMessaging } from "../src/integrations/meta.js";
 import { webhookResponse } from "../src/integrations/webhook-response.js";
+import { brokerProfileStatus } from "../src/conversation/broker-profile.js";
+import { loadServices } from "../src/conversation/services.js";
 
 loadEnv();
 
@@ -146,7 +149,10 @@ const server = http.createServer(async (req, res) => {
             process.env.WHATSAPP_PHONE_NUMBER_ID &&
             process.env.WHATSAPP_ALERT_TO &&
             process.env.WHATSAPP_TEMPLATE_NAME
-        )
+        ),
+        // Which handoff details are set (values are not shown) and how many services are enabled.
+        broker: brokerProfileStatus(),
+        servicesEnabled: loadServices().length
       },
       ...publicLlmStatus
     });
@@ -278,17 +284,14 @@ const server = http.createServer(async (req, res) => {
       if (!message) return sendJson(res, 400, { error: "message is required" });
       const useLlm = body.useLlm === undefined ? true : Boolean(body.useLlm);
       const result = await engine.handleMessage(userId, message, { useLlm });
-      if (result.callRequestSubmitted && result.buyer?.phone) {
-        await orchestrator.callRequests.record({
-          instagramUserId: result.buyer.instagramUserId || userId,
-          phone: result.buyer.phone,
-          summary: result.callSummary,
-          match: result.matches?.[0]?.project?.name || null,
-          source: "chat_api"
-        });
-      }
+      // A submitted follow-up goes through the same advisor alert as Instagram,
+      // and the reply reports the real outcome.
+      const handoff = result.followUpSubmitted
+        ? await orchestrator.notifyAdvisor(result, { requestKey: `chat_${userId}_${randomUUID()}`, senderId: userId })
+        : null;
       return sendJson(res, 200, {
-        reply: result.reply,
+        reply: handoff?.reply || result.reply,
+        notification: handoff?.alert || null,
         stage: result.stage,
         matchCount: result.matchCount,
         fitTier: result.fitTier,
@@ -299,6 +302,7 @@ const server = http.createServer(async (req, res) => {
         alertReason: result.alertReason || null,
         callRequest: result.callRequest || null,
         callRequestSubmitted: Boolean(result.callRequestSubmitted),
+        followUpSubmitted: Boolean(result.followUpSubmitted),
         callSummary: result.callSummary || null,
         nextQuestion: result.nextQuestion,
         claudeUsed: Boolean(result.polished),

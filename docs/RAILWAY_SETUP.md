@@ -22,7 +22,7 @@ An initial deployment may fail until Airtable variables are supplied. The produc
 3. Set `NODE_ENV=production`, `RUNTIME_DATA_DIR=/data/runtime` and `INSTAGRAM_POLLER_ENABLED=false`. Leave test and runtime-key endpoints disabled.
 4. Fill `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` for a base you control, containing the expected `Developers`, `Projects` and `Units` tables. Use your approved catalogue; see [HANDOVER](../HANDOVER.md). If the current base belongs to the freelancer, obtain access or copy its schema and approved records into your own base first. Do not run demo-seeding commands on the production base.
 5. Add your Anthropic API key if you want Claude responses; otherwise the deterministic response path remains available. If overriding `ANTHROPIC_MODEL`, select a supported model in your account.
-6. Add the HubSpot and WhatsApp values for your accounts when ready to test lead handoff. The WhatsApp alert template must be approved for the configured language and expected parameters; see the integration handover.
+6. Add your handoff details (`BROKER_NAME`, `BROKER_ROLE`, `BROKER_PHONE` or `BROKER_WHATSAPP`, `BROKER_EMAIL`, `BROKER_BOOKING_URL`) and the WhatsApp values for your accounts when ready to test lead handoff; see [Broker behaviour](BROKER-BEHAVIOUR.md). The WhatsApp alert template must be approved for the configured language and expected parameters; see the integration handover.
 7. Keep Meta credentials blank until you are ready for the connection step below. Enter all tokens directly in Railway, never in chat, commits or screenshots.
 8. Redeploy after applying the variables and volume.
 

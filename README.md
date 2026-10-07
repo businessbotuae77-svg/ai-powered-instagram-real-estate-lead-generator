@@ -58,6 +58,7 @@ Docs:
 - Milestone 2: `docs/MILESTONE_2.md`
 - Milestone 3: `docs/MILESTONE_3.md`
 - [Off-plan research integration](docs/OFF-PLAN-RESEARCH-INTEGRATION.md): evidence boundaries, optional tables and rollout.
+- [Broker behaviour](docs/BROKER-BEHAVIOUR.md): your contact details, complementary services, upgrades and handoff rules.
 
 ## Sample listings
 

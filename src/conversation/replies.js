@@ -493,7 +493,41 @@ export function fallbackSafeText(packs) {
 }
 
 /** Natural offline composition of the same deterministic advisory strategy. */
-export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
+// Buyer-facing lead-ins for a second option. Internal opportunity types such as
+// "challenger" or "smart_upgrade" never reach the customer.
+const ALTERNATIVE_LEADS = {
+  smart_upgrade: "One step up",
+  lower_cost_alternative: "A lower-cost option",
+  easier_payment_alternative: "An option with a lower upfront payment",
+  better_timing_alternative: "An option with different timing",
+  cash_flow_alternative: "A ready option for rental income",
+  growth_alternative: "An off-plan alternative"
+};
+
+const OBJECTION_LEADS = {
+  too_expensive: "Understood. Let's bring the entry price down without losing what matters to you.",
+  initial_payment_too_high: "Understood. I'll keep the upfront payment lower.",
+  too_small: "Got it, more space matters.",
+  too_large: "Understood, something smaller.",
+  handover_too_late: "Understood, timing matters. I'll weigh an earlier handover.",
+  handover_too_soon: "Understood. A later handover gives you more time.",
+  wrong_area: "Noted. I'll set that area aside.",
+  wrong_property_type: "Noted. I'll look at a different property type.",
+  payment_plan_bad: "Understood. I'll look for a payment structure that suits you better.",
+  developer_concern: "Fair concern. Before committing to any developer, check their completed projects and the delivery and delay terms in the sale contract."
+};
+
+function objectionLead(category, message) {
+  if (category === "developer_concern" && /\bdelay|late|on time|deliver/i.test(message)) {
+    return "That's a fair concern with off-plan. A ready home removes construction-delay risk but needs much more cash upfront. For off-plan, check the developer's record on completed projects and the delay terms in the sale contract.";
+  }
+  return OBJECTION_LEADS[category];
+}
+
+const MORE_SPACE = /\b(?:bigger|larger|more space|extra bedroom|more bedrooms)\b/i;
+const WHY_QUESTION = /^(?:why|how come)\b|\bwhy (?:that|this|it|not)\b|\bwhat makes (?:it|that|this)\b|\bwhy do you (?:prefer|recommend|like)\b/i;
+
+export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turnObjections = [], lastAskedField = null, askedFields = new Set() }) {
   if (strategy.type === "resolve_objection") {
     const labels = {
       initial_payment_too_high: "a lower documented initial payment", too_expensive: "a lower entry price",
@@ -507,7 +541,10 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
   }
   if (strategy.type === "trust_check") {
     const prompt = buyer.language === "ar" ? "ما الذي تريد التحقق منه: تفاصيل المشروع أم الأسعار أم إجراءات الشراء؟" : "What would you like to verify first — the project details, the figures, or the buying process?";
-    return { text: prompt, stage: "trust_check", nextQuestion: { field: "trustConcern", prompt }, pendingOffer: null, callRequest: null };
+    const answer = buyer.language === "ar"
+      ? "سؤال في محله. أنا مساعد يعمل بالذكاء الاصطناعي، والأرقام التي أشاركها من قوائمنا الحالية، ولا يتم حجز أو دفع أي شيء عبر هذه المحادثة."
+      : "That's a fair question. I'm an AI assistant, the figures I share come from our current listings, and nothing is reserved or paid through this chat.";
+    return { text: `${answer} ${prompt}`, stage: "trust_check", nextQuestion: { field: "trustConcern", prompt }, pendingOffer: null, callRequest: null };
   }
   if (buyer.language === "ar") return buildArabicAdvisorReply({ buyer, advisor, strategy, message });
   if (strategy.type === "no_push") return {
@@ -537,9 +574,28 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
       strategy.nextAction === "availability" ? null : "Want me to check current availability?", [primaryPack]);
   }
   const lines = [];
-  if (strategy.objection === "initial_payment_too_high") lines.push("That changes the shortlist. I'd focus on a lower initial commitment.");
-  if (strategy.objection === "too_expensive") lines.push("I'd bring the entry price down and keep the useful features in focus.");
-  const reason = primaryReason(primary.reasonCodes, buyer, primaryPack);
+  // Acknowledge a concern only in the turn it is raised, not on every later turn.
+  const raised = turnObjections.find(category => OBJECTION_LEADS[category]);
+  if (raised) lines.push(objectionLead(raised, message));
+  const reason = raised === "too_expensive" && primary.priceDifferenceAed < 0 ? "it keeps the entry price lower"
+    : raised === "initial_payment_too_high" && primary.cashDifferenceAed < 0 ? "its documented initial payment is lower"
+      : primaryReason(primary.reasonCodes, buyer, primaryPack);
+  const challenger = advisor.challenger;
+  if (!raised && strategy.type === "recommend" && WHY_QUESTION.test(message)) {
+    // Explain the reasoning; the cards were already shown.
+    lines.push(`I lean towards ${name}${reason ? ` because ${reason}` : " because it is the cleaner fit for what you've told me"}.`);
+    const tradeoff = opportunityTradeoffs(primary, buyer);
+    if (tradeoff) lines.push(tradeoff);
+    const challengerPack = challenger && advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
+    if (challengerPack) {
+      const benefit = opportunityBenefit(challenger);
+      lines.push(`${challengerPack.name.value} is the alternative.${benefit ? ` ${benefit}` : ""}`);
+    }
+    return { ...advisorDraft(lines.join("\n"), advisor, null, null), allowsServiceSuggestion: true };
+  }
+  // Asked for more space but nothing larger fits: say so instead of ignoring it.
+  const largerShown = challenger?.buyerBenefit?.some(b => ["additional_bedroom", "larger_supported_size_range"].includes(b.code));
+  if (!raised && MORE_SPACE.test(message) && !largerShown) lines.push("I don't have a larger option that fits your budget and other requirements right now.");
   lines.push(`For your priorities, I prefer ${name}${reason ? ` because ${reason}` : " as the cleaner fit"}.`);
   lines.push(renderProjectCard(primaryPack));
   if (primary.comparedTo) {
@@ -548,11 +604,10 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
   }
   const primaryTradeoff = opportunityTradeoffs(primary, buyer);
   if (primaryTradeoff) lines.push(primaryTradeoff);
-  const challenger = advisor.challenger;
   if (challenger) {
     const pack = advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
     if (pack) {
-      lines.push(`${challenger.type === "smart_upgrade" ? "Upgrade" : "Challenger"}: ${renderProjectCard(pack)}`);
+      lines.push(`${ALTERNATIVE_LEADS[challenger.type] || "Also worth a look"}: ${renderProjectCard(pack)}`);
       const benefit = opportunityBenefit(challenger);
       if (benefit) lines.push(benefit);
       const tradeoffs = opportunityTradeoffs(challenger, buyer);
@@ -562,20 +617,25 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "" }) {
   if (advisor.upgradeAssessment?.reasonCodes?.includes("no_material_buyer_benefit_for_extra_price") &&
       (/\b(upgrade|extra|more expensive|worth|better)\b/i.test(message) || !buyer.shownProjects?.includes(primary.projectId))) {
     const assessment = advisor.upgradeAssessment.opportunities?.find(o => o.priceDifferenceAed > 0);
-    lines.push(assessment ? `I would not pay the extra AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} here without a material benefit for your priorities.` : "I would not pay extra here without a material benefit for your priorities.");
+    lines.push(assessment ? `There is a pricier option at AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} more, but I would not pay the extra without a material benefit for your priorities.` : "I would not pay extra here without a material benefit for your priorities.");
   }
   if (strategy.type === "budget_permission") {
     const prompt = `Is AED ${Number(buyer.budgetAed).toLocaleString("en-US")} a hard ceiling, or would you stretch slightly for a materially better option?`;
     const draft = advisorDraft(lines.join("\n"), advisor, null, null);
     return { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "budgetFlexible", prompt }, pendingOffer: null };
   }
-  const horizon = buyer.useType === "investment" ? exitQuestion(buyer) : null;
+  // An unanswered strategy question is not asked again; the buyer can raise it.
+  const horizon = buyer.useType === "investment" && lastAskedField !== "exitHorizon" && !askedFields.has("exitHorizon") ? exitQuestion(buyer) : null;
+  // A complementary service may accompany a plain recommendation, never an
+  // objection answer or a buyer who asked for a low-pressure conversation.
+  // A reply that already weighs two options is long enough without it.
+  const allowsServiceSuggestion = strategy.type === "recommend" && !raised && !strategy.lowPressure && !challenger;
   if (horizon && !strategy.lowPressure) {
     const result = advisorDraft(lines.join("\n"), advisor, null, null);
-    return { ...result, text: `${result.text}\n${horizon.prompt}`, nextQuestion: horizon };
+    return { ...result, text: `${result.text}\n${horizon.prompt}`, nextQuestion: horizon, allowsServiceSuggestion };
   }
   const prompt = strategy.lowPressure ? null : challenger ? "Want me to compare these side by side?" : "Want me to break down the payment terms?";
-  return advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt);
+  return { ...advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt), allowsServiceSuggestion };
 }
 
 function advisorDraft(text, advisor, action, prompt, packs = advisor.packs) {
@@ -628,7 +688,8 @@ function opportunityBenefit(opportunity) {
 function opportunityTradeoffs(opportunity, buyer) {
   const bits = [];
   if (["within_stretch", "above_original_with_permission"].includes(opportunity.budgetStatus)) bits.push(`above your original AED ${Number(buyer.budgetAed).toLocaleString("en-US")} budget`);
-  if (opportunity.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) bits.push(`outside your preferred area; ${buyer.preferredAreas?.join(" or ")} remains the priority`);
+  // An open-area buyer has no preferred area to trade away.
+  if (buyer.preferredAreas?.length && opportunity.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) bits.push(`outside your preferred area; ${buyer.preferredAreas.join(" or ")} remains the priority`);
   if (opportunity.cashDifferenceAed > 0) bits.push(`AED ${opportunity.cashDifferenceAed.toLocaleString("en-US")} more in documented initial payment`);
   if (opportunity.tradeoffs.some(t => t.code === "different_bedroom_count") && !opportunity.buyerBenefit.some(b => b.code === "additional_bedroom")) bits.push("a different bedroom count");
   if (opportunity.tradeoffs.some(t => t.code === "different_property_type")) bits.push("a different property type");
@@ -659,7 +720,7 @@ function buildArabicAdvisorReply({ buyer, advisor, strategy, message }) {
     if (challenger.cashDifferenceAed < 0) lines.push(`تنخفض الدفعة الأولى بمقدار AED ${Math.abs(challenger.cashDifferenceAed).toLocaleString("en-US")}.`);
     if (challenger.cashDifferenceAed > 0) lines.push(`تزداد الدفعة الأولى بمقدار AED ${challenger.cashDifferenceAed.toLocaleString("en-US")}.`);
     if (challenger.budgetStatus === "above_original_with_permission") lines.push(`هذا أعلى من ميزانيتك الأصلية AED ${buyer.budgetAed.toLocaleString("en-US")}.`);
-    if (challenger.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) lines.push(`خارج منطقتك المفضلة؛ تبقى ${buyer.preferredAreas.join(" أو ")} الأولوية.`);
+    if (buyer.preferredAreas?.length && challenger.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) lines.push(`خارج منطقتك المفضلة؛ تبقى ${buyer.preferredAreas.join(" أو ")} الأولوية.`);
   }
   if (advisor.upgradeAssessment.reasonCodes.includes("no_material_buyer_benefit_for_extra_price") && (/upgrade|extra|worth|better|أغلى|زيادة/.test(message) || !buyer.shownProjects?.includes(advisor.primary.projectId))) lines.push("لا أنصح بدفع الزيادة دون فائدة ملموسة تناسب أولوياتك.");
   if (strategy.type === "budget_permission") {

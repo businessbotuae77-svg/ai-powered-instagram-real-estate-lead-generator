@@ -5,6 +5,7 @@ import { ProcessedEventStore } from "./processed-events.js";
 import { AlertLedger, CallRequestStore, sendWhatsAppAlert } from "./whatsapp.js";
 import { parseInstagramMessages, sendInstagramText, verifySignature, verifyWebhookChallenge } from "./meta.js";
 import { runtimeRoot } from "./json-store.js";
+import { handoffConfirmation, handoffFailureNotice } from "../conversation/contact.js";
 
 export function messageEventAgeMs(event, now = Date.now()) {
   const raw = Number(event?.timestamp);
@@ -199,11 +200,18 @@ export class IntegrationOrchestrator {
       const alertOk = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert" || revoked);
       if (alertOk || !needsAlert) await this.events.save(mid, { alert });
       let send = previous.send;
+      // Never leave the buyer in silence: if the alert failed, say so once and
+      // keep retrying. A confirmation is sent only after delivery succeeds.
+      let notice = previous.notice;
+      if (needsAlert && !alertOk && !notice) {
+        const text = handoffFailureNotice(result.buyer, this.engine.broker, { unconfigured: /env incomplete/i.test(alert.reason || "") });
+        notice = event.callRequest ? { uiOnly: true, text } : await this.#safeInstagramSend(event.senderId, text, mid);
+        if (!notice.error && !notice.skipped) await this.events.save(mid, { notice: { ...notice, text } });
+        if (event.callRequest) result.reply = text;
+      }
       if (!send && (!needsAlert || alertOk)) {
         const reply = revoked ? "Your contact preferences changed, so the earlier follow-up request was cancelled." : needsAlert
-          ? result.buyer.language === "ar"
-            ? "وصل طلب المتابعة إلى المستشار. سيتابع معك عبر القناة التي اخترتها."
-            : `Your follow-up request has reached the advisor. They will follow up ${result.buyer.preferredContactChannel === "phone" ? "by phone" : result.buyer.preferredContactChannel === "whatsapp" ? "on WhatsApp" : "here on Instagram"}.`
+          ? handoffConfirmation(result.buyer, this.engine.broker)
           : result.reply;
         send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(event.senderId, reply, mid, result.callRequest);
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
@@ -232,6 +240,19 @@ export class IntegrationOrchestrator {
       });
       throw error;
     }
+  }
+
+  /**
+   * Deliver a handoff produced outside the webhook (the web test chat) and
+   * return the honest buyer-facing outcome.
+   */
+  async notifyAdvisor(result, { requestKey, senderId }) {
+    if (!result.followUpSubmitted || !result.alertRecommended) return { alert: { skipped: true, reason: "not_a_submitted_call_request" }, reply: result.reply };
+    const alert = await this.#safeCallRequestAlert(result, { mid: requestKey, senderId });
+    const ok = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert");
+    const reply = ok ? handoffConfirmation(result.buyer, this.engine.broker)
+      : handoffFailureNotice(result.buyer, this.engine.broker, { unconfigured: /env incomplete/i.test(alert.reason || "") });
+    return { alert, ok, reply };
   }
 
   async processCallRequest({ userId, phone, messageId = null } = {}) {
