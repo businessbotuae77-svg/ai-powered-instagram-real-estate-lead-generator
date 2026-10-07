@@ -26,10 +26,14 @@ function amountAllowed(amount, allowedAmounts) {
   return false;
 }
 
+export const CONTACT_DETAIL = /[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}|(?<![\w,.])\+\d[\d\s()-]{6,}\d|(?<![\w,.])0\d{8,11}\b/gi;
+
 export function extractCommercialClaims(message) {
   // Source URLs can contain dates and path ratios. Keep their character
   // positions but do not interpret URL components as buyer-facing terms.
-  const text = String(message).replace(/https?:\/\/[^\s<>]+/gi, url => " ".repeat(url.length));
+  const text = String(message).replace(/https?:\/\/[^\s<>]+/gi, url => " ".repeat(url.length))
+    // Contact details are not commercial terms; validateBuyerResponse checks them separately.
+    .replace(CONTACT_DETAIL, detail => " ".repeat(detail.length));
   const claims = [];
 
   const money = text.matchAll(/(?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?|\b\d[\d,]*(?:\.\d+)?(?:\s*[Mk]\b)?\s*(?:دراهم|درهم)|\b\d+(?:\.\d+)?\s*[Mk]\b|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/gi);
@@ -94,6 +98,9 @@ export function validateMessage(message, packs, options = {}) {
   const comparisonDifferences = collectComparisonDifferences(packs, options.comparisonFacts);
   for (const difference of comparisonDifferences.filter(row => row.monetary)) derivedAmounts.add(Math.abs(difference.delta));
   for (const amount of derivedAmounts) allowed.amounts.add(amount);
+  // Owner-configured service fees (data/services.json) may be quoted as written.
+  for (const amount of options.configuredAmounts || []) allowed.amounts.add(Math.round(Number(amount)));
+  for (const percent of options.configuredPercents || []) allowed.percents.add(String(percent));
   for (const amount of options.allowedBuyerAmounts || []) {
     if (amount !== null && amount !== undefined && Number.isFinite(Number(amount))) {
       allowed.amounts.add(Math.round(Number(amount)));
@@ -114,6 +121,7 @@ export function validateMessage(message, packs, options = {}) {
   }
   for (const fact of options.allowedClaims || []) if (/Aed$/.test(fact.field || "") && typeof fact.value === "number") monetaryAmounts.add(fact.value);
   for (const value of options.allowedBuyerAmounts || []) if (value != null) monetaryAmounts.add(Number(value));
+  for (const value of options.configuredAmounts || []) monetaryAmounts.add(Math.round(Number(value)));
   for (const claim of claims) {
     if (claim.type === "amount" && /(?:\b(?:AED|Dhs|Dh)\b|درهم|دراهم)/i.test(claim.raw) && !amountAllowed(claim.value, monetaryAmounts) && !literalResearchSupports(claim, literalResearch)) violations.push({ type: "non_monetary_amount" });
   }
@@ -252,6 +260,8 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
   const text = String(message);
   const names = packs.filter(pack => pack.name?.confirmed).map(pack => ({ pack, name: String(pack.name.value).toLowerCase() }));
   const buyerAmounts = new Set((options.allowedBuyerAmounts || []).filter(value => value != null).map(Number));
+  const serviceAmounts = new Set((options.configuredAmounts || []).map(value => Math.round(Number(value))));
+  const servicePercents = new Set((options.configuredPercents || []).map(String));
   // Keep decimal amounts intact while splitting full sentences and list rows.
   const segments = text.split(/\n|(?<=[.!?])\s+(?=[A-Z\u0600-\u06ff])/);
   let previousPack = null;
@@ -269,6 +279,8 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
     // the last commercial pack; only its literal spans are allowed here.
     const literal = literalResearchClaims(segment, options.allowedClaims || []);
     for (const claim of extractCommercialClaims(segment)) {
+      // A configured service fee belongs to the service sentence, not to a property.
+      if (/\bfee\b/i.test(segment) && ((claim.type === "amount" && serviceAmounts.has(claim.value)) || (claim.type === "percent" && servicePercents.has(String(claim.value))))) continue;
       if (claim.type === "amount" && (derivedAmounts.has(claim.value) || (buyerAmounts.has(claim.value) && /\b(your|you have|budget|cash available|ceiling|put down)\b|ميزاني|المتاح|الدفعة التي|لديك|لديك|سقف/i.test(segment)))) continue;
       if (!claimAllowed(claim, own) && !literalResearchSupports(claim, literal)) violations.push({ ...claim, type: "offer_mismatch", projectId: scoped.projectId, unitId: scoped.unitId });
     }

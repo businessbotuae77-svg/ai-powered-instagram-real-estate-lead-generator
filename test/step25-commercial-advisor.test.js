@@ -314,13 +314,11 @@ test("duplicate webhook executes one advisory turn and one requested handoff", a
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "commercial-idempotency-"));
   const sent = [];
   const env = { META_PAGE_ACCESS_TOKEN: "synthetic-test-token", META_PAGE_ID: "test-page",
-    HUBSPOT_ACCESS_TOKEN: "synthetic-test-token", WHATSAPP_ACCESS_TOKEN: "synthetic-test-token",
+    WHATSAPP_ACCESS_TOKEN: "synthetic-test-token",
     WHATSAPP_PHONE_NUMBER_ID: "test-wa", WHATSAPP_ALERT_TO: "971500000000", WHATSAPP_TEMPLATE_NAME: "test_alert" };
   const fetchImpl = async (url, options) => {
     sent.push({ url, body: JSON.parse(options.body) });
-    return { ok: true, json: async () => url.includes("hubapi")
-      ? { results: [{ id: "test-contact" }] }
-      : { message_id: "test-ig", messages: [{ id: "test-wa" }] } };
+    return { ok: true, json: async () => ({ message_id: "test-ig", messages: [{ id: "test-wa" }] }) };
   };
   const original = engine.handleMessage.bind(engine);
   let turns = 0;
@@ -332,7 +330,6 @@ test("duplicate webhook executes one advisory turn and one requested handoff", a
   const replay = await orchestrator.processMessageEvent(event, offline);
   assert.equal(replay.duplicate, true);
   assert.equal(turns, 1);
-  assert.equal(sent.filter(row => row.url.includes("hubapi")).length, 1);
   assert.equal(sent.filter(row => row.url.includes("/test-wa/")).length, 1);
   assert.equal(sent.filter(row => row.body.recipient).length, 1);
 });

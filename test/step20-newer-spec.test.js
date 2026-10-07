@@ -169,18 +169,18 @@ test("26 catalogue failure keeps memory and never invents results", async () => 
   assert.equal(r.stage, "catalog_unavailable");
 });
 
-const env = { META_PAGE_ACCESS_TOKEN: "test", META_PAGE_ID: "page", HUBSPOT_ACCESS_TOKEN: "test", WHATSAPP_ACCESS_TOKEN: "test", WHATSAPP_PHONE_NUMBER_ID: "wa", WHATSAPP_ALERT_TO: "971500000000", WHATSAPP_TEMPLATE_NAME: "alert" };
+const env = { META_PAGE_ACCESS_TOKEN: "test", META_PAGE_ID: "page", WHATSAPP_ACCESS_TOKEN: "test", WHATSAPP_PHONE_NUMBER_ID: "wa", WHATSAPP_ALERT_TO: "971500000000", WHATSAPP_TEMPLATE_NAME: "alert" };
 function mockTransport(failedService, calls) {
   let failed = false;
   return async (url, options) => {
-    const service = url.includes("hubapi") ? "hubspot" : url.includes("/wa/") ? "whatsapp" : "instagram";
+    const service = url.includes("/wa/") ? "whatsapp" : "instagram";
     calls.push({ service, body: JSON.parse(options.body) });
     if (service === failedService && !failed) { failed = true; return { ok: false, status: 503, json: async () => ({ error: { message: "temporary outage" } }) }; }
-    return { ok: true, json: async () => service === "hubspot" ? { results: [{ id: "contact" }] } : { message_id: "ig-out", messages: [{ id: "wa-out" }] } };
+    return { ok: true, json: async () => ({ message_id: "ig-out", messages: [{ id: "wa-out" }] }) };
   };
 }
 
-for (const service of ["hubspot", "whatsapp", "instagram"]) {
+for (const service of ["whatsapp", "instagram"]) {
   test(`27–28 ${service} failure resumes after restart without rerunning successful actions`, async () => {
     const { engine, buyers } = await setupConversation();
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "spec-retry-"));
@@ -193,11 +193,19 @@ for (const service of ["hubspot", "whatsapp", "instagram"]) {
     const event = { mid: `retry-${service}`, senderId: "retry", text: "I'd like a follow up here on Instagram" };
     const first = await create().processMessageEvent(event, { useLlm: false });
     assert.equal(first.pending, true);
-    if (service === "whatsapp") assert.equal(calls.filter(c => c.service === "instagram").length, 0);
+    // A failed advisor alert gets one honest notice, never a success claim.
+    const instagramText = () => calls.filter(c => c.service === "instagram").map(c => c.body.message.text);
+    if (service === "whatsapp") {
+      assert.equal(instagramText().length, 1);
+      assert.match(instagramText()[0], /saved.*can't confirm it has reached/is);
+      assert.doesNotMatch(instagramText()[0], /request has reached|will follow up/i);
+    }
     const second = await create().processMessageEvent(event, { useLlm: false, retry: true });
     assert.equal(second.pending, false);
     assert.equal(turns, 1);
-    for (const name of ["hubspot", "whatsapp", "instagram"]) assert.equal(calls.filter(c => c.service === name).length, name === service ? 2 : 1);
+    assert.match(instagramText().at(-1), /request has reached/i);
+    // Retries never repeat a step that already succeeded.
+    for (const name of ["whatsapp", "instagram"]) assert.equal(calls.filter(c => c.service === name).length, name === service || (service === "whatsapp" && name === "instagram") ? 2 : 1);
     const duplicate = await create().processMessageEvent(event);
     assert.equal(duplicate.duplicate, true);
     assert.equal(turns, 1);

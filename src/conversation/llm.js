@@ -94,7 +94,7 @@ export async function composeReplyWithModel(client, options = {}) {
     buyer = {}, packs = [], draftText = "", message = "", recentTurns = [], intents = [],
     opportunities = [], strategy = null, permittedRecommendations = null, allowedActions = [], forbiddenActions = [], language = "en",
     investmentProfile = null, conversationState = null, investmentTheses = [], comparisonFacts = null,
-    objectionState = null, allowedClaims = [],
+    objectionState = null, allowedClaims = [], handoffContact = null,
     validationOptions = {}
   } = options;
   const requiredQuestion = questionContract(options.requiredQuestion);
@@ -117,6 +117,7 @@ export async function composeReplyWithModel(client, options = {}) {
     "Compose the useful answer before the next step. Ask at most one question, only the required question or one of the allowed response next steps. Paraphrase the required question naturally once; do not append a second version. Do not ask for a known or declined value. If no question is needed, end without one.",
     "Give an evidence-backed opinion when the deterministic recommendation supports it. A challenger must solve a stated need; preserve fixed area/type/budget boundaries. Explain an upsell's exact computed extra cost, supported buyer benefit and trade-off. Higher price is not a benefit. State the supported bull case and material risk, and identify specific evidence gaps without false reassurance.",
     "Keep approved evidence, approved matrix, confirmed options, fact pack, verified stock, matching engine and approved catalogue out of buyer copy. Use ordinary language for a specific missing fact.",
+    "Refer to the human only as handoffContact.label. Copy any phone number, email or link from handoffContact.directContact exactly; never invent a person, title, licence, phone number, email, link, response time, discount, testimonial or deadline. Keep any complementary-service sentence or connection offer in the draft with its meaning and any fee exactly as written, or omit it; never add a service, upgrade or connection offer that is not in the draft. Internal labels such as challenger, upsell, cross-sell or smart upgrade never appear in buyer copy.",
     'Return a single JSON object, no markdown: {"message":"...","askedQuestion":true,"questionField":"exact required field or allowed next step","claims":[{"text":"exact quoted span in message","projectId":"...","unitId":"...","field":"exact fact-pack field","value":"exact field value (preserve number/boolean type)"}],"proposedActions":[]}. Set askedQuestion false and questionField null if none.',
     "Cite every material property fact and inventory mention using the exact current projectId/unitId and field value. Each citation text must appear verbatim in message and contain its field value. Cite name separately from price, size, bedrooms or features when necessary; multiple citations may cover the same sentence. Buyer-stated amounts and validated computed opportunity differences do not need a property-field citation. Citation metadata cannot make an unsupported claim true.",
     "For research or computed facts use a supplied allowedClaims item: include its evidenceId, projectId, unitId if present, field, exact value and exact message span. Its source, record, scope and verification date are application-owned. Do not cite thesis prose or unsupportedClaims as factual evidence, copy an evidenceId to a different scope, or extend a supported catalyst into a claim of appreciation or demand.",
@@ -144,6 +145,7 @@ export async function composeReplyWithModel(client, options = {}) {
     allowedActions,
     forbiddenActions,
     draftReply: draftText,
+    handoffContact,
     requiredQuestion
   };
   let response;

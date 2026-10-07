@@ -254,12 +254,27 @@ export function buildCallRequestSummary(buyer, { matches = [], reason = "Request
     lines.push(`Initial cash: AED ${Number(buyer.cashAvailableAed).toLocaleString("en-US")}`);
   }
   if (buyer.useType && buyer.useType !== "unknown") lines.push(`Use: ${buyer.useType}`);
+  const goal = [buyer.investmentObjective, buyer.exitHorizon && `exit ${buyer.exitHorizon}`, buyer.holdingPeriod && `hold ${buyer.holdingPeriod} years`].filter(Boolean).map(readable);
+  if (goal.length) lines.push(`Goal: ${goal.join(", ")}`);
+  if (buyer.timeframe) lines.push(`Timeline: ${buyer.timeframe}`);
+  if (buyer.priorities?.length) lines.push(`Priorities: ${buyer.priorities.map(readable).join(", ")}`);
+  const concerns = (buyer.objections || []).filter(o => !o.resolved && !["no_calls", "not_interested"].includes(o.category)).map(o => readable(o.category));
+  if (concerns.length) lines.push(`Concerns: ${[...new Set(concerns)].join(", ")}`);
+  // What the human should answer, and what not to offer again.
+  if (buyer.handoffTopics?.length) lines.push(`Open questions: ${buyer.handoffTopics.slice(-4).join("; ")}`);
+  const declined = (buyer.declinedSuggestions || []).filter(item => item.startsWith("service:")).map(item => readable(item.slice(8)));
+  if (buyer.upgradeDeclined) declined.push("upgrade above budget");
+  if (declined.length) lines.push(`Declined: ${declined.join(", ")}`);
   const project = matches[0]?.project?.name || buyer.projectInterest;
   if (project) lines.push(`Interested in: ${project}`);
   lines.push(`Requested action: ${buyer.requestedAction || reason}`);
   lines.push(`Reason: ${reason}`);
   if (buyer.conversationSummary) lines.push(`Summary: ${buyer.conversationSummary}`);
   return lines.join("\n");
+}
+
+function readable(value) {
+  return String(value).replaceAll("_", " ");
 }
 
 function without(list, remove) {

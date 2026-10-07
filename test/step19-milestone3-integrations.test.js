@@ -176,9 +176,6 @@ test("step 19m call submit notifies once and records context", async () => {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url: String(url), body: options.body ? JSON.parse(options.body) : null });
-    if (String(url).includes("hubapi.com")) {
-      return { ok: true, json: async () => ({ results: [{ id: "hs_call_1", new: true }] }) };
-    }
     if (String(url).includes("graph.facebook.com")) {
       return { ok: true, json: async () => ({ messages: [{ id: "wamid_call_1" }] }) };
     }
@@ -193,7 +190,6 @@ test("step 19m call submit notifies once and records context", async () => {
     env: {
       META_PAGE_ACCESS_TOKEN: "token",
       META_PAGE_ID: "page",
-      HUBSPOT_ACCESS_TOKEN: "pat-test",
       WHATSAPP_ACCESS_TOKEN: "wa-token",
       WHATSAPP_PHONE_NUMBER_ID: "phone",
       WHATSAPP_ALERT_TO: "971500000000",

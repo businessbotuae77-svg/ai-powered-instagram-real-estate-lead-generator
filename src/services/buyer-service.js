@@ -34,7 +34,7 @@ export function mergeBuyer(existing, patch) {
       if (value === true || value === false) next[key] = value;
       continue;
     }
-    if (key === "preferredContactChannel" || key === "hubspotContactId" || key === "lastAlertKey" || key === "lastAlertAt") {
+    if (key === "preferredContactChannel" || key === "lastAlertKey" || key === "lastAlertAt") {
       if (value !== undefined && value !== null && String(value).trim() !== "") next[key] = value;
       continue;
     }
@@ -71,7 +71,7 @@ export function mergeBuyer(existing, patch) {
   if (hasValue(patch.intentSignals)) {
     next.intentSignals = uniqueStrings(patch.intentSignals);
   }
-  for (const field of ["priorities", "concerns", "shownProjects", "rejectedProjects"]) {
+  for (const field of ["priorities", "concerns", "shownProjects", "rejectedProjects", "declinedSuggestions", "servicesSuggested", "handoffTopics"]) {
     if (Array.isArray(patch[field])) next[field] = uniqueStrings([...(base[field] || []), ...patch[field]]).slice(-100);
   }
   if (patch.rejectionReasons && typeof patch.rejectionReasons === "object") next.rejectionReasons = { ...base.rejectionReasons, ...patch.rejectionReasons };
@@ -158,6 +158,7 @@ export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   if (facts.timeframe) patch.timeframe = facts.timeframe;
   if (facts.language) patch.language = facts.language;
   if (facts.requestedAction) patch.requestedAction = facts.requestedAction;
+  for (const field of ["declinedSuggestions", "servicesSuggested", "handoffTopics"]) if (Array.isArray(facts[field])) patch[field] = facts[field];
   if (facts.name) patch.name = facts.name;
   if (facts.phone) patch.phone = facts.phone;
   if (facts.contactDeclined !== undefined) patch.contactDeclined = facts.contactDeclined;
@@ -167,7 +168,6 @@ export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   if (facts.noCalls === false) patch.noCalls = false;
   if (facts.salesPathStopped === true) patch.salesPathStopped = true;
   if (facts.salesPathStopped === false) patch.salesPathStopped = false;
-  if (facts.hubspotContactId) patch.hubspotContactId = facts.hubspotContactId;
   if (facts.lastAlertKey) patch.lastAlertKey = facts.lastAlertKey;
   if (facts.lastAlertAt) patch.lastAlertAt = facts.lastAlertAt;
   if (facts.conversationSummary) patch.conversationSummary = facts.conversationSummary;
@@ -204,7 +204,6 @@ export class BuyerService {
       followUpStatus: meta.followUpStatus,
       intentSignals: meta.intentSignals,
       preferredContactChannel: meta.preferredContactChannel,
-      hubspotContactId: meta.hubspotContactId,
       lastAlertKey: meta.lastAlertKey,
       lastAlertAt: meta.lastAlertAt,
       ...(meta.noCalls !== undefined ? { noCalls: meta.noCalls } : {}),
@@ -276,7 +275,8 @@ export class BuyerService {
       preferredContactChannel: existing.preferredContactChannel,
       noCalls: existing.noCalls,
       language: existing.language,
-      hubspotContactId: existing.hubspotContactId,
+      // A fresh search keeps the buyer's stated refusals, not old suggestions.
+      declinedSuggestions: existing.declinedSuggestions || [],
       createdAt: existing.createdAt || nowIso(),
       updatedAt: nowIso(),
       lastSeenAt: nowIso()

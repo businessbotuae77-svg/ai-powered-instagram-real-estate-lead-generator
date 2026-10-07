@@ -1,4 +1,4 @@
-import { validateMessage, extractCommercialClaims, collectOpportunityAmounts, collectComparisonDifferences, comparisonAmountSupported } from "../facts/checker.js";
+import { validateMessage, extractCommercialClaims, collectOpportunityAmounts, collectComparisonDifferences, comparisonAmountSupported, CONTACT_DETAIL } from "../facts/checker.js";
 import { normalizeBuyerText } from "./text.js";
 import { advisorBudgetPolicy } from "./advisor-opportunities.js";
 import { confirmedEvidenceClass } from "../facts/advisor-claims.js";
@@ -22,7 +22,8 @@ export function sanitizeBuyerLanguage(message) {
 }
 
 export function questionRequests(message) {
-  const segments = normalizeBuyerText(message).split(/(?<=[.!?؟])\s+|\n+|(?:[,;]|\band\b)\s+(?=(?:what|which|how|tell me|share|provide)\b)/i).map(value => value.trim()).filter(Boolean);
+  // ", which suits you" is a relative clause, not a second question.
+  const segments = normalizeBuyerText(message).split(/(?<=[.!?؟])\s+|\n+|(?:[,;]|\band\b)\s+(?=(?:what|how|tell me|share|provide)\b|which\b(?!\s+(?:suits?|is|are|was|were|means?|makes?|gives?|keeps?|fits?|would|will|could|can|may|might|has|have|helps?|lets?|leaves?|matters?|reduces?|adds?|removes?|costs?)\b))/i).map(value => value.trim()).filter(Boolean);
   const requests = [];
   for (const segment of segments) {
     const marks = segment.match(/[?؟]/g) || [];
@@ -46,6 +47,7 @@ export function inferQuestionField(question) {
   if (/bedrooms?|unit size|what size|غرف|نوع العقار/.test(text)) return "bedrooms";
   if (/cash.*mortgage|mortgage.*plan|payment (?:method|preference)|(?:what|which|prefer)[^.!?]{0,25}financ|هل[^.!؟]{0,35}تمويل/.test(text)) return "financing";
   if (/buying.*invest|home.*invest|buy.*home.*explor|use.*property/.test(text)) return "useType";
+  if (/connect you|put you in touch|introduce you|أوصلك/.test(text)) return "handoffOffer";
   if (/number|phone|رقم/.test(text)) return "phone";
   if (/instagram.*whatsapp|contact channel|إنستغرام.*واتساب/.test(text)) return "preferredContactChannel";
   return null;
@@ -65,6 +67,18 @@ function knownField(buyer, field) {
 function actionType(action) { return typeof action === "string" ? action : action?.type; }
 function equivalent(a, b) { return a === b || (["bedrooms", "propertyTypes"].includes(a) && ["bedrooms", "propertyTypes"].includes(b)) || (["budgetFlexible", "budgetFlexibility"].includes(a) && ["budgetFlexible", "budgetFlexibility"].includes(b)); }
 
+/** Phone numbers and emails must be the configured broker's or the buyer's own; never invented. */
+export function contactDetailViolations(text, { phones = [], emails = [] } = {}) {
+  const violations = [];
+  for (const hit of String(text).matchAll(CONTACT_DETAIL)) {
+    const detail = hit[0];
+    if (detail.includes("@")) {
+      if (!emails.includes(detail.toLowerCase().replace(/[.,;:!?)]+$/, ""))) violations.push({ type: "unconfigured_contact_detail" });
+    } else if (!phones.includes(detail.replace(/\D/g, ""))) violations.push({ type: "unconfigured_contact_detail" });
+  }
+  return violations;
+}
+
 /** Validate complete buyer copy. This never appends a question or executes an action. */
 export function validateBuyerResponse(message, options = {}) {
   const { buyer = {}, packs = [], requiredQuestion = null, metadata = null, allowedActions = [], forbiddenActions = [], opportunities = [] } = options;
@@ -80,6 +94,7 @@ export function validateBuyerResponse(message, options = {}) {
   if (!text) violations.push({ type: "empty_message" });
   if (INTERNAL_LANGUAGE.test(text)) violations.push({ type: "internal_language" });
   if (/\{\{|\}\}|\b(?:projectId|unitId|undefined|NaN)\b|AED\s*(?:[.;]|$)/i.test(text)) violations.push({ type: "unresolved_template" });
+  if (options.permittedContacts) violations.push(...contactDetailViolations(text, options.permittedContacts));
   const questions = questionRequests(text);
   if (!options.allowMultipleQuestions && questions.length > 1) violations.push({ type: "multiple_questions" });
   if (buyer.salesPathStopped && questions.length) violations.push({ type: "sales_path_stopped" });

@@ -1,0 +1,50 @@
+{
+  "_readme": "Complementary services the bot may suggest. Enable only services your business actually offers, and write the pitch and fee yourself. The bot never invents a service, fee or partner. Triggers are fixed in src/conversation/services.js: rental_investor, growth_investor, mortgage_buyer, mortgage_question, visa_question, legal_question, off_plan_purchase, ready_purchase, end_use_buyer. feeText is optional and shown as written; leave it null when the fee depends on the case.",
+  "services": [
+    {
+      "id": "property_management",
+      "enabled": false,
+      "name": "Leasing and property management",
+      "pitch": "If you'd rather not manage the rental yourself, our leasing and property management service can handle tenant search, contracts and rent collection.",
+      "feeText": null,
+      "triggers": ["rental_investor"],
+      "keywords": ["property management", "management", "leasing", "manage the rental"]
+    },
+    {
+      "id": "mortgage_advice",
+      "enabled": false,
+      "name": "Mortgage advice",
+      "pitch": "Our mortgage advice service can compare bank offers and check what you could borrow before you commit.",
+      "feeText": null,
+      "triggers": ["mortgage_buyer", "mortgage_question"],
+      "keywords": ["mortgage advice", "mortgage adviser", "mortgage advisor", "bank offers"]
+    },
+    {
+      "id": "snagging_inspection",
+      "enabled": false,
+      "name": "Handover snagging inspection",
+      "pitch": "Before you accept the keys, our snagging inspection checks the unit for defects so the developer can fix them.",
+      "feeText": null,
+      "triggers": ["off_plan_purchase", "ready_purchase"],
+      "keywords": ["snagging", "inspection"]
+    },
+    {
+      "id": "visa_guidance",
+      "enabled": false,
+      "name": "Residence visa guidance",
+      "pitch": "Our visa guidance service can take you through the current property-visa requirements and paperwork for your case.",
+      "feeText": null,
+      "triggers": ["visa_question"],
+      "keywords": ["visa guidance", "visa service", "visa help"]
+    },
+    {
+      "id": "furnishing",
+      "enabled": false,
+      "name": "Furnishing package",
+      "pitch": "Our furnishing package can get the unit ready to live in or to let without you coordinating suppliers.",
+      "feeText": null,
+      "triggers": ["end_use_buyer"],
+      "keywords": ["furnishing", "furniture", "furnish"]
+    }
+  ]
+}
