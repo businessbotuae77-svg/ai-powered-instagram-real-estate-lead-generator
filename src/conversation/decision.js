@@ -13,7 +13,7 @@ function response(text, stage, field = null, prompt = null) {
 
 // Answer-first decisions run before commercial qualification. Content comes from
 // the approved catalogue, or clearly identified general education.
-export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null, advisor = null }) {
+export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null, advisor = null, lastAskedField = null, askedFields = new Set() }) {
   const text = normalizeBuyerText(message);
   const ar = buyer.language === "ar" || buyerLanguage(message) === "ar";
   const say = (en, arabic) => ar ? arabic : en;
@@ -119,7 +119,24 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     const prompt = say("What would you like to understand first — areas, prices, investment, or how buying works?", "ما الذي تود فهمه أولاً: المناطق أم الأسعار أم الاستثمار أم إجراءات الشراء؟");
     return response(say(`Happy to help. ${prompt}`, `يسعدني مساعدتك. ${prompt}`), "exploring", "explorationTopic", prompt);
   }
-  if (buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use") {
+  const unsure = /^(i (don't|do not) know|not sure|unsure|idk|no idea|ما أعرف|لا أعرف)[.!?]*$/i.test(text.trim());
+  const budgetOnly = buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use";
+  // Ask the open priorities question once. An unsure buyer then gets concrete
+  // options once; after that the conversation moves on to matching.
+  if (budgetOnly && unsure && lastAskedField === "priorities") {
+    const investor = buyer.useType === "investment";
+    const prompt = investor
+      ? say("Is rental income, capital growth, or a mix closer to what you want?", "هل الأقرب لك دخل الإيجار أم نمو رأس المال أم مزيج منهما؟")
+      : say("Is it a home to live in, an investment, or are you still deciding?", "هل هو منزل للسكن أم استثمار أم ما زلت تقرر؟");
+    const lead = investor
+      ? say("No problem. Most investors pick one of three goals: steady rental income, capital growth, or a mix of both.", "لا مشكلة. معظم المستثمرين يختارون أحد ثلاثة أهداف: دخل إيجاري ثابت أو نمو رأس المال أو مزيج منهما.")
+      : say("No problem. Let's start with the purpose of the purchase.", "لا مشكلة. لنبدأ بالغرض من الشراء.");
+    const reply = response(`${lead} ${prompt}`, "exploring", investor ? "investmentObjective" : "useType", prompt);
+    return { ...reply, nextQuestion: { ...reply.nextQuestion, choices: investor
+      ? [{ id: "income", label: "Rental income", value: "Rental income" }, { id: "growth", label: "Capital growth", value: "Capital growth" }, { id: "mix", label: "A mix", value: "A mix" }]
+      : [{ id: "home", label: "A home", value: "A home to live in" }, { id: "invest", label: "Investment", value: "Investment" }, { id: "deciding", label: "Still deciding", value: "Just exploring" }] } };
+  }
+  if (budgetOnly && !askedFields.has("priorities")) {
     const prompt = say("What matters most to you in the property?", "ما الذي يهمك أكثر في العقار؟");
     return response(say(`Around AED ${Number(buyer.budgetAed).toLocaleString("en-US")} — got it. ${prompt}`, `الميزانية حوالي AED ${Number(buyer.budgetAed).toLocaleString("en-US")}. ${prompt}`), "exploring", "priorities", prompt);
   }

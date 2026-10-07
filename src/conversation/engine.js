@@ -421,7 +421,8 @@ export class ConversationEngine {
     const alertRecommended = followUpSubmitted && !buyer.salesPathStopped &&
       (contact.channel !== "phone" || !buyer.noCalls);
     const alertReason = alertRecommended ? (callRequestSubmitted ? "call_request" : "follow_up") : null;
-    let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor });
+    let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField,
+      askedFields: new Set(this.memory.getTurns(instagramUserId).map(turn => turn.role === "assistant" && turn.questionField).filter(Boolean)) });
     if (!contact && ["resolve_objection", "trust_check"].includes(strategy?.type) && !["paused", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "exploring", "welcome_back"].includes(draft?.stage)) {
       draft = buildAdvisorReply({ buyer, advisor, strategy, message: text });
       matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
