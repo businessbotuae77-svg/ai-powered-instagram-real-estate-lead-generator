@@ -2,10 +2,11 @@ import { validateMessage, extractCommercialClaims, collectOpportunityAmounts, co
 import { normalizeBuyerText } from "./text.js";
 import { advisorBudgetPolicy } from "./advisor-opportunities.js";
 import { confirmedEvidenceClass } from "../facts/advisor-claims.js";
+import { canonicalQuestionField, isFlexiblePreference } from "./preference-state.js";
 
 const INTERNAL_LANGUAGE = /\b(?:approved evidence|approved matrix|confirmed options|fact packs?|verified stock|matching engine|approved catalog(?:ue)?|approved inventory|commercial gate|verified inventory layer|database)\b/i;
-const QUESTION_START = /^(?:what|which|where|when|why|how|do you|would you|could you|can you|are you|is your|is AED|want (?:me|to)|هل|ما |أي |كم |متى |أين )/i;
-const CAPTURE_REQUEST = /^(?:please\s+)?(?:tell me|share|provide|let me know|give me|choose)\b[^.!?\n]{0,100}\b(?:budget|price range|area|bedrooms?|cash|financing|phone|number|goal|objective|channel)\b/i;
+const QUESTION_START = /^(?:what|which|where|when|why|how|do you|would you|could you|can you|are you|is your|is AED|shall I|should I|can I|want (?:me|to)|هل|ما |أي |كم |متى |أين )/i;
+const CAPTURE_REQUEST = /^(?:please\s+)?(?:tell me|share|provide|let me know|give me|choose)\b[^.!?\n]{0,100}\b(?:budget|price range|area|bedrooms?|property type|cash|financing|phone|number|goal|objective|priority|priorities|risk|exit|channel)\b/i;
 
 export function sanitizeBuyerLanguage(message) {
   return String(message || "")
@@ -22,29 +23,36 @@ export function sanitizeBuyerLanguage(message) {
 }
 
 export function questionRequests(message) {
-  const segments = normalizeBuyerText(message).split(/(?<=[.!?؟])\s+|\n+|(?:[,;]|\band\b)\s+(?=(?:what|which|how|tell me|share|provide)\b)/i).map(value => value.trim()).filter(Boolean);
+  const segments = normalizeBuyerText(message).split(/(?<=[.!?؟])\s+|\n+|(?:[,;]|\band\b)\s+(?=(?:what|which|where|when|how|do you|would you|could you|can you|are you|tell me|share|provide)\b)/i).map(value => value.trim()).filter(Boolean);
   const requests = [];
   for (const segment of segments) {
     const marks = segment.match(/[?؟]/g) || [];
     if (marks.length) {
       const pieces = segment.split(/[?؟]/).filter(value => value.trim());
       for (let index = 0; index < marks.length; index++) requests.push(pieces[index]?.trim() || segment);
-    } else if (QUESTION_START.test(segment) || CAPTURE_REQUEST.test(segment)) requests.push(segment);
+    } else if ((QUESTION_START.test(segment) && !/^(?:what|how|where|when|which)\s+(?:I|we)(?:['’](?:ll|d)| will| would| can)\b/i.test(segment)) || CAPTURE_REQUEST.test(segment)) requests.push(segment);
   }
   return requests;
 }
 
 export function inferQuestionField(question) {
   const text = normalizeBuyerText(question).toLowerCase();
-  if (/exit.*handover|handover.*(?:exit|hold)|sell.*handover|holding (?:period|horizon)|hold.*(?:longer|years|after)|خروج.*تسليم|بيع.*تسليم|احتفاظ/.test(text)) return "exitHorizon";
+  // Comparing an option's cash requirements is a next step, not another
+  // request for the buyer's personal available cash or investment preference.
+  if (/^(?:want me to|would you like (?:me )?to|shall i|should i|can i|do you want (?:me )?to)\s+(?:compare|break down|show|check|explain|focus on (?:the (?:payment|cash)|how much cash))\b/.test(text)) return "advisoryNextAction";
+  if (/what matters most|what(?:['’]s| is) (?:your|the) (?:investment )?priorit|(?:what|which)[^.!?]{0,35}(?:investment priorit|investment goal|optimis|optimiz)|what are you looking for[^.!?]{0,35}(?:investment|investing)/.test(text)) return "investmentObjective";
+  if (/exit.*handover|handover.*(?:exit|hold)|sell.*handover|holding (?:period|horizon)|hold.*(?:longer|years|after)|hold[^.!?]{0,30}(?:or[^.!?]{0,15})?sell|exit (?:strategy|preference|plan)|(?:when|how soon).*(?:sell|exit)|خروج.*تسليم|بيع.*تسليم|احتفاظ/.test(text)) return "exitHorizon";
   if (/(?:construction.?period cash|cash.*construction|cash deployment|keeping.*cash low).*?(?:total price|minimiz)|cash deployment preference/i.test(text)) return "cashDeploymentPreference";
   if (/hard (?:cap|ceiling)|firm|flexib|stretch|سقف|مرن/.test(text) && /budget|aed|ceiling|stretch|ميزانية|درهم/.test(text)) return "budgetFlexibility";
+  if (/(?:how much|what|which|prefer|comfortable|comfort|toleran)[^.!?]{0,45}risk|risk (?:preference|tolerance|level|appetite)|مخاطر/.test(text)) return "riskTolerance";
+  if (/(?:what|which|prefer|choose)[^.!?]{0,35}(?:cash (?:preference|exposure|deployment)|upfront (?:cash|payment))|lowest cash upfront|lower cash upfront|(?:lower|lowest|less) (?:initial|upfront|construction)[- ]?(?:cash|payment)|cash deployment/.test(text)) return "cashDeploymentPreference";
   if (/rental income|long.?term growth|capital growth|income.*growth|investment objective|دخل|نمو/.test(text)) return "investmentObjective";
   if (/(?:what|which|how much|tell(?:ing)? me|share|provide|give me|remind me)[^.!?]{0,65}(?:budget|spend|price range|spending limit|price limit)|(?:budget|spending limit|price limit)[^.!?]{0,35}(?:working|have|is|are)|ميزاني/.test(text)) return "budgetAed";
-  if (/(?:how much|what amount|what cash|tell me|share|provide)[^.!?]{0,55}(?:cash|initial|down payment|put (?:in|down))|cash[^.!?]{0,25}(?:can you|do you have)|كم[^.!؟]{0,35}(?:المتاح|الدفعة)/.test(text)) return "cashAvailableAed";
-  if (/which area|what area|where.*(?:buy|live|look)|location.*prefer|area.*(?:prefer|lean)|منطقة/.test(text)) return "preferredAreas";
-  if (/bedrooms?|unit size|what size|غرف|نوع العقار/.test(text)) return "bedrooms";
-  if (/cash.*mortgage|mortgage.*plan|payment (?:method|preference)|(?:what|which|prefer)[^.!?]{0,25}financ|هل[^.!؟]{0,35}تمويل/.test(text)) return "financing";
+  if (/(?:how much|what amount|what cash|tell me|share|provide)[^.!?]{0,55}(?:cash|initial|down payment|put (?:in|down))|what(?:['’]s| is) your (?:available |initial |upfront )?cash|cash[^.!?]{0,25}(?:can you|do you have)|كم[^.!؟]{0,35}(?:المتاح|الدفعة)/.test(text)) return "cashAvailableAed";
+  if (/which area|what area|where.*(?:buy|live|look)|location.*prefer|area.*(?:prefer|lean|start)|(?:what|which)[^.!?]{0,35}(?:location|community)|منطقة/.test(text)) return "preferredAreas";
+  if (/property type|(?:apartment|villa|townhouse)[^.!?]{0,45}(?:or|prefer)|نوع العقار/.test(text)) return "propertyTypes";
+  if (/bedrooms?|unit size|what size|غرف/.test(text)) return "bedrooms";
+  if (/cash.*mortgage|mortgage.*plan|financing.*(?:cash|mortgage)|payment (?:method|preference|route)|financing (?:method|preference|route)|(?:what|which|prefer)[^.!?]{0,25}financ|(?:how|what)[^.!?]{0,25}(?:pay for|fund (?:the|your) purchase)|هل[^.!؟]{0,35}تمويل/.test(text)) return "financing";
   if (/buying.*invest|home.*invest|buy.*home.*explor|use.*property/.test(text)) return "useType";
   if (/number|phone|رقم/.test(text)) return "phone";
   if (/instagram.*whatsapp|contact channel|إنستغرام.*واتساب/.test(text)) return "preferredContactChannel";
@@ -52,6 +60,7 @@ export function inferQuestionField(question) {
 }
 
 function knownField(buyer, field) {
+  if (isFlexiblePreference(buyer, field)) return true;
   if (field === "budgetAed" || field === "cashAvailableAed") return buyer[field] !== null && buyer[field] !== undefined;
   if (field === "preferredAreas") return Boolean(buyer.preferredAreas?.length || buyer.openToOtherAreas || buyer.areaFlexibility || buyer.intentSignals?.includes("area_flexible"));
   if (field === "bedrooms" || field === "propertyTypes") return Boolean(buyer.bedrooms?.length || buyer.propertyTypes?.length);
@@ -63,11 +72,14 @@ function knownField(buyer, field) {
 }
 
 function actionType(action) { return typeof action === "string" ? action : action?.type; }
-function equivalent(a, b) { return a === b || (["bedrooms", "propertyTypes"].includes(a) && ["bedrooms", "propertyTypes"].includes(b)) || (["budgetFlexible", "budgetFlexibility"].includes(a) && ["budgetFlexible", "budgetFlexibility"].includes(b)); }
+function equivalent(a, b) { return a === b || (canonicalQuestionField(a) && canonicalQuestionField(a) === canonicalQuestionField(b)) || (["bedrooms", "propertyTypes"].includes(a) && ["bedrooms", "propertyTypes"].includes(b)) || (["budgetFlexible", "budgetFlexibility"].includes(a) && ["budgetFlexible", "budgetFlexibility"].includes(b)); }
 
 /** Validate complete buyer copy. This never appends a question or executes an action. */
 export function validateBuyerResponse(message, options = {}) {
-  const { buyer = {}, packs = [], requiredQuestion = null, metadata = null, allowedActions = [], forbiddenActions = [], opportunities = [] } = options;
+  const { buyer = {}, packs = [], metadata = null, allowedActions = [], forbiddenActions = [], opportunities = [] } = options;
+  // A flexible slot has already been answered. Even a stale caller contract
+  // cannot require the model to ask it again or reject a useful answer for it.
+  const requiredQuestion = options.requiredQuestion && !isFlexiblePreference(buyer, options.requiredQuestion.field) ? options.requiredQuestion : null;
   const text = String(message || "").trim();
   const check = validateMessage(normalizeBuyerText(text), packs, {
     ...options,
@@ -84,7 +96,8 @@ export function validateBuyerResponse(message, options = {}) {
   if (!options.allowMultipleQuestions && questions.length > 1) violations.push({ type: "multiple_questions" });
   if (buyer.salesPathStopped && questions.length) violations.push({ type: "sales_path_stopped" });
   for (const question of questions) {
-    const field = inferQuestionField(question);
+    const field = inferQuestionField(question) || (questions.length === 1 ? metadata?.questionField || options.requiredQuestion?.field : null);
+    if (field && isFlexiblePreference(buyer, field)) violations.push({ type: "flexible_field_question", field: canonicalQuestionField(field) });
     if (field && knownField(buyer, field) && !(options.revisitFields || []).includes(field)) violations.push({ type: "known_field_question", field });
     if (field === "phone" && requiredQuestion?.field !== "phone" && !allowedActions.some(action => ["contact", "request_contact"].includes(actionType(action)))) violations.push({ type: "unnecessary_contact_capture" });
   }
@@ -93,6 +106,10 @@ export function validateBuyerResponse(message, options = {}) {
   if (metadata && callPromise && !allowedActions.some(action => ["call", "request_call"].includes(actionType(action)))) violations.push({ type: "unauthorized_call" });
   if (/\b(?:(?:i(?:'ve| have)|we(?:'ve| have))\s+(?:booked|reserved|submitted|sent|notified|saved|deleted)|(?:viewing|eoi|expression of interest|reservation|booking)\s+(?:(?:is|was|has been)\s+)?(?:confirmed|submitted|completed|booked|sent)|reserved for you|advisor (?:was|has been) notified)\b/i.test(text)) violations.push({ type: "action_completion_claim" });
   if (/\b(?:best investment|highest (?:rental )?(?:yield|roi|returns?)|better (?:roi|returns?)|(?:strong|certain|guaranteed|higher) (?:future )?(?:appreciation|capital growth)|will (?:appreciate|outperform|grow in value)|guaranteed to)\b|أفضل استثمار|أعلى عائد|(?:عائد|ربح|نمو)\s+(?:مضمون|مضمونة)|سيرتفع|سيحقق.*(?:عائد|ربح)/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
+  const namedPropertyRating = buyer.useType === "investment" && packs.some(pack => pack.name?.confirmed && pack.name.value &&
+    text.toLowerCase().split(String(pack.name.value).toLowerCase()).slice(1).some(afterName =>
+      /^\s*(?:[:—-]|is(?: rated)?|scores?|gets?|earns?)\s*(?:a\s+)?\d+(?:\.\d+)?\s*(?:out of|\/)\s*(?:10|100)\b/i.test(afterName)));
+  if (namedPropertyRating || /\b(?:investment|roi|returns?)[ -]+(?:score|rating|grade)(?:\s*(?::|=|is|of|—|-))?\s*(?:\d+(?:\.\d+)?|excellent|exceptional|strong|weak|high|low|good|poor|[a-f][+-]?)(?:\b|$)|\b\d+(?:\.\d+)?\s*(?:out of|\/)\s*\d+[^.!?\n]{0,35}\b(?:investment|roi|returns?)\b|(?:درجة|تقييم)\s+الاستثمار\s*[:—-]?\s*(?:\d|ممتاز|مرتفع|قوي|ضعيف)/i.test(text)) violations.push({ type: "unsupported_investment_score" });
   if (/\b(?:easy|effortless|quick|straightforward)\s+(?:to\s+)?(?:resell|resale)|\b(?:resale|reselling)\s+(?:is|will be|should be)\s+(?:easy|effortless|quick|straightforward)|\b(?:definitely|certainly|guaranteed to)\s+outperform/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   if (/\b(?:resell|reselling|resale)\b[^.!?\n]{0,25}\b(?:easily|easy|straightforward|effortless|quickly)\b/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   const educationTurn = ["education", "investment_education"].includes(options.responseStage || options.strategy?.type);
@@ -110,7 +127,7 @@ export function validateBuyerResponse(message, options = {}) {
     if (metadata.askedQuestion !== (questions.length > 0)) violations.push({ type: "question_metadata_mismatch" });
     if (!metadata.askedQuestion && metadata.questionField !== null) violations.push({ type: "question_metadata_mismatch" });
     if (requiredQuestion) {
-      if (!metadata.askedQuestion || metadata.questionField !== requiredQuestion.field) violations.push({ type: "required_question_missing" });
+      if (!metadata.askedQuestion || !equivalent(metadata.questionField, requiredQuestion.field)) violations.push({ type: "required_question_missing" });
       const inferred = questions[0] && inferQuestionField(questions[0]);
       if (inferred && !equivalent(inferred, requiredQuestion.field)) violations.push({ type: "question_field_mismatch" });
       if (requiredQuestion.field === "advisoryNextAction" && !/compare|payment|terms|schedule|availability|focus|eoi|viewing|follow.?up|break down|next step|مقارن|سداد|دفعة|توفر|معاينة|متابعة/i.test(questions[0] || "")) violations.push({ type: "question_field_mismatch" });
@@ -355,7 +372,12 @@ function validateRecommendationSelection(message, packs, options) {
     const subject = match[1].replace(/^(?:the|a)\s+/i, "");
     const pack = packs.find(row => row.name?.confirmed && row.name.value && subject.toLowerCase().startsWith(String(row.name.value).toLowerCase()));
     if (!pack) {
-      if (!/^(?:this\b|that\b|it\b|these\b|those\b|income\b|growth\b|rental\b|capital\b|appreciation\b|entry\b|exit\b|cash\b|payment\b|risk\b|resale\b|comparing\b|considering\b|keeping\b|waiting\b|exploring\b|lower (?:initial|upfront|entry)|a mix\b|both\b)/i.test(subject)) violations.push({ type: "unsupported_recommendation_subject" });
+      // A described diligence method is not a recommendation of an invented
+      // property. Named inventory, commercial assertions and performance
+      // claims still pass through their independent citation/selection checks.
+      const analysisMethod = /^(?:comparison|filtering|analysis)(?:$|\s+(?:of|for|based on|using|against)\b)|^to\s+(?:compare|assess|investigate|check|evaluate)\b|^(?:options?|candidates?)\s+(?:based on|by comparing|using|after checking)\b/i.test(subject);
+      const paymentComparisonQuestion = /^how much cash (?:each|the options?)\s+(?:needs?|requires?)\b/i.test(subject) && questionRequests(message).some(question => question.includes(match[0]) && inferQuestionField(question) === "advisoryNextAction");
+      if (!analysisMethod && !paymentComparisonQuestion && !/^(?:this\b|that\b|it\b|these\b|those\b|income\b|growth\b|rental\b|capital\b|appreciation\b|entry\b|exit\b|cash\b|payment\b|risk\b|resale\b|comparing\b|considering\b|keeping\b|waiting\b|exploring\b|lower (?:initial|upfront|entry)|a mix\b|both\b)/i.test(subject)) violations.push({ type: "unsupported_recommendation_subject" });
       continue;
     }
     if (!permitted(pack)) violations.push({ type: "unselected_recommendation", projectId: pack.projectId, unitId: pack.unitId });
@@ -396,7 +418,12 @@ function buyerAmountContext(message, claim) {
   const text = normalizeBuyerText(message);
   const before = text.slice(Math.max(text.lastIndexOf(". ", claim.index), text.lastIndexOf("\n", claim.index), text.lastIndexOf("?", claim.index)) + 1, claim.index);
   const after = text.slice(claim.index + claim.raw.length, claim.index + claim.raw.length + 25);
-  return /(?:your (?:original )?(?:budget|cash)|budget|ceiling|cash available|you have|put down|ميزاني[^.؟\n]*|المتاح|لديك)\s*(?:of|is|around|about|:)?\s*$/i.test(before) || /^\s*(?:budget|ceiling|cash available)\b/i.test(after);
+  if (/(?:your (?:original )?(?:budget|cash)|budget|ceiling|cash available|you have|put down|ميزاني[^.؟\n]*|المتاح|لديك)\s*(?:of|is|around|about|:)?\s*$/i.test(before) || /^\s*(?:budget|ceiling|cash available)\b/i.test(after)) return true;
+  // Natural acknowledgements can omit the word "budget". Limit this exemption
+  // to a buyer's known amount in an investment-budget sentence; it cannot
+  // excuse a property's quoted price or payment amount.
+  return /^(?:with|at)\s+(?:(?:around|about|roughly)\s+)?$/i.test(before.trimStart()) && /^\s*(?:for investment|to invest)\b/i.test(after)
+    || /^\s*$/.test(before) && /^\s*(?:gives (?:us|you) (?:a )?(?:good )?range|to work with)\b/i.test(after);
 }
 
 function citationSupportsClaim(citation, claim, message) {

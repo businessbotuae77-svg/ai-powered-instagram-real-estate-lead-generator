@@ -17,7 +17,7 @@ export function messageEventAgeMs(event, now = Date.now()) {
 /** Blocks webhook+poller double replies when Meta message ids differ. */
 export function contentDedupKey(event) {
   const senderId = String(event?.senderId || "").trim();
-  const text = String(event?.text || "").trim().toLowerCase();
+  const text = String(event?.quickReplyLabel || event?.text || "").trim().toLowerCase();
   if (!senderId || !text) return null;
   const ageMs = messageEventAgeMs(event);
   const bucketMs = ageMs === null ? Date.now() : Date.now() - ageMs;
@@ -208,7 +208,10 @@ export class IntegrationOrchestrator {
             ? "وصل طلب المتابعة إلى المستشار. سيتابع معك عبر القناة التي اخترتها."
             : `Your follow-up request has reached the advisor. They will follow up ${result.buyer.preferredContactChannel === "phone" ? "by phone" : result.buyer.preferredContactChannel === "whatsapp" ? "on WhatsApp" : "here on Instagram"}.`
           : result.reply;
-        send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(event.senderId, reply, mid, result.callRequest);
+        send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(
+          event.senderId, reply, mid, result.callRequest,
+          !needsAlert && !revoked ? result.nextQuestion?.choices : null, previous.sendProgress
+        );
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
         if (needsAlert && alertOk) result.reply = reply;
       }
@@ -286,15 +289,19 @@ export class IntegrationOrchestrator {
     }
   }
 
-  async #safeInstagramSend(recipientId, text, mid, callRequest = null) {
+  async #safeInstagramSend(recipientId, text, mid, callRequest = null, choices = null, sendProgress = null) {
     try {
       let outbound = text;
       if (callRequest?.offered) {
         outbound = `${text}\n\nRequest a Call: reply with the phone number you want us to use.`;
       }
+      const replyHash = createHash("sha256").update(JSON.stringify({ text: outbound, choices })).digest("hex");
       return await sendInstagramText({
         recipientId,
         text: outbound,
+        choices,
+        sentMessageIds: sendProgress?.replyHash === replyHash ? sendProgress.messageIds : [],
+        onMessageSent: messageIds => this.events.save(mid, { sendProgress: { replyHash, messageIds } }),
         env: this.env,
         fetchImpl: this.fetchImpl
       });

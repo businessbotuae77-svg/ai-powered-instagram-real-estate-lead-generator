@@ -10,6 +10,7 @@ import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { applyChoiceFacts } from "./choices.js";
 import { refineTurnIntent } from "./intent-policy.js";
 import { parseAdvisoryFacts } from "./advisory-memory.js";
+import { parseFlexiblePreferences } from "./preference-state.js";
 
 const AREA_LABELS = {
   "yas canal": "Yas Canal",
@@ -79,7 +80,7 @@ export function extractFactsFromMessage(message, { buyer = null, lastAskedField 
   const namedProject = Object.values(PROJECT_HINTS).includes(project);
   const criteriaText = namedProject ? text.replace(new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig"), " ") : text;
   // Editable quick-reply / choice aliases first, then free-text extractors.
-  facts = applyChoiceFacts(criteriaText, facts);
+  facts = applyChoiceFacts(criteriaText, facts, { buyer, lastAskedField });
 
   const arabicBudget = text.match(/ميزانيتي\s*(\d+(?:\.\d+)?\s*[MK]?)/i);
   if (arabicBudget) facts.budget = parseMoney(arabicBudget[1]);
@@ -140,6 +141,9 @@ export function extractFactsFromMessage(message, { buyer = null, lastAskedField 
   if (intents.includes("agent")) signals.push("agent_request");
 
   facts = { ...facts, ...parseAdvisoryFacts(text, { buyer, lastAskedField }) };
+  const flexible = parseFlexiblePreferences(text, { buyer: { ...buyer, ...(facts.useType ? { useType: facts.useType } : {}) }, lastAskedField });
+  facts = { ...facts, ...flexible.facts };
+  if (flexible.unsure.length) intents.push("unsure");
   if (facts.removedAreas?.length) {
     if (facts.removedAreas.includes(facts.area)) delete facts.area;
     intents.push("correction");
@@ -149,7 +153,8 @@ export function extractFactsFromMessage(message, { buyer = null, lastAskedField 
   return {
     facts: refined.facts,
     signals: refined.signals,
-    intents: refined.intents
+    intents: refined.intents,
+    unsure: flexible.unsure
   };
 }
 

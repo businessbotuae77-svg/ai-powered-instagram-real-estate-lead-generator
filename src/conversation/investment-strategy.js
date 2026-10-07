@@ -1,4 +1,5 @@
 import { normalizeBuyerText } from "./text.js";
+import { isFlexiblePreference } from "./preference-state.js";
 
 export const INVESTMENT_STRATEGIES = [
   "OFF_PLAN_APPRECIATION", "HANDOVER_EXIT", "LONG_TERM_HOLD",
@@ -148,19 +149,46 @@ const PRIORITIES = {
   BALANCED: ["entry_price", "area_maturation", "product_quality", "rental_fallback", "service_costs", "future_supply"]
 };
 
+export const DEFAULT_INVESTMENT_ANALYSIS = [
+  "entry_position", "project_release_stage", "area_masterplan_maturity",
+  "documented_catalysts", "product_differentiation", "payment_structure",
+  "cash_deployment", "handover_timing", "competing_exit_supply",
+  "transaction_resale_evidence", "rental_fallback", "factual_risks"
+];
+
+/** Delegation supplies an advisory mode, never a new property or spending permission. */
+export function isAdvisorLedDiscovery(buyer = {}) {
+  const investor = buyer.useType === "investment" || Boolean(buyer.investmentGoal || buyer.investmentObjective);
+  return Boolean(investor && Number.isFinite(buyer.budgetAed) && buyer.budgetAed > 0 &&
+    (buyer.advisorLed === true || isFlexiblePreference(buyer, "investmentObjective")));
+}
+
+/** Any stated investment preference can guide discovery without location or size. */
+export function isInvestmentDiscoveryReady(buyer = {}) {
+  const investor = buyer.useType === "investment" || Boolean(buyer.investmentGoal || buyer.investmentObjective);
+  const statedPreference = Boolean(buyer.investmentGoal || buyer.investmentObjective ||
+    Object.values(normalizeInvestmentProfile(buyer)).some(value => value != null && value !== "UNDECIDED"));
+  return Boolean(investor && Number.isFinite(buyer.budgetAed) && buyer.budgetAed > 0 &&
+    (isAdvisorLedDiscovery(buyer) || statedPreference));
+}
+
 /** Explainable dimensions, never an investment score or forecast. */
 export function buildInvestmentStrategy(buyer = {}) {
   const strategy = deriveInvestmentStrategy(buyer);
   const isInvestor = buyer.useType === "investment" || Boolean(buyer.investmentGoal || buyer.investmentObjective);
+  const delegated = isInvestor && (buyer.advisorLed === true || isFlexiblePreference(buyer, "investmentObjective"));
   return {
     strategy,
     investmentGoal: buyer.investmentGoal || (isInvestor ? "total_return" : null),
     returnDrivers: ["capital_appreciation", "rental_income", "costs"],
     priorities: [...PRIORITIES[strategy]],
+    analysisDimensions: [...DEFAULT_INVESTMENT_ANALYSIS],
+    advisorLedDiscovery: isAdvisorLedDiscovery(buyer),
     weights: { ...DIMENSION_WEIGHTS[strategy] },
     profile: normalizeInvestmentProfile(buyer),
     unknowns: INVESTMENT_PROFILE_FIELDS.filter(field => buyer[field] == null || buyer[field] === "UNDECIDED"),
-    nextQuestionField: isInvestor && strategy !== "READY_INCOME" && !buyer.exitHorizon && !buyer.holdingPeriod ? "exitHorizon" : null,
+    nextQuestionField: isInvestor && !delegated && !isFlexiblePreference(buyer, "exitHorizon") &&
+      strategy !== "READY_INCOME" && !buyer.exitHorizon && !buyer.holdingPeriod ? "exitHorizon" : null,
     forecastAllowed: false
   };
 }

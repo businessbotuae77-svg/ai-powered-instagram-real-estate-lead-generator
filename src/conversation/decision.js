@@ -6,6 +6,8 @@ import { compareProperties } from "./comparison.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
 import { conversationalScope } from "./question-scope.js";
 import { investmentGuidance, performanceQuestion, investmentRiskReply, exitQuestion } from "./investment-guidance.js";
+import { choicesForField } from "./choices.js";
+import { isFlexiblePreference } from "./preference-state.js";
 
 function response(text, stage, field = null, prompt = null) {
   return { text, stage, nextQuestion: field ? { field, prompt } : null, pendingOffer: null, callRequest: null };
@@ -119,11 +121,16 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     const prompt = say("What would you like to understand first — areas, prices, investment, or how buying works?", "ما الذي تود فهمه أولاً: المناطق أم الأسعار أم الاستثمار أم إجراءات الشراء؟");
     return response(say(`Happy to help. ${prompt}`, `يسعدني مساعدتك. ${prompt}`), "exploring", "explorationTopic", prompt);
   }
-  if (buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use") {
-    const prompt = say("What matters most to you in the property?", "ما الذي يهمك أكثر في العقار؟");
-    return response(say(`Around AED ${Number(buyer.budgetAed).toLocaleString("en-US")} — got it. ${prompt}`, `الميزانية حوالي AED ${Number(buyer.budgetAed).toLocaleString("en-US")}. ${prompt}`), "exploring", "priorities", prompt);
+  if (buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.cashDeploymentPreference && !buyer.liquidityPriority && !isFlexiblePreference(buyer, "priorities") && !buyer.advisorLed && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use") {
+    const prompt = say("What should I optimise for — best overall, growth potential, lowest cash upfront, safer exit, or should I choose?", "ما الذي أركز عليه: الأنسب إجمالاً أم فرص النمو أم أقل دفعة مقدمة أم سهولة الخروج أم أختار لك؟");
+    const result = response(say(`Your budget is around AED ${Number(buyer.budgetAed).toLocaleString("en-US")}. ${prompt}`, `الميزانية حوالي AED ${Number(buyer.budgetAed).toLocaleString("en-US")}. ${prompt}`), "exploring", "investmentObjective", prompt);
+    return { ...result, nextQuestion: { ...result.nextQuestion, choices: choicesForField("investmentObjective")?.choices || null } };
   }
   if (/^(i (don't|do not) know|not sure|unsure|idk|ما أعرف|لا أعرف)[.!?]*$/i.test(text.trim()) && !buyer.budgetAed) {
+    if (isFlexiblePreference(buyer, "useType")) {
+      const explanation = say("No problem — I can explain the property choices as we go. For a home, I'd start with how you want to live. For investment, I'd compare entry price, payment commitments and resale evidence before selecting a property.", "لا مشكلة — أستطيع شرح الخيارات العقارية معك. للسكن أبدأ بما يناسب حياتك، وللاستثمار أقارن سعر الدخول والتزامات السداد وأدلة إعادة البيع قبل اختيار العقار.");
+      return response(explanation, "exploring");
+    }
     return response(say("No problem. We can start with what matters most: a home to live in, investment potential, a lower entry price, or an easier payment plan?", "لا مشكلة. ما الذي يهمك أكثر: منزل للسكن أم الاستثمار أم سعر دخول أقل أم خطة سداد أسهل؟"), "exploring", "useType", "What matters most?");
   }
   if (catalogError) return response(say("The property catalogue check failed. I've kept your requirements and can retry; I won't guess prices or availability.", "تعذر التحقق من كتالوج العقارات. احتفظت بمتطلباتك ويمكنني إعادة المحاولة؛ لن أخمن الأسعار أو التوفر."), "catalog_unavailable");

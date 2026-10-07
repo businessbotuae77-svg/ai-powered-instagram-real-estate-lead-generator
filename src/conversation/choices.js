@@ -68,8 +68,26 @@ export function resolveChoice(groupKey, message, filePath) {
   return null;
 }
 
-export function applyChoiceFacts(message, facts = {}) {
+export function applyChoiceFacts(message, facts = {}, { buyer = null, lastAskedField = null } = {}) {
   const next = { ...facts };
+
+  const priority = resolveChoice("investmentObjective", message);
+  if (priority && priority.matchedBy === "exact" &&
+      (buyer?.useType !== "end_use" || ["investmentObjective", "priorities", "advisoryPriority"].includes(lastAskedField))) {
+    next.useType = "investment";
+    if (priority.value === "UNDECIDED") {
+      next.investmentPreferenceState = "flexible";
+      next.advisorLed = true;
+      next.investmentStrategy = "UNDECIDED";
+      next.preferenceStates = { ...(next.preferenceStates || {}), investmentObjective: "flexible" };
+    } else if (priority.value === "growth") {
+      next.investmentObjective = "growth";
+    } else if (priority.value === "lower_initial") {
+      next.cashDeploymentPreference = "lower_initial";
+    } else if (priority.value === "high_liquidity") {
+      next.liquidityPriority = "high";
+    }
+  }
 
   const useType = resolveChoice("useType", message);
   if (useType && useType.value !== null && useType.value !== undefined &&
