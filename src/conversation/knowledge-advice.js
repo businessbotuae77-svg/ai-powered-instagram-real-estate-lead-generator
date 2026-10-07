@@ -1,5 +1,6 @@
 import { buildProjectKnowledgePack } from "../facts/retrieval.js";
 import { buildInvestmentThesis } from "./investment-thesis.js";
+import { areaGuideFromCatalog, areaPitchSentence, findAreaEntry } from "../facts/area-guide.js";
 
 /** Selection is identity only: neither interest nor research grants quote access. */
 export function selectKnowledgeProjects({ buyer = {}, catalog = {}, message = "", now = Date.now(), includeActiveRecommendation = false } = {}) {
@@ -26,7 +27,7 @@ export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
   const ar = buyer.language === "ar";
   const rows = selected.map(p => ar
     ? `${p.name} — ${p.area}${p.developerName ? `؛ المطور ${p.developerName}` : ""}.`
-    : `${p.name} is in ${p.area}${p.developerName ? `, by ${p.developerName}` : ""}.`);
+    : `${p.name} is ${/\bisland$/i.test(p.area || "") ? "on" : "in"} ${p.area}${p.developerName ? `, by ${p.developerName}` : ""}.`);
   if (/\b(?:compare|which|better)\b/.test(text) && selected.length === 2) {
     const sameArea = selected[0].area === selected[1].area;
     rows.push(ar ? "أقارن موقعهما ونوع المنتج أولاً. الأسعار والتوفر والتزامات السداد الحالية غير متاحة لهذه المقارنة."
@@ -36,6 +37,14 @@ export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
     // numbers, supply claims or instructions into deterministic prose.
     const description = String(selected[0].description);
     if (!/\d|\b(?:will|guarantee|return|yield|roi|available|selling|last unit|payment|booking|handover|ignore|instructions?)\b/i.test(description)) rows.push(description);
+  }
+  // Sell the location as well as the building: what the area is known for.
+  if (!ar) {
+    const guide = areaGuideFromCatalog(catalog);
+    for (const area of [...new Set(selected.map(project => project.area))]) {
+      const sentence = areaPitchSentence(findAreaEntry(guide, area));
+      if (sentence) rows.push(sentence);
+    }
   }
   rows.push(ar ? "لا أملك وحدة بشروط تجارية حالية لهذا المشروع. يمكننا مناقشة توجهه ومخاطر الاستثمار دون تخمين سعر أو توفر."
     : "I don't have a current commercial unit to quote for this project, but we can still assess its positioning and the evidence needed for your strategy.");

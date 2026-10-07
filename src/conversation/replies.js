@@ -7,6 +7,7 @@ import { choicesForField } from "./choices.js";
 import { comparisonReply } from "./comparison-reply.js";
 import { exitQuestion } from "./investment-guidance.js";
 import { isFlexiblePreference } from "./preference-state.js";
+import { areaPitchSentence, findAreaEntry, loadAreaGuide } from "../facts/area-guide.js";
 import { isAdvisorLedDiscovery } from "./investment-strategy.js";
 
 /** Pure greeting with no other request in the same message. */
@@ -242,7 +243,7 @@ export function buildConversationReply({
   return finish(lines, "qualifying", nextQuestion, null);
 }
 
-function budgetRangeChoices() {
+export function budgetRangeChoices() {
   return [
     { id: "1_5m", label: "Around AED 1.5M", value: "around 1.5M" },
     { id: "2m", label: "Around AED 2M", value: "around 2M" },
@@ -568,17 +569,14 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
     if (strategy.nextAction === "compare") {
       return advisorDraft(comparisonReply(advisor.comparison, { preferredName: name }) || `For your priorities, I'd start with ${name}.`, advisor, "availability", "Want me to check current availability?");
     }
-    const topic = strategy.nextAction === "availability" ? "availability" : "payment plan";
-    const answer = answerFactQuestion(topic, [primaryPack]);
-    return advisorDraft(answer.text, advisor, strategy.nextAction === "availability" ? null : "availability",
-      strategy.nextAction === "availability" ? null : "Want me to check current availability?", [primaryPack]);
+    if (strategy.nextAction === "availability") {
+      return advisorDraft(answerFactQuestion("availability", [primaryPack]).text, advisor, null, null, [primaryPack]);
+    }
+    return advisorDraft(paymentBreakdown(primaryPack), advisor, "availability", "Want me to check current availability?", [primaryPack]);
   }
   const lines = [];
   const advisorLed = isAdvisorLedDiscovery(buyer);
-  if (advisorLed) {
-    lines.push("That's fine — you're open, so I'll do the filtering for you.");
-    lines.push(`With your budget around AED ${Number(buyer.budgetAed).toLocaleString("en-US")} for investment, I'll compare entry position, project stage, area maturity, documented catalysts, product differences, payment structure, cash deployment, handover timing, competing supply, resale evidence, rental fallback where supported and factual risks.`);
-  }
+  if (advisorLed) lines.push("That's fine — you're open, so I'll do the filtering for you.");
   // Acknowledge a concern only in the turn it is raised, not on every later turn.
   const raised = turnObjections.find(category => OBJECTION_LEADS[category]);
   if (raised) lines.push(objectionLead(raised, message));
@@ -605,6 +603,8 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
     ? `The best overall fit from what you've told me is ${name}${reason ? `, because ${reason}` : ""}.`
     : `For your priorities, I prefer ${name}${reason ? ` because ${reason}` : " as the cleaner fit"}.`);
   lines.push(renderProjectCard(primaryPack));
+  const areaLine = areaPitch(advisor.areaGuide || loadAreaGuide(), primaryPack.area?.value);
+  if (areaLine) lines.push(areaLine);
   if (primary.comparedTo) {
     const benefit = opportunityBenefit(primary);
     if (benefit) lines.push(benefit);
@@ -626,18 +626,6 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
     const assessment = advisor.upgradeAssessment.opportunities?.find(o => o.priceDifferenceAed > 0);
     lines.push(assessment ? `There is a pricier option at AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} more, but I would not pay the extra without a material benefit for your priorities.` : "I would not pay extra here without a material benefit for your priorities.");
   }
-  if (advisorLed) lines.push("I won't assume future appreciation or a smooth resale; missing investment evidence remains an open check.");
-  if (advisorLed) {
-    const labels = { area_masterplan_maturity: "area maturity", documented_catalysts: "catalysts",
-      competing_exit_supply: "supply around an exit", transaction_resale_evidence: "resale transactions",
-      rental_fallback: "rental fallback" };
-    const rows = advisor.discoveryAnalysis?.candidates?.flatMap(candidate => candidate.comparison || []) || [];
-    const gaps = [...new Set(rows.filter(row => row.status === "UNKNOWN" && labels[row.dimension]).map(row => labels[row.dimension]))];
-    if (gaps.length) lines.push(`Evidence still needed in this comparison: ${gaps.join(", ")}.`);
-    if (rows.some(row => row.dimension === "cash_deployment" && row.status !== "SUPPORTED")) {
-      lines.push("A payment-plan split alone doesn't establish how much cash is needed on each date before handover.");
-    }
-  }
   // An unanswered strategy question is not asked again; the buyer can raise it.
   const horizon = buyer.useType === "investment" && lastAskedField !== "exitHorizon" && !askedFields.has("exitHorizon") ? exitQuestion(buyer) : null;
   // A complementary service may accompany a plain recommendation, never an
@@ -651,6 +639,33 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   const prompt = strategy.lowPressure || isFlexiblePreference(buyer, "advisoryNextAction") ? null
     : challenger ? "Want me to compare these side by side, or focus on the cash each needs before handover?" : "Want me to break down the payment terms?";
   return { ...advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt), allowsServiceSuggestion };
+}
+
+// "Break down the payment terms": every confirmed payment figure in one place,
+// rather than the plan summary the buyer has already seen on the card.
+function paymentBreakdown(pack) {
+  const value = key => pack[key]?.confirmed && pack[key].value != null && pack[key].value !== "" ? pack[key].value : null;
+  const aed = amount => `AED ${Number(amount).toLocaleString("en-US")}`;
+  const rows = [];
+  if (value("startingPriceAed") != null) rows.push(`• Starting price: ${aed(value("startingPriceAed"))}`);
+  const booking = value("bookingAed") ?? value("downPaymentAed");
+  if (booking != null) rows.push(`• Initial payment: ${aed(booking)}`);
+  else if (value("downPaymentText")) rows.push(`• Initial payment: ${value("downPaymentText")}`);
+  if (value("paymentPlanSummary")) rows.push(`• Plan: ${String(value("paymentPlanSummary")).replace(/\.$/, "")}`);
+  const timed = [["cash30DaysAed", "Within 30 days"], ["cash6MonthsAed", "Within 6 months"], ["cash12MonthsAed", "Within 12 months"],
+    ["cashBeforeHandoverAed", "Total before handover"], ["cashAtHandoverAed", "On handover"], ["cashAfterHandoverAed", "After handover"]]
+    .filter(([key]) => value(key) != null);
+  for (const [key, label] of timed) rows.push(`• ${label}: ${aed(value(key))}`);
+  if (value("handover")) rows.push(`• Handover: ${value("handover")}`);
+  if (!rows.length) return `${pack.name.value}: the payment terms are not published yet.`;
+  const lines = [`Here's the payment picture for ${pack.name.value}:`, ...rows];
+  if (!timed.length) lines.push("The developer hasn't published exact instalment dates yet, so get the official schedule before committing.");
+  return lines.join("\n");
+}
+
+// What the area is known for, in one line, so a recommendation sells the location too.
+function areaPitch(guide, area) {
+  return areaPitchSentence(findAreaEntry(guide, area));
 }
 
 function advisorDraft(text, advisor, action, prompt, packs = advisor.packs) {
