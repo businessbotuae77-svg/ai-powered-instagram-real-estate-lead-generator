@@ -285,7 +285,10 @@ export function normalizeAreaIntelligence(record, { now = Date.now() } = {}) {
   const f = record.fields || {};
   const source = sourceUrl(f["Source URL"] || f.Source);
   const verifiedOn = f["Last verified"] || f["Checked on"] || f["Checked date"] || f["Verified date"] || null;
-  const approved = f.Verified === true || /^approved$/i.test(selectValue(f.Approval) || "");
+  // A checked box must not override an explicit Draft/Needs review/Rejected
+  // decision. Keep legacy single-field records, but require every stated gate.
+  const approvalFields = ["Verified", "Approval"].filter(key => Object.hasOwn(f, key));
+  const approved = approvalFields.length > 0 && approvalFields.every(key => affirmative(f[key]));
   const sourceConfidence = selectValue(f.Confidence);
   const confidence = normalizeResearchConfidence(sourceConfidence);
   const state = evidenceState({ source, verifiedOn, approved, confidence }, now);

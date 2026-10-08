@@ -11,6 +11,7 @@ import { PropertyService } from "../src/services/property-service.js";
 import { ConversationEngine } from "../src/conversation/engine.js";
 import { listChoiceGroups } from "../src/conversation/choices.js";
 import { createAnthropicClient } from "../src/conversation/llm.js";
+import { modelRuntimeStatus } from "../src/conversation/model-runtime.js";
 import { DurableConversationMemory } from "../src/integrations/durable-memory.js";
 import { IntegrationOrchestrator } from "../src/integrations/orchestrator.js";
 import { IntegrationLog } from "../src/integrations/integration-log.js";
@@ -66,6 +67,7 @@ function llmStatus() {
     policyVersion: POLICY_VERSION,
     promptSource: "prompts/conversation-policy.md",
     claudeEnabled: enabled,
+    claudeRuntime: modelRuntimeStatus(llm),
     model: enabled ? llm.model : null,
     keyHint: enabled && key.length >= 4 ? `…${key.slice(-4)}` : null,
     runtimeKeyAllowed: ALLOW_RUNTIME_LLM_KEY
