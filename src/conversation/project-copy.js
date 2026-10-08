@@ -22,37 +22,32 @@ function unitLabel(pack) {
   return `${pack.bedroomLabel?.value || ""} ${pack.propertyType?.value || ""}`.trim();
 }
 
+// Source notes in brackets ("Modon official page, checked ...") are for
+// provenance, not for the buyer's message.
+function cleanPlan(value) {
+  return String(value).replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim().replace(/[.;,]$/, "");
+}
+
+/** A readable listing: one headline sentence, then the payment facts as short lines. */
 export function renderProjectCard(pack) {
-  const bits = [];
   const name = pack.name?.value;
   const developer = pack.developer?.value;
-  if (name && developer) bits.push(`${name} by ${developer}`);
-  else if (name) bits.push(name);
-
-  if (pack.area?.confirmed) bits.push(pack.area.value);
+  const title = name && developer ? `${name} by ${developer}` : name || "This project";
   const unit = unitLabel(pack);
-  if (unit) bits.push(unit);
-
+  const area = pack.area?.confirmed ? pack.area.value : null;
+  const where = area ? `${/\bisland$/i.test(area) ? "on" : "in"} ${area}` : "";
   const price = money(pack.startingPriceText);
-  if (price) bits.push(`from ${price}`);
-  else bits.push("starting price not confirmed yet");
-
+  const headline = [`${title}:`, unit ? `${unit}${where ? ` ${where}` : ""}` : where.replace(/^(?:on|in) /, ""),
+    price ? `from ${price}` : "starting price not confirmed yet"].filter(Boolean).join(" ").replace(/: from/, ": from");
+  const lines = [`${headline.replace(/ (from|starting)/, ", $1")}.`];
   const size = sizeLine(pack);
-  if (size) bits.push(size);
-
+  if (size) lines.push(`• Size: ${size}`);
   const down = money(pack.downPaymentText);
-  if (down) bits.push(`initial ${down}`);
-  else if (!pack.downPaymentText?.confirmed) bits.push("initial payment not confirmed yet");
-
-  if (pack.paymentPlanSummary?.confirmed) bits.push(pack.paymentPlanSummary.value);
-  else if (pack.paymentPlanAvailable?.confirmed && pack.paymentPlanAvailable.value) {
-    bits.push("payment plan available, split not confirmed yet");
-  }
-
-  if (pack.handover?.confirmed) bits.push(`handover ${pack.handover.value}`);
-  else bits.push("handover not confirmed yet");
-
-  return bits.join(" · ");
+  if (down) lines.push(`• Initial payment: ${down}`);
+  if (pack.paymentPlanSummary?.confirmed) lines.push(`• Payment plan: ${cleanPlan(pack.paymentPlanSummary.value)}`);
+  else if (pack.paymentPlanAvailable?.confirmed && pack.paymentPlanAvailable.value) lines.push("• Payment plan: available, split not confirmed yet");
+  if (pack.handover?.confirmed) lines.push(`• Handover: ${pack.handover.value}`);
+  return lines.join("\n");
 }
 
 export function renderProjectIntro({ buyer, packs, mode = "exact", mismatches = [] }) {

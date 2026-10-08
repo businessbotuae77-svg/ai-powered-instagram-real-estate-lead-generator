@@ -269,7 +269,9 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
     const lower = segment.toLowerCase();
     const mentioned = names.filter(({ name }) => lower.includes(name));
     const scoped = mentioned.length === 1 ? mentioned[0].pack : mentioned.length === 0 ? previousPack : null;
-    if (mentioned.length === 1) previousPack = scoped;
+    // A newly named property (or an ambiguous pair) ends the previous scope,
+    // so follow-on lines never inherit an earlier property's figures.
+    if (mentioned.length) previousPack = scoped;
     // Multi-property comparisons are checked globally and by structured model
     // citations; there is no unambiguous single offer for a comparison sentence.
     if (!scoped) continue;
@@ -298,7 +300,15 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
       if (!plan.includes(assertion.toLowerCase())) violations.push({ type: "unsupported_payment_schedule", projectId: scoped.projectId });
     }
     const initialPercent = segment.match(/(?:\d+(?:\.\d+)?\s*%[^.!?\n]{0,30}(?:initial|down\s*payment|booking)|(?:initial|down\s*payment|booking)[^.!?\n]{0,30}\d+(?:\.\d+)?\s*%)/gi) || [];
-    for (const assertion of initialPercent) if (!plan.includes(assertion.toLowerCase()) && !literal.some(row => row.value.toLowerCase().includes(assertion.toLowerCase()))) violations.push({ type: "unsupported_initial_percentage", projectId: scoped.projectId });
+    // "10% on booking" restates "10% down payment on booking": the same
+    // percentage, tied to booking/initial/down payment in the plan itself.
+    const planBookingPercent = plan.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)[^.;,]{0,40}(?:initial|down\s*payment|booking)|(?:initial|down\s*payment|booking)[^.;,]{0,30}?(\d+(?:\.\d+)?)\s*(?:%|percent)/);
+    const bookingPercent = planBookingPercent ? planBookingPercent[1] || planBookingPercent[2] : null;
+    for (const assertion of initialPercent) {
+      const stated = assertion.match(/\d+(?:\.\d+)?/)?.[0];
+      if (plan.includes(assertion.toLowerCase()) || (bookingPercent && stated === bookingPercent)) continue;
+      if (!literal.some(row => row.value.toLowerCase().includes(assertion.toLowerCase()))) violations.push({ type: "unsupported_initial_percentage", projectId: scoped.projectId });
+    }
     const availabilityAssertion = /\b(?:is|are|has|have)\s+(?:currently\s+|now\s+)?(?:available|in stock|ready to move)|\bunits?\s+(?:are\s+)?available\b|\bavailability\s*:\s*available\b/i.test(segment);
     if (availabilityAssertion && (!scoped.availability?.confirmed || !/available|ready/i.test(String(scoped.availability.value)))) violations.push({ type: "availability_scope", projectId: scoped.projectId });
     if (/\b(?:last|only)\s+\d+\s+units?\b|\b\d+\s+units?\s+(?:left|remaining)\b/i.test(segment) && !(scoped.availabilityNotes?.confirmed && lower.includes(String(scoped.availabilityNotes.value).toLowerCase()))) violations.push({ type: "unsupported_scarcity", projectId: scoped.projectId });
