@@ -1,3 +1,4 @@
+import { AREA_IDENTITIES, CATALOG_AREA_ALIASES, matchAreaNames, areaKey } from "../matching/area-names.js";
 import { normalizeBuyerText } from "./text.js";
 import {
   normalizeArea,
@@ -13,6 +14,7 @@ import { parseAdvisoryFacts } from "./advisory-memory.js";
 import { parseFlexiblePreferences } from "./preference-state.js";
 
 const AREA_LABELS = {
+  ...CATALOG_AREA_ALIASES,
   "yas canal": "Yas Canal",
   yas: "Yas Island",
   "yas island": "Yas Island",
@@ -316,8 +318,12 @@ function extractCash(text) {
 }
 
 function extractArea(text) {
-  const arabic = [["ياس", "Yas Island"], ["السعديات", "Saadiyat Island"], ["الريم", "Al Reem Island"]].find(([name]) => text.includes(name));
-  if (arabic) return arabic[1];
+  if (/[\u0600-\u06ff]/.test(text)) {
+    const named = matchAreaNames(AREA_IDENTITIES, text);
+    const normalized = areaKey(text);
+    const viable = named.filter(entry => !entry.aliases.some(alias => normalized.includes(`لا اريد ${alias}`) || normalized.includes(`ليس ${alias}`)));
+    if (viable.length) return viable.at(-1).area;
+  }
   const forgottenPattern = new RegExp(
     `\\b(?:forget|ignore|skip|not|no more)\\s+(?:about\\s+)?(${AREA_SOURCE})\\b`,
     "gi"

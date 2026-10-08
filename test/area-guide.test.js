@@ -75,10 +75,10 @@ function composed(message, claims) {
 
 test("composed replies may use approved area positioning and cite named amenities", () => {
   const pack = buildProjectKnowledgePack(NAWAYEF);
-  const allowedClaims = areaGuideClaims([findAreaEntry(loadAreaGuide(), "Hudayriyat Island")], { now: Date.parse("2026-10-07") });
+  const allowedClaims = areaGuideClaims([findAreaEntry(loadAreaGuide(), "Hudayriyat Island")], { now: Date.parse("2026-10-08") });
   const surf = allowedClaims.find(row => row.value === "the Surf Abu Dhabi wave pool");
   const message = "Nawayef Park Views is on Hudayriyat Island, the family-friendly, fitness-first island. You're close to the Surf Abu Dhabi wave pool.";
-  const ok = validateBuyerResponse(message, { buyer: {}, packs: [pack], allowedClaims, now: Date.parse("2026-10-07"),
+  const ok = validateBuyerResponse(message, { buyer: {}, packs: [pack], allowedClaims, now: Date.parse("2026-10-08"),
     metadata: composed(message, [
       { text: "Nawayef Park Views", projectId: pack.projectId, unitId: null, field: "name", value: "Nawayef Park Views" },
       { text: "Hudayriyat Island", projectId: pack.projectId, unitId: null, field: "area", value: "Hudayriyat Island" },
@@ -87,7 +87,7 @@ test("composed replies may use approved area positioning and cite named amenitie
   assert.deepEqual(ok.violations, []);
 
   const invented = "Nawayef Park Views is on Hudayriyat Island and has a private marina.";
-  const bad = validateBuyerResponse(invented, { buyer: {}, packs: [pack], allowedClaims, now: Date.parse("2026-10-07"),
+  const bad = validateBuyerResponse(invented, { buyer: {}, packs: [pack], allowedClaims, now: Date.parse("2026-10-08"),
     metadata: composed(invented, [
       { text: "Nawayef Park Views", projectId: pack.projectId, unitId: null, field: "name", value: "Nawayef Park Views" },
       { text: "Hudayriyat Island", projectId: pack.projectId, unitId: null, field: "area", value: "Hudayriyat Island" }
