@@ -20,7 +20,7 @@ import { buildInvestmentStrategy, INVESTMENT_PROFILE_FIELDS } from "./investment
 import { conversationState } from "./conversation-state.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
 import { researchReply } from "./research-reply.js";
-import { isAreaComparison } from "./area-answers.js";
+import { isAreaComparison, isAreaInformationQuestion } from "./area-answers.js";
 import { areaGuideClaims, areaGuideForModel, areaGuideFromCatalog, findAreaEntry } from "../facts/area-guide.js";
 import { isFlexiblePreference, PREFERENCE_FACT_FIELDS } from "./preference-state.js";
 import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
@@ -138,7 +138,7 @@ export class ConversationEngine {
       intents = [...new Set([...intents.filter(i => i !== "ask_facts"), "advisory"])];
     }
     facts.language = buyerLanguage(message) === "ar" ? "ar" : existingBuyer.language || "en";
-    if (isAreaComparison(text)) {
+    if (isAreaComparison(text) || (lastAskedField !== "areaInterest" && isAreaInformationQuestion(text))) {
       delete facts.area;
       delete facts.areas;
     }
@@ -499,7 +499,7 @@ export class ConversationEngine {
     // advisor.primary. Their concrete fact packs retain the existing gates.
     const concreteComparison = draft?.stage === "comparison" && draft.comparisonFacts &&
       draft.factPacks?.length >= 2 && draft.factPacks.every(pack => pack.unitId && !pack.knowledgeOnly);
-    if (!contact && !concreteComparison && !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "welcome_back"].includes(draft?.stage)) {
+    if (!contact && !concreteComparison && !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "welcome_back", "area_guide"].includes(draft?.stage)) {
       const research = researchReply({ buyer, catalog, message: text, advisor });
       if (research) draft = research;
     }
@@ -595,10 +595,10 @@ export class ConversationEngine {
     const investmentProfile = buildInvestmentStrategy(buyer);
     const state = conversationState({ buyer, message: text, intents, recentTurns, advisor });
     const investmentTheses = draft.investmentTheses || (draft.advisoryExposure || draft.stage === "fact_answer" || draft.stage === "investment_risk" ? advisor.investmentTheses || [] : []);
-    // Owner-approved area knowledge for the areas in play this turn.
+    // Published area knowledge for the areas in play this turn.
     const areaGuide = advisor.areaGuide;
     const areaEntries = [...new Set([...(draft.areaGuideAreas || []), ...packs.map(p => p.area?.value), ...(buyer.preferredAreas || [])])]
-      .map(area => findAreaEntry(areaGuide, area)).filter(Boolean).slice(0, 6);
+      .map(area => findAreaEntry(areaGuide, area)).filter(Boolean).slice(0, 12);
     const allowedClaims = [...thesisClaims(investmentTheses), ...areaGuideClaims(areaEntries)];
     const comparisonFacts = draft.comparisonFacts || advisor.comparison || null;
     const validationOpportunities = [...advisor.opportunities, ...(advisor.upgradeAssessment?.opportunities || [])];

@@ -37,6 +37,8 @@ export function questionRequests(message) {
 }
 
 export function inferQuestionField(question) {
+  // Choosing an explanation topic is different from declaring a search area.
+  if (/which (?:of these|area).*(?:hear|learn|sounds)|(?:أي|اي) منطقة تود التعرف عليها/i.test(question)) return "areaInterest";
   const text = normalizeBuyerText(question).toLowerCase();
   // Comparing an option's cash requirements is a next step, not another
   // request for the buyer's personal available cash or investment preference.

@@ -255,7 +255,8 @@ export class AirtableStore {
       priceHistory: records("priceHistory").map(row => normalizePriceHistory(row)),
       marketSnapshots: records("marketSnapshots").map(row => normalizeMarketSnapshot(row)),
       areas: records("areas").map(row => normalizeAreaIntelligence(row)),
-      areaGuide: records("areaGuide").map(normalizeAreaGuideRecord).filter(Boolean),
+      areaGuide: [...records("areas").filter(row => Object.hasOwn(row.fields || {}, "Guide status")), ...records("areaGuide")]
+        .map(normalizeAreaGuideRecord).filter(Boolean),
       projectRelations: records("projectRelations").map(row => normalizeProjectRelationship(row)),
       investmentEvidence: records("investmentEvidence").map(row => normalizeInvestmentEvidence(row)),
       offers: [

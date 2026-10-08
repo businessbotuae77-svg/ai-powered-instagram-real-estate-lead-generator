@@ -39,10 +39,10 @@ export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
     if (!/\d|\b(?:will|guarantee|return|yield|roi|available|selling|last unit|payment|booking|handover|ignore|instructions?)\b/i.test(description)) rows.push(description);
   }
   // Sell the location as well as the building: what the area is known for.
-  if (!ar) {
+  {
     const guide = areaGuideFromCatalog(catalog);
     for (const area of [...new Set(selected.map(project => project.area))]) {
-      const sentence = areaPitchSentence(findAreaEntry(guide, area));
+      const sentence = areaPitchSentence(findAreaEntry(guide, area), { ar });
       if (sentence) rows.push(sentence);
     }
   }

@@ -1,3 +1,4 @@
+import { CATALOG_AREA_ALIASES, areaKey } from "./area-names.js";
 const AREA_ALIASES = {
   yas: "Yas Island",
   "yas island": "Yas Island",
@@ -55,7 +56,7 @@ const TYPE_ALIASES = {
 export function normalizeArea(value) {
   if (!value) return null;
   const key = String(value).trim().toLowerCase();
-  return AREA_ALIASES[key] || titleCase(String(value).trim());
+  return CATALOG_AREA_ALIASES[areaKey(value)] || AREA_ALIASES[key] || titleCase(String(value).trim());
 }
 
 export function normalizeDeveloper(value) {

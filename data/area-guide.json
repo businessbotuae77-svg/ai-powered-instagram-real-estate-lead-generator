@@ -1,7 +1,7 @@
 {
-  "_note": "Owner-approved area positioning. The bot may say anything written here in its own words. Avoid prices, percentages, years and drive times; those need a sourced record. Set approved to false to hide an area. An Airtable table named 'Area Guide' overrides an area with the same name.",
-  "source": "Owner area brief",
-  "lastVerified": "2026-10-07",
+  "_note": "Published non-commercial area orientation, updated on the user's instruction. Primary publisher sources were checked on the dates below. Buyer suitability and comparison advice are editorial assessments, not investment evidence. This does not approve pending Areas research, prices, availability, schedules or forecasts. Published Guide fields in Airtable Areas (research) override this deployment fallback.",
+  "source": "Primary-source area review",
+  "lastVerified": "2026-10-08",
   "areas": [
     {
       "area": "Hudayriyat Island",
@@ -9,36 +9,56 @@
         "hudayriyat",
         "al hudayriyat",
         "hudayriyat island",
-        "al hudayriyat island"
+        "al hudayriyat island",
+        "الحديريات",
+        "جزيرة الحديريات",
+        "حديريات",
+        "الحضريات",
+        "hudairiyat",
+        "hudayriat"
       ],
       "approved": true,
       "tagline": "the family-friendly, fitness-first island",
-      "character": "Hudayriyat is built around an active outdoor life: cycling and running tracks, beaches, sports and open green space, with a calm family feel.",
+      "character": "Hudayriyat combines coastal living with cycling, beaches and outdoor sport",
       "highlights": [
-        "cycling and running tracks across the island",
+        "cycling and running tracks",
         "the Surf Abu Dhabi wave pool",
         "Marsana beachfront cafes and restaurants",
-        "beaches, bike parks and outdoor sports",
-        "a short bridge from the city centre"
+        "beaches and outdoor sports"
       ],
       "bestFor": [
         "families",
-        "people who want an active outdoor lifestyle",
-        "buyers who want a newer master community close to the city"
+        "people who want an active outdoor lifestyle"
       ],
       "considerations": [
-        "it is a newer community that is still being built out, so services will keep growing over the coming years"
-      ]
+        "distinguish existing leisure facilities from amenities planned within a residential project"
+      ],
+      "detail": "Hudayriyat combines coastal living with cycling, beaches and outdoor sport. Highlights include the Surf Abu Dhabi wave pool and Marsana beachfront dining. I would shortlist it for families and buyers who value an active outdoor lifestyle. Worth knowing: distinguish the leisure facilities you can use today from the facilities planned within a particular residential project.",
+      "source": "https://www.modon.com/real-estate/hudayriyat-island",
+      "sources": [
+        "https://www.modon.com/real-estate/hudayriyat-island",
+        "https://www.modon.com/real-estate/blog/hudayriyat-island-abu-dhabi-the-complete-guide-to-visiting-living-and-investing"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "الحديريات",
+        "tagline": "جزيرة الرياضة والحياة العائلية في الهواء الطلق",
+        "detail": "تجمع الحديريات بين السكن الساحلي والشواطئ ومسارات الدراجات والرياضة في الهواء الطلق. من معالمها سيرف أبوظبي ومطاعم الواجهة البحرية في مرسانا. أراها مناسبة للعائلات ومحبي النشاط والحياة الساحلية. عند مقارنة المشاريع، ميّز بين المرافق الترفيهية القائمة والمرافق المخططة داخل المشروع السكني نفسه."
+      }
     },
     {
       "area": "Yas Island",
       "aliases": [
         "yas",
-        "yas island"
+        "yas island",
+        "ياس",
+        "جزيرة ياس"
       ],
       "approved": true,
       "tagline": "Abu Dhabi's entertainment island",
-      "character": "Yas is where Abu Dhabi goes out: theme parks, the Formula 1 circuit, concerts, a major mall and golf, all on one island.",
+      "character": "Yas Island brings together theme parks, Yas Marina Circuit, Yas Mall and golf",
       "highlights": [
         "Ferrari World, Yas Waterworld, Warner Bros. World and SeaWorld",
         "Yas Marina Circuit, home of the Formula 1 Abu Dhabi Grand Prix",
@@ -48,82 +68,136 @@
       ],
       "bestFor": [
         "young professionals",
-        "families who want plenty to do",
-        "investors looking at holiday-home and short-stay demand"
+        "families who want plenty to do"
       ],
       "considerations": [
-        "there are many launches on Yas, so it pays to compare projects carefully",
-        "it gets busy on major event weekends"
-      ]
+        "compare the residential community and its proximity to event venues"
+      ],
+      "detail": "Yas Island brings together theme parks, Yas Marina Circuit, Yas Mall and golf. Ferrari World and Yas Waterworld are part of its leisure offer. It suits young professionals and families who want entertainment close to home. Worth knowing: choose the residential community as carefully as the island; a location near event venues feels different from a quieter residential pocket.",
+      "source": "https://www.yasisland.com/",
+      "sources": [
+        "https://www.yasisland.com/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة ياس",
+        "tagline": "جزيرة الترفيه والفعاليات",
+        "detail": "تجمع جزيرة ياس بين المدن الترفيهية وحلبة ياس مارينا وياس مول والغولف. من معالمها عالم فيراري وياس ووتروورلد. أراها مناسبة للعائلات ولمن يحب قرب الترفيه والفعاليات من المنزل. اختر المجتمع السكني نفسه بعناية؛ فالموقع القريب من الفعاليات يختلف عن الأحياء السكنية الأكثر هدوءاً."
+      }
     },
     {
       "area": "Saadiyat Island",
       "aliases": [
         "saadiyat",
-        "saadiyat island"
+        "saadiyat island",
+        "السعديات",
+        "سعديات",
+        "جزيرة السعديات"
       ],
       "approved": true,
       "tagline": "the island of luxury and style",
-      "character": "Saadiyat is Abu Dhabi's premium address: natural beaches, the Cultural District and upscale, low-rise living.",
+      "character": "Saadiyat combines beaches, resorts and the Cultural District",
       "highlights": [
         "Louvre Abu Dhabi and the Saadiyat Cultural District",
-        "long natural beaches",
-        "Mamsha Al Saadiyat beachfront dining",
-        "Saadiyat Beach Golf Club",
-        "NYU Abu Dhabi and leading international schools"
+        "natural beaches",
+        "beachfront dining",
+        "coastal resorts"
       ],
       "bestFor": [
-        "buyers who want a prestige beachfront address",
-        "families who value top schools and culture",
-        "end users looking for a premium lifestyle"
+        "buyers who value coastal living",
+        "buyers who want culture and hospitality nearby"
       ],
       "considerations": [
-        "entry prices are among the highest in Abu Dhabi"
-      ]
+        "beach access and views depend on the specific community and building"
+      ],
+      "detail": "Saadiyat combines beaches, resorts and the Cultural District. Louvre Abu Dhabi and beachfront dining are central to its identity. I would shortlist it for buyers who value a coastal home with culture and hospitality nearby. Worth knowing: beach access, views and the setting depend on the specific community and building.",
+      "source": "https://www.saadiyatisland.ae/",
+      "sources": [
+        "https://www.saadiyatisland.ae/",
+        "https://www.saadiyatisland.ae/cultural-district/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة السعديات",
+        "tagline": "جزيرة الشواطئ والثقافة",
+        "detail": "تجمع السعديات بين الشواطئ والمنتجعات والمنطقة الثقافية. يشكل اللوفر أبوظبي والمطاعم المطلة على البحر جزءاً من هويتها. أراها مناسبة لمن يفضل السكن الساحلي بالقرب من الثقافة والضيافة. قارن موقع كل مجتمع ومبنى، لأن الإطلالة والوصول إلى الشاطئ يختلفان من عقار لآخر."
+      }
     },
     {
       "area": "Ramhan Island",
       "aliases": [
         "ramhan",
-        "ramhan island"
+        "ramhan island",
+        "رمحان",
+        "جزيرة رمحان"
       ],
       "approved": true,
-      "tagline": "peace and quiet, with everything close by",
-      "character": "Ramhan offers calm, low-density island living, with Yas and Saadiyat close at hand when you want them.",
+      "tagline": "peace and quiet by the water",
+      "character": "Ramhan is an Eagle Hills island development shaped around waterfront homes, bays and mangroves",
       "highlights": [
-        "a quiet, low-density island setting",
-        "a resort-style beach lifestyle",
-        "Yas and Saadiyat close by"
+        "a coastal masterplan with a focus on waterfront living"
       ],
       "bestFor": [
         "buyers who want privacy and calm",
         "families looking for a quieter island home"
       ],
       "considerations": [
-        "it is an early-stage community, so day-to-day amenities will build up over time"
-      ]
+        "compare the specific phase and its delivered facilities"
+      ],
+      "detail": "Ramhan is an Eagle Hills island development shaped around waterfront homes, bays and mangroves. Its masterplan includes a marina and hospitality destinations. I would shortlist it for buyers who put privacy and a waterside setting first. Worth knowing: assess the delivered facilities and access for the particular phase you are considering.",
+      "source": "https://ramhanisland.com/",
+      "sources": [
+        "https://ramhanisland.com/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة رمحان",
+        "tagline": "حياة ساحلية بطابع هادئ",
+        "detail": "رمحان مشروع جزيرة من إيجل هيلز يتمحور حول المنازل المطلة على الماء والخلجان وأشجار القرم. يشمل مخططه مرسى ووجهات للضيافة. أراها مناسبة لمن يعطي الأولوية للخصوصية والسكن على الواجهة البحرية. عند اختيار عقار، قارن المرافق المنجزة والوصول إلى المرحلة السكنية المحددة."
+      }
     },
     {
       "area": "Fahid Island",
       "aliases": [
         "fahid",
-        "fahid island"
+        "fahid island",
+        "فاهد",
+        "فهيد",
+        "جزيرة فاهد",
+        "جزيرة فهيد"
       ],
       "approved": true,
-      "tagline": "peace and quiet, with everything close by",
-      "character": "Fahid is a calm island community surrounded by nature, close to both Yas and Saadiyat.",
+      "tagline": "peace and quiet in a coastal masterplan",
+      "character": "Fahid is an Aldar island masterplan focused on coastal living, wellness and nature, with beachfront and mangroves forming its setting",
       "highlights": [
-        "a peaceful island setting surrounded by mangroves and nature",
-        "beachfront living",
-        "Yas and Saadiyat close by"
+        "a coastal masterplan with a focus on waterfront living"
       ],
       "bestFor": [
         "buyers who want a quiet home near the main islands",
         "families who like nature and space"
       ],
       "considerations": [
-        "it is an early-stage community, so day-to-day amenities will build up over time"
-      ]
+        "compare the specific phase and its delivered facilities"
+      ],
+      "detail": "Fahid is an Aldar island masterplan focused on coastal living, wellness and nature, with beachfront and mangroves forming its setting. I would shortlist it for buyers interested in a planned waterfront community. Worth knowing: masterplan amenities and a property that is ready to occupy are different things; compare the specific phase and its delivery commitments.",
+      "source": "https://www.aldar.com/en/news-and-media/aldar-unveils-fahid-island",
+      "sources": [
+        "https://www.aldar.com/en/news-and-media/aldar-unveils-fahid-island"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة فاهد",
+        "tagline": "مخطط ساحلي يركز على العافية والطبيعة",
+        "detail": "فاهد مخطط جزيرة من الدار يركز على الحياة الساحلية والعافية والطبيعة، ضمن بيئة تضم الشواطئ وأشجار القرم. أراها مناسبة لمن يبحث عن مجتمع ساحلي مخطط. ميّز بين مرافق المخطط العام واكتمال العقار نفسه، وقارن مرحلة المشروع والتزامات تسليمها."
+      }
     },
     {
       "area": "Al Reem Island",
@@ -131,11 +205,14 @@
         "reem",
         "al reem",
         "reem island",
-        "al reem island"
+        "al reem island",
+        "الريم",
+        "ريم",
+        "جزيرة الريم"
       ],
       "approved": true,
-      "tagline": "city living next to the financial district",
-      "character": "Reem is high-rise city living, next to Al Maryah Island and a short hop from downtown Abu Dhabi.",
+      "tagline": "city living beside Al Maryah Island",
+      "character": "Al Reem offers apartment living, waterfront spaces, parks and shopping near central Abu Dhabi",
       "highlights": [
         "next to Al Maryah Island, Abu Dhabi's financial district",
         "Reem Mall and the Galleria close by",
@@ -148,7 +225,194 @@
       ],
       "considerations": [
         "it is dense and urban rather than quiet"
-      ]
+      ],
+      "detail": "Al Reem offers apartment living, waterfront spaces, parks and shopping near central Abu Dhabi. Reem Mall and Reem Central Park are useful landmarks, with Al Maryah Island nearby. I would shortlist it for buyers who want an urban setting and everyday facilities. Worth knowing: compare the building, parking, service charges and surrounding construction as well as the area.",
+      "source": "https://visitabudhabi.ae/en/where-to-go/islands/al-reem-island",
+      "sources": [
+        "https://visitabudhabi.ae/en/where-to-go/islands/al-reem-island"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة الريم",
+        "tagline": "حياة حضرية قرب جزيرة المارية",
+        "detail": "توفر الريم سكناً حضرياً وشققاً ومساحات على الواجهة البحرية وحدائق وتسوقاً بالقرب من وسط أبوظبي. من معالمها ريم مول وحديقة الريم المركزية، وتقع المارية بجوارها. أراها مناسبة لمن يفضل الحياة الحضرية والخدمات اليومية. قارن المبنى ومواقف السيارات ورسوم الخدمات والأعمال المحيطة، إلى جانب المنطقة نفسها."
+      }
+    },
+    {
+      "area": "Yas Bay",
+      "approved": true,
+      "aliases": [
+        "yas bay",
+        "ياس باي",
+        "خليج ياس"
+      ],
+      "tagline": "waterfront dining and entertainment within Yas Island",
+      "detail": "Yas Bay is a waterfront destination within Yas Island, with restaurants, Hilton Abu Dhabi Yas Island and Etihad Arena. I would shortlist it for buyers who like an active waterfront and dining close to home. Worth knowing: Yas Bay is a specific part of Yas Island; check the position of the residential building relative to the waterfront and event venues.",
+      "source": "https://www.yasbay.ae/",
+      "sources": [
+        "https://www.yasbay.ae/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "ياس باي",
+        "tagline": "واجهة للمطاعم والترفيه داخل جزيرة ياس",
+        "detail": "ياس باي وجهة بحرية داخل جزيرة ياس تضم مطاعم وفندق هيلتون أبوظبي ياس آيلاند والاتحاد أرينا. أراها مناسبة لمن يحب الواجهة البحرية النشطة وقرب المطاعم من المنزل. ياس باي جزء محدد من جزيرة ياس؛ قارن موقع المبنى السكني بالنسبة للواجهة البحرية ومواقع الفعاليات."
+      },
+      "character": "Yas Bay is a waterfront destination within Yas Island, with restaurants, Hilton Abu Dhabi Yas Island and Etihad Arena",
+      "highlights": [],
+      "bestFor": [],
+      "considerations": []
+    },
+    {
+      "area": "Yas Canal",
+      "approved": true,
+      "aliases": [
+        "yas canal",
+        "قناة ياس",
+        "ياس كانال"
+      ],
+      "tagline": "a canal-side location to assess by exact project",
+      "detail": "Yas Canal needs the exact development identified. Abu Dhabi Media Office locates the government Yas Canal residential project in Al Raha Beach, with villas and planned community facilities. Keep that project distinct from other developments using the Yas Canal location name. I would compare the exact plot, waterfront access and delivered facilities before choosing.",
+      "source": "https://www.mediaoffice.abudhabi/en/crown-prince-news/khaled-bin-mohamed-bin-zayed-approves-launch-of-yas-canal-residential-project-worth-aed3-billion/",
+      "sources": [
+        "https://www.mediaoffice.abudhabi/en/crown-prince-news/khaled-bin-mohamed-bin-zayed-approves-launch-of-yas-canal-residential-project-worth-aed3-billion/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "قناة ياس",
+        "tagline": "موقع على القناة يحتاج مقارنة المشروع المحدد",
+        "detail": "عند الحديث عن قناة ياس، نحتاج إلى تحديد المشروع المقصود. يحدد مكتب أبوظبي الإعلامي موقع مشروع إسكان قناة ياس الحكومي في شاطئ الراحة، ويصف فللاً ومرافق مجتمعية مخططة. هذا المشروع مستقل عن المشاريع الأخرى التي تستخدم اسم الموقع نفسه. أقارن قطعة الأرض والوصول إلى الواجهة البحرية والمرافق المنجزة قبل الاختيار."
+      },
+      "character": "Yas Canal needs the exact development identified",
+      "highlights": [],
+      "bestFor": [],
+      "considerations": []
+    },
+    {
+      "area": "Masdar City",
+      "approved": true,
+      "aliases": [
+        "masdar",
+        "masdar city",
+        "مصدر",
+        "مدينة مصدر"
+      ],
+      "tagline": "sustainability, business and everyday community life",
+      "detail": "Masdar City combines a sustainable urban community with a business free zone and technology hub. Its residential setting sits alongside education, research, parks and everyday services. I would shortlist it for buyers who value sustainability and proximity to that business ecosystem. Worth knowing: compare the exact building and its immediate services rather than assuming all projects share the same features.",
+      "source": "https://masdarcity.ae/about",
+      "sources": [
+        "https://masdarcity.ae/about",
+        "https://www.masdarcity.ae/lifestyle/live"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "مدينة مصدر",
+        "tagline": "مجتمع يركز على الاستدامة والأعمال",
+        "detail": "تجمع مدينة مصدر بين مجتمع حضري يركز على الاستدامة ومنطقة حرة للأعمال ومركز للتقنية. يضم محيطها السكني التعليم والبحث والحدائق والخدمات اليومية. أراها مناسبة لمن يهتم بالاستدامة والقرب من بيئة الأعمال هذه. قارن المبنى وخدماته المباشرة، لأن خصائص المشاريع تختلف داخل المدينة."
+      },
+      "character": "Masdar City combines a sustainable urban community with a business free zone and technology hub",
+      "highlights": [],
+      "bestFor": [],
+      "considerations": []
+    },
+    {
+      "area": "Al Raha Beach",
+      "approved": true,
+      "aliases": [
+        "al raha beach",
+        "raha beach",
+        "al raha",
+        "الراحة",
+        "شاطئ الراحة"
+      ],
+      "tagline": "waterfront communities with distinct neighbourhoods",
+      "detail": "Al Raha Beach includes distinct waterfront communities such as Al Bandar, Al Muneera and Al Zeina. Al Bandar has a marina, while Al Muneera has waterfront dining and Al Zeina has residential beach facilities. I would shortlist it for buyers who want coastal living with an established community setting. Worth knowing: access to private beaches and facilities depends on the community and property.",
+      "source": "https://www.aldar.com/en/explore-aldar/businesses/development/residential/al-raha-beach/al-zeina",
+      "sources": [
+        "https://www.aldar.com/en/explore-aldar/businesses/development/residential/al-raha-beach/al-zeina",
+        "https://www.aldar.com/en/explore-aldar/businesses/hospitality/marinas/al-bandar-marina",
+        "https://www.aldar.com/en/explore-aldar/businesses/investment/retail/communities/al-muneera-beach-plaza"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "شاطئ الراحة",
+        "tagline": "مجتمعات سكنية متنوعة على الواجهة البحرية",
+        "detail": "يضم شاطئ الراحة مجتمعات بحرية متميزة مثل البندر والمنيرة والزينة. يضم البندر مرسى، وتضم المنيرة مطاعم على الواجهة البحرية، وتتوفر في الزينة مرافق شاطئية للسكان. أراه مناسباً لمن يريد سكناً ساحلياً ضمن مجتمع قائم. الوصول إلى الشواطئ الخاصة والمرافق يعتمد على المجتمع والعقار المحدد."
+      },
+      "character": "Al Raha Beach includes distinct waterfront communities such as Al Bandar, Al Muneera and Al Zeina",
+      "highlights": [],
+      "bestFor": [],
+      "considerations": []
+    },
+    {
+      "area": "Jubail Island",
+      "approved": true,
+      "aliases": [
+        "jubail",
+        "jubail island",
+        "الجبيل",
+        "جبيل",
+        "جزيرة الجبيل"
+      ],
+      "tagline": "mangroves and residential villages between the main islands",
+      "detail": "Jubail sits between Yas and Saadiyat, with residential villages in a mangrove and coastal setting. Jubail Mangrove Park is a defining destination. I would shortlist it for buyers who value nature, outdoor life and a village-style setting. Worth knowing: compare access and the amenities of the particular village rather than treating the whole island as one uniform community.",
+      "source": "https://jubailisland.ae/",
+      "sources": [
+        "https://jubailisland.ae/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة الجبيل",
+        "tagline": "قرى سكنية وسط بيئة القرم",
+        "detail": "تقع الجبيل بين ياس والسعديات، وتضم قرى سكنية ضمن بيئة ساحلية وأشجار القرم. من أبرز وجهاتها منتزه القرم بالجبيل. أراها مناسبة لمن يفضل الطبيعة والحياة الخارجية وطابع القرى السكنية. قارن الوصول والخدمات في القرية المحددة، لأن المجتمعات داخل الجزيرة تختلف."
+      },
+      "character": "Jubail sits between Yas and Saadiyat, with residential villages in a mangrove and coastal setting",
+      "highlights": [],
+      "bestFor": [],
+      "considerations": []
+    },
+    {
+      "area": "Al Maryah Island",
+      "approved": true,
+      "aliases": [
+        "al maryah",
+        "maryah",
+        "al maryah island",
+        "الماية",
+        "المارية",
+        "مارية",
+        "جزيرة المارية"
+      ],
+      "tagline": "business, shopping and hospitality in the financial district",
+      "detail": "Al Maryah combines the financial district with The Galleria, hotels, waterfront dining and Cleveland Clinic Abu Dhabi. I would shortlist it for buyers who want proximity to business and a central lifestyle destination. Worth knowing: Al Maryah and neighbouring Al Reem are different islands; compare the exact residential address rather than treating them as interchangeable.",
+      "source": "https://almaryahisland.ae/about/",
+      "sources": [
+        "https://almaryahisland.ae/about/"
+      ],
+      "lastVerified": "2026-10-08",
+      "reviewScope": "non-commercial area orientation",
+      "reviewMethod": "primary-source review; buyer suitability is editorial assessment",
+      "ar": {
+        "area": "جزيرة المارية",
+        "tagline": "الأعمال والتسوق والضيافة في الحي المالي",
+        "detail": "تجمع المارية بين الحي المالي والغاليريا والفنادق والمطاعم على الواجهة البحرية وكليفلاند كلينك أبوظبي. أراها مناسبة لمن يريد القرب من الأعمال ووجهة مركزية للحياة اليومية. المارية والريم المجاورة جزيرتان مختلفتان؛ قارن العنوان السكني المحدد بدلاً من التعامل معهما كمنطقة واحدة."
+      },
+      "character": "Al Maryah combines the financial district with The Galleria, hotels, waterfront dining and Cleveland Clinic Abu Dhabi",
+      "highlights": [],
+      "bestFor": [],
+      "considerations": []
     }
   ]
 }

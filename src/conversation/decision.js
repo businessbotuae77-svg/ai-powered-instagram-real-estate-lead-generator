@@ -73,6 +73,8 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     const after = Number(split[2]);
     return { ...response(say(`In a ${before}/${after} plan, ${before} percent of the price is generally paid during construction and ${after} percent at handover. The booking amount and instalment dates depend on the project; this is an explanation, not confirmation of a project's terms.`, `في خطة ${before}/${after}، يُدفع عادة ${before} بالمئة أثناء البناء و${after} بالمئة عند التسليم. مبلغ الحجز ومواعيد الأقساط تعتمد على المشروع؛ هذا شرح عام وليس تأكيداً لشروط مشروع معين.`), "education"), educationalSplit: `${before}/${after}` };
   }
+  const area = areaAnswer({ text, buyer, catalog, lastAskedField, ar, askedFields });
+  if (area) return area;
   const performance = performanceQuestion(text, buyer);
   if (performance) return performance;
   if (/\b(?:what are|what.*watch|tell me|explain).*\brisks?\b|\brisks?\s*[?؟]|مخاطر/i.test(text)) {
@@ -84,8 +86,6 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     const knowledge = knowledgeAdvice({ buyer, catalog, message: text, advisor });
     if (knowledge) return knowledge;
   }
-  const area = areaAnswer({ text, buyer, catalog, lastAskedField, ar });
-  if (area) return area;
   const guidance = investmentGuidance({ buyer, message: text, hasCommercialOptions: Boolean(advisor?.primary), catalogError, areaGuide: areaGuideFromCatalog(catalog) });
   if (guidance) return guidance;
   const projects = catalog.projects.filter(p => p.active && p.source && p.developerActive);
