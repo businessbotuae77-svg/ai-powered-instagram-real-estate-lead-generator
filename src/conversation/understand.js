@@ -1,4 +1,5 @@
 import { CONVERSATION_POLICY } from "./policy.js";
+import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
 import { normalizeBuyerText } from "./text.js";
 /**
  * Claude (or local) understanding → structured buyer updates.
@@ -80,7 +81,7 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
   });
 
   try {
-    const response = await fetch(`${client.baseUrl}/v1/messages`, {
+    const response = await (client.fetchImpl || fetch)(`${client.baseUrl}/v1/messages`, {
       method: "POST",
       signal: AbortSignal.timeout(15000),
       headers: {
@@ -96,15 +97,26 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
         messages: [{ role: "user", content: user }]
       })
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      await recordModelHttpError(client, "understanding", response);
+      return null;
+    }
     const data = await response.json();
     const text = (data.content || [])
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n")
       .trim();
-    return normalizeUnderstanding(parseJsonObject(text), "claude");
-  } catch {
+    const parsed = parseJsonObject(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+        !parsed.facts || typeof parsed.facts !== "object" || Array.isArray(parsed.facts)) {
+      recordModelOutcome(client, "understanding", { category: "invalid_response_shape" });
+      return null;
+    }
+    recordModelOutcome(client, "understanding");
+    return normalizeUnderstanding(parsed, "claude");
+  } catch (error) {
+    recordModelException(client, "understanding", error);
     return null;
   }
 }

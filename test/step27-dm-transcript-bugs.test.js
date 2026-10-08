@@ -253,7 +253,7 @@ test("E.3 LLM logs warning when model request throws error (no buyer message lea
     assert.equal(result, null, "Error should return null");
     
     // Should have logged a warning about the error
-    const hasErrorLog = warnings.some(w => w.includes("model reply error") && w.includes("Error"));
+    const hasErrorLog = warnings.some(w => w.includes("stage=composition") && w.includes("category=transport_error"));
     assert.ok(hasErrorLog, "Should log the error category");
     
     // Buyer message must not appear in any warning

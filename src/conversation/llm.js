@@ -1,6 +1,7 @@
 import { CONVERSATION_POLICY } from "./policy.js";
 import { inferQuestionField, validateBuyerResponse } from "./response-validation.js";
 import { isFlexiblePreference } from "./preference-state.js";
+import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -173,23 +174,25 @@ export async function composeReplyWithModel(client, options = {}) {
       })
     });
   } catch (err) {
-    console.warn("[llm] model reply error:", err?.name || "transport_error");
+    recordModelException(client, "composition", err);
     return null;
   }
   if (!response.ok) {
-    console.warn("[llm] non-OK HTTP response: status", response.status);
+    await recordModelHttpError(client, "composition", response);
     return null;
   }
   let data;
   try {
     data = await response.json();
   } catch (err) {
+    recordModelOutcome(client, "composition", { category: "invalid_response_json" });
     console.warn("[llm] response JSON parse error:", err?.name || "parse_error");
     return null;
   }
   const text = (data.content || []).filter(block => block.type === "text").map(block => block.text).join("\n").trim();
   const jsonStr = extractFirstJsonObject(text);
   if (!jsonStr) {
+    recordModelOutcome(client, "composition", { category: "invalid_response_json" });
     console.warn("[llm] JSON parse failure: no valid JSON object found, text length", text.length, "preview: [redacted XXXXX]");
     return null;
   }
@@ -197,10 +200,12 @@ export async function composeReplyWithModel(client, options = {}) {
   try {
     composed = JSON.parse(jsonStr);
   } catch (err) {
+    recordModelOutcome(client, "composition", { category: "invalid_response_json" });
     console.warn("[llm] JSON parse failure:", err?.name || "parse_error", "text length", text.length, "preview: [redacted XXXXX]");
     return null;
   }
   if (!composed || typeof composed !== "object" || Array.isArray(composed) || typeof composed.message !== "string") {
+    recordModelOutcome(client, "composition", { category: "invalid_response_shape" });
     console.warn("[llm] shape check failed: expected {message: string, ...}");
     return null;
   }
@@ -211,10 +216,12 @@ export async function composeReplyWithModel(client, options = {}) {
     buyerMessage: message
   });
   if (!validation.ok) {
+    recordModelOutcome(client, "composition", { category: "validation_rejected" });
     const violationSummary = [...new Set((validation.violations || []).map(value => `type=${value.type || "validation_failed"}`))].join("; ");
     console.warn("[llm] model reply rejected:", violationSummary);
     return null;
   }
+  recordModelOutcome(client, "composition");
   return {
     message: composed.message.trim(),
     askedQuestion: composed.askedQuestion,
