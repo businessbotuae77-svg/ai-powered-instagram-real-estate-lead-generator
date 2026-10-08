@@ -482,15 +482,15 @@ export function fallbackSafeText(packs) {
   if (!packs.length) {
     return "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
   }
-  return packs.map((pack) => {
-    const bits = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null]
-      .filter(Boolean)
-      .join(" ");
-    const price = pack.startingPriceText?.confirmed
-      ? `from ${pack.startingPriceText.value}`
-      : "starting price not confirmed yet";
-    return `${bits} · ${price}`;
-  }).join("\n");
+  // Last-resort reply: still a readable sentence per option, never a data row.
+  const rows = packs.map((pack) => {
+    const name = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null].filter(Boolean).join(" ");
+    const area = pack.area?.confirmed ? ` ${/\bisland$/i.test(pack.area.value) ? "on" : "in"} ${pack.area.value}` : "";
+    const price = pack.startingPriceText?.confirmed ? `, from ${pack.startingPriceText.value}` : "";
+    return `${name}${area}${price}.`;
+  });
+  const lead = rows.length > 1 ? "Here are the options that fit what you've told me:" : "Here's the option that fits what you've told me:";
+  return [lead, ...rows.map(row => rows.length > 1 ? `• ${row}` : row), "Ask me about the payment plan, handover or the area and I'll go through it."].join("\n");
 }
 
 /** Natural offline composition of the same deterministic advisory strategy. */
@@ -576,7 +576,10 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   }
   const lines = [];
   const advisorLed = isAdvisorLedDiscovery(buyer);
-  if (advisorLed) lines.push("That's fine — you're open, so I'll do the filtering for you.");
+  // "Best overall" and "you choose" both land here; neither means "open".
+  if (advisorLed && /\b(?:idk|don'?t know|do not know|not sure|unsure|no idea|you (?:choose|decide|pick)|up to you|either|anything)\b/i.test(message)) {
+    lines.push("That's fine — you're open, so I'll do the filtering for you.");
+  }
   // Acknowledge a concern only in the turn it is raised, not on every later turn.
   const raised = turnObjections.find(category => OBJECTION_LEADS[category]);
   if (raised) lines.push(objectionLead(raised, message));
@@ -600,7 +603,7 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   const largerShown = challenger?.buyerBenefit?.some(b => ["additional_bedroom", "larger_supported_size_range"].includes(b.code));
   if (!raised && MORE_SPACE.test(message) && !largerShown) lines.push("I don't have a larger option that fits your budget and other requirements right now.");
   lines.push(advisorLed
-    ? `The best overall fit from what you've told me is ${name}${reason ? `, because ${reason}` : ""}.`
+    ? `My best overall pick for you is ${name}${reason ? `, because ${reason}` : ""}.`
     : `For your priorities, I prefer ${name}${reason ? ` because ${reason}` : " as the cleaner fit"}.`);
   lines.push(renderProjectCard(primaryPack));
   const areaLine = areaPitch(advisor.areaGuide || loadAreaGuide(), primaryPack.area?.value);
@@ -691,7 +694,10 @@ function primaryReason(codes = [], buyer, pack) {
   if (codes.includes("more_space_priority")) return "the supported size better suits your need for space";
   if (codes.includes("off_plan_growth_route")) return "its off-plan status and documented payment structure suit the route you want to compare; this is a fit recommendation, not a growth forecast";
   if (codes.includes("lower_entry_price_priority")) return "it keeps the entry price lower";
-  return buyer.preferredAreas?.includes(pack.area?.value) ? "it fits your preferred area and price range" : "it fits your price range";
+  const price = pack.startingPriceAed?.confirmed ? Number(pack.startingPriceAed.value) : null;
+  const wellUnder = price && buyer.budgetAed && price <= Number(buyer.budgetAed) * 0.6;
+  if (buyer.preferredAreas?.includes(pack.area?.value)) return wellUnder ? "it fits your preferred area and comes in well under your budget" : "it fits your preferred area and price range";
+  return wellUnder ? "it comes in well under your budget" : "it fits your price range";
 }
 
 function opportunityBenefit(opportunity) {

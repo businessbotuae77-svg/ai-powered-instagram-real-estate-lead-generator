@@ -153,9 +153,13 @@ test("a name citation cannot support invented amenities or capital-protection gu
   assert.equal(result.ok, false, JSON.stringify(result));
 });
 
-test("plain availability statements require their own supported field citation", () => {
-  const result = modelCheck("Test Alpha is available.");
+test("plain availability statements must match the listing's availability", () => {
+  const row = record("Alpha");
+  const soldOut = packFor({ ...row, unit: { ...row.unit, availability: "Sold out" } });
+  const result = modelCheck("Test Alpha is available.", ["name"], soldOut);
   assert.equal(result.ok, false, JSON.stringify(result));
+  // A true statement no longer needs the model to label its source.
+  assert.equal(modelCheck("Test Alpha is available.").ok, true, JSON.stringify(modelCheck("Test Alpha is available.")));
 });
 
 test("an unknown property name cannot borrow a genuine listing's price and citation", () => {

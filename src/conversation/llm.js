@@ -1,5 +1,5 @@
 import { CONVERSATION_POLICY } from "./policy.js";
-import { inferQuestionField, validateBuyerResponse } from "./response-validation.js";
+import { inferQuestionField, questionRequests, validateBuyerResponse } from "./response-validation.js";
 import { isFlexiblePreference } from "./preference-state.js";
 import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
 
@@ -209,17 +209,24 @@ export async function composeReplyWithModel(client, options = {}) {
     console.warn("[llm] shape check failed: expected {message: string, ...}");
     return null;
   }
-  const validation = validateBuyerResponse(composed.message, {
+  const check = (text, metadata) => validateBuyerResponse(text, {
     ...validationOptions,
-    buyer, packs, requiredQuestion, metadata: composed, allowedActions, forbiddenActions, opportunities,
+    buyer, packs, requiredQuestion, metadata, allowedActions, forbiddenActions, opportunities,
     strategy, permittedRecommendations, allowedClaims, investmentProfile, conversationState, investmentTheses, comparisonFacts,
     buyerMessage: message
   });
+  let validation = check(composed.message, composed);
+  const summary = result => [...new Set((result.violations || []).map(value => `type=${value.type || "validation_failed"}`))].join("; ");
   if (!validation.ok) {
-    recordModelOutcome(client, "composition", { category: "validation_rejected" });
-    const violationSummary = [...new Set((validation.violations || []).map(value => `type=${value.type || "validation_failed"}`))].join("; ");
-    console.warn("[llm] model reply rejected:", violationSummary);
-    return null;
+    const repaired = salvageReply(composed, check, requiredQuestion, validation);
+    if (!repaired) {
+      recordModelOutcome(client, "composition", { category: "validation_rejected" });
+      console.warn("[llm] model reply rejected:", summary(validation));
+      return null;
+    }
+    console.warn("[llm] model reply repaired:", `removed=${repaired.removed}`, summary(validation));
+    composed = repaired.composed;
+    validation = repaired.validation;
   }
   recordModelOutcome(client, "composition");
   return {
@@ -230,6 +237,53 @@ export async function composeReplyWithModel(client, options = {}) {
     proposedActions: composed.proposedActions,
     validation
   };
+}
+
+/**
+ * Keep a useful model reply when only part of it breaks a rule. Questions are
+ * replaced by the one the strategy requires; then any sentence whose removal
+ * clears violations is dropped. Whatever remains passes the full check again,
+ * and a reply that loses most of its substance is not used.
+ */
+// Permission and consent problems are never repaired: the reply is dropped.
+const UNREPAIRABLE = new Set(["unauthorized_action", "no_calls", "unauthorized_call", "action_completion_claim", "invented_contact_permission",
+  "invented_budget_flexibility", "sales_path_stopped", "unnecessary_contact_capture", "internal_language", "unresolved_template",
+  "invalid_claim_metadata", "invalid_question_metadata", "empty_message"]);
+
+function salvageReply(composed, check, requiredQuestion, firstValidation) {
+  if ((firstValidation?.violations || []).some(row => UNREPAIRABLE.has(row.type))) return null;
+  const original = String(composed.message || "");
+  const lines = original.split(/\n+/).map(line => line.split(/(?<=[.!?])\s+(?=\S)/).map(text => text.trim()).filter(Boolean)).filter(line => line.length);
+  const isQuestion = text => /[?؟]\s*$/.test(text) || questionRequests(text).length > 0;
+  let body = lines.map(line => line.filter(text => !isQuestion(text)));
+  const size = rows => rows.flat().join(" ").length;
+  const originalSize = size(lines.map(line => line.filter(text => !isQuestion(text))));
+  if (!originalSize) return null;
+  const build = rows => {
+    const text = [rows.filter(line => line.length).map(line => line.join(" ")).join("\n"), requiredQuestion?.prompt].filter(Boolean).join("\n");
+    const metadata = { ...composed, message: text, askedQuestion: Boolean(requiredQuestion), questionField: requiredQuestion?.field || null };
+    return { text, metadata, validation: check(text, metadata) };
+  };
+  let attempt = build(body);
+  for (let pass = 0; pass < 3 && !attempt.validation.ok; pass++) {
+    let improved = false;
+    for (let li = 0; li < body.length && !attempt.validation.ok; li++) {
+      for (let si = 0; si < body[li].length && !attempt.validation.ok; si++) {
+        const without = body.map((line, index) => index === li ? line.filter((_, k) => k !== si) : line);
+        const candidate = build(without);
+        if (candidate.validation.violations.length < attempt.validation.violations.length) {
+          body = without;
+          attempt = candidate;
+          improved = true;
+          si--;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  if (!attempt.validation.ok || size(body) < originalSize * 0.4) return null;
+  const removed = lines.flat().length - body.flat().length;
+  return { composed: attempt.metadata, validation: attempt.validation, removed };
 }
 
 // Kept for integrations importing the former string-returning helper. It now

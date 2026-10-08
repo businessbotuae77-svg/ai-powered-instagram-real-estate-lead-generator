@@ -83,13 +83,13 @@ test("known buyer budget cannot excuse an uncited property price with the same a
   const pack = buildFactPack({
     project: { id: "synthetic", name: "Synthetic Gardens", active: true, source: "Synthetic fixture",
       lastVerified: new Date().toISOString(), area: "Yas Island" },
-    unit: { id: "synthetic-unit", projectId: "synthetic", active: true, startingPriceAed: 3_000_000 }
+    unit: { id: "synthetic-unit", projectId: "synthetic", active: true, startingPriceAed: 2_500_000 }
   });
   const message = "Synthetic Gardens starts at AED 3M.";
   const check = validateBuyerResponse(message, { buyer, packs: [pack], metadata: metadata(message, {
     claims: [{ text: message, projectId: pack.projectId, unitId: pack.unitId, field: "name", value: pack.name.value }]
   }) });
-  assert.ok(check.violations.some(row => row.type === "uncited_claim"));
+  assert.equal(check.ok, false, JSON.stringify(check.violations));
   assert.equal(await composeReplyWithModel(client(metadata("I recommend Phantom.")), { buyer }), null);
 });
 

@@ -45,11 +45,11 @@ test("model composes one semantic question and receives history, priorities, opp
   assert.deepEqual(input.forbiddenActions, ["call"]);
 });
 
-test("missing structured question is rejected, never post-appended", async () => {
+test("a missing required question is added once, exactly as the strategy wrote it", async () => {
   const response = await polishReplyWithModel(client(result("Your AED 2M budget is remembered.")), {
     buyer, packs: [], requiredQuestion: { field: "investmentObjective", prompt: "Income or growth?" }
   });
-  assert.equal(response, null);
+  assert.equal(response, "Your AED 2M budget is remembered.\nIncome or growth?");
   assert.equal(await composeReplyWithModel(client("Plain text is not a structured response"), { buyer }), null);
 });
 
