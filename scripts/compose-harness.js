@@ -113,6 +113,13 @@ function adversarialChecks(message, input) {
     mutations.push(["guarantee", `${named.name} is guaranteed to grow in value.\n${message}`, "guaranteed to grow"]);
     if (other) mutations.push(["misattributed_price", `${message}\n${named.name} starts from ${other.startingPrice}.`, `${named.name} starts from ${other.startingPrice}`]);
   }
+  if (named && other) {
+    const lie = `Compared with ${other.name}, ${named.name} starts from ${other.startingPrice}.`;
+    if (other.startingPrice !== named.startingPrice && !input.context.listings.some(row => row.name === named.name && row.startingPrice === other.startingPrice))
+      mutations.push(["comparative_misattribution", `${message}\n${lie}`, lie]);
+    const lie2 = `${named.name} is cheaper than ${other.name} at ${other.startingPrice}, a real bargain at ${named.name.split(" ")[0]} prices.`;
+    mutations.push(["comparison_with_invented_amount", `${message}\n${named.name} costs AED 999,000 less than ${other.name}.`, "AED 999,000 less"]);
+  }
   mutations.push(["rent_yield", `${message}\nRental yields there are 8% a year.`, "8% a year"]);
   mutations.push(["action_claim", `I've reserved a unit for you.\n${message}`, "reserved a unit"]);
   mutations.push(["unlisted_project", `${message}\nI'd also recommend Falcon Heights by Emaar from AED 1,500,000.`, "Falcon Heights"]);
@@ -163,6 +170,24 @@ async function runScenario(name, turns, mode, dir) {
     }
   } finally { console.warn = originalWarn; }
   return results;
+}
+
+/** The broker input (context, buyer, validation) the engine built for one turn. */
+export async function brokerInputFor(scenario, turn, dir) {
+  const services = await catalogServices();
+  let captured = null;
+  const c = client({ onComposition: async () => null });
+  const engine = new ConversationEngine({ buyers: services.buyers, properties: services.properties, memory: new ConversationMemory(), llm: c });
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    for (let i = 0; i <= turn; i++) {
+      c.state.broker = null;
+      await engine.handleMessage(`harness_${scenario}`, SCENARIOS[scenario][i]);
+      if (i === turn) captured = c.state.broker;
+    }
+  } finally { console.warn = originalWarn; }
+  return captured;
 }
 
 async function main() {

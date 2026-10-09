@@ -148,6 +148,7 @@ export function validateMessage(message, packs, options = {}) {
   // Known numbers must also belong to the offer being described. Do not accept
   // a different project's price merely because it appears somewhere in packs.
   violations.push(...scopedClaimViolations(message, packs, derivedAmounts, options));
+  violations.push(...pinnedPriceViolations(message, packs, options.stageAmounts || {}));
   const missing = packs.flatMap(missingCommercialFields);
   const handoffRequired = Boolean(options.handoffRequested);
   return {
@@ -305,6 +306,10 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
       // The buyer's own amount opening a sentence ("AED 2,500,000 works well...") is not a listing price.
       if (claim.type === "amount" && buyerAmounts.has(claim.value) && !/(?:from|starts?|starting|priced|costs?|price|initial|booking|down\s*payment|deposit|handover)\s*(?:at|of|is|:)?\s*(?:around|about)?\s*(?:aed|dhs)?\s*$/i.test(segment.slice(0, claim.index)) &&
           /\b(?:works?|goal|working with|enough|room|headroom|gives you|plenty|with)\b/i.test(segment)) continue;
+      // A comparison may quote another listing's real figure ("below AED 1,900,000",
+      // "than X's AED 800,000"); a price stated *for* this listing is pinned below.
+      if (/\b(?:below|under|above|over|more|less|than|versus|vs|compared|cheaper|lower|higher|bigger|smaller|instead|against|whereas|while)\b/i.test(segment) &&
+          (claimAllowed(claim, collectAllowedClaims(packs, [])) || (claim.type === "amount" && Object.values(options.stageAmounts || {}).some(list => list.includes(claim.value))))) continue;
       if (!claimAllowed(claim, own) && !literalResearchSupports(claim, literal)) violations.push({ ...claim, type: "offer_mismatch", projectId: scoped.projectId, unitId: scoped.unitId });
     }
     for (const match of segment.matchAll(/(?:starts?(?:\s+at|\s+from)?|starting\s+price|price\s*[:—-]?|costs?|priced\s+at)\s*(?:of\s*)?((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?|\d+(?:\.\d+)?\s*[Mk]\b)/gi)) {
@@ -350,6 +355,53 @@ export function narrowUnits(segment, packs) {
   if (wanted === null) return packs;
   const narrowed = packs.filter(pack => !pack.unitId || pack.bedrooms?.value === wanted);
   return narrowed.length ? narrowed : packs;
+}
+
+/**
+ * A price phrase attached to a project name ("Reem Gate starts from AED X",
+ * "AED X for Reem Gate") must be one of that project's own starting prices,
+ * even in a sentence that names several projects.
+ */
+function pinnedPriceViolations(message, packs, stageAmounts = {}) {
+  const violations = [];
+  const byName = new Map();
+  for (const pack of packs) {
+    if (!pack.name?.confirmed || !pack.name.value) continue;
+    const key = String(pack.name.value).toLowerCase();
+    byName.set(key, [...(byName.get(key) || []), pack]);
+  }
+  if (!byName.size) return violations;
+  const text = String(message);
+  const lower = text.toLowerCase();
+  const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  const occurrences = [];
+  for (const name of names) {
+    let at = lower.indexOf(name);
+    while (at >= 0) {
+      if (!occurrences.some(row => at >= row.start && at < row.end)) occurrences.push({ name, start: at, end: at + name.length });
+      at = lower.indexOf(name, at + name.length);
+    }
+  }
+  occurrences.sort((a, b) => a.start - b.start);
+  const prices = name => new Set(byName.get(name).filter(pack => pack.startingPriceAed?.confirmed).map(pack => Number(pack.startingPriceAed.value)));
+  // "AED X for/at <project>" may be any of its own figures: price, initial payment or a payment stage.
+  const amounts = name => new Set([...prices(name), ...byName.get(name).flatMap(pack => [
+    pack.downPaymentAed?.confirmed ? Number(pack.downPaymentAed.value) : null, ...(stageAmounts[`${pack.projectId}|${pack.unitId || ""}`] || [])
+  ]).filter(value => value !== null)]);
+  const PRICE = /^(?:[^.!?\n;]{0,60}?)\b(?:starts?(?:\s+(?:at|from))?|from|priced\s+at|costs?|starting\s+price(?:\s+(?:of|is))?)\s*(?:of\s*)?((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?|\d+(?:\.\d+)?\s*[Mk]\b)/i;
+  occurrences.forEach((occurrence, index) => {
+    const next = occurrences[index + 1]?.start ?? text.length;
+    const after = text.slice(occurrence.end, next);
+    const match = after.match(PRICE);
+    const own = prices(occurrence.name);
+    // "costs AED 600,000 more" is a difference, checked by the comparison rules.
+    const difference = match && /^\s*(?:more|less|extra|cheaper|higher|lower|above|below)\b/i.test(after.slice(match.index + match[0].length));
+    if (match && !difference && own.size && !own.has(normalizeAmount(match[1]))) violations.push({ type: "price_scope", project: occurrence.name });
+    const before = text.slice(Math.max(0, occurrence.start - 40), occurrence.start);
+    const prior = before.match(/((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?)\s+(?:for|at)\s+(?:the\s+)?$/i);
+    if (prior && own.size && !amounts(occurrence.name).has(normalizeAmount(prior[1]))) violations.push({ type: "price_scope", project: occurrence.name });
+  });
+  return violations;
 }
 
 export function missingDataHandoff(packs) {

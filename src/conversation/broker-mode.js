@@ -130,6 +130,11 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
   }
   scored.sort((a, b) => b.score - a.score);
   const unitPacks = scored.filter(row => row.score > -30).slice(0, MAX_UNITS).map(row => row.pack);
+  // Projects named now or just discussed stay in view, so a follow-up never
+  // mentions a project the checker cannot see.
+  for (const row of scored) {
+    if ((named.has(row.pack.projectId) || recent.has(row.pack.projectId) || row.pack.unitId === buyer.activeRecommendationUnitId) && !unitPacks.includes(row.pack) && unitPacks.length < MAX_UNITS + 4) unitPacks.push(row.pack);
+  }
   const withUnits = new Set(unitPacks.map(pack => pack.projectId));
   const knowledge = projects.filter(p => !withUnits.has(p.id) && (named.has(p.id) || recent.has(p.id) || p.id === interest || mentionedAreas.has(p.area)))
     .sort((a, b) => Number(named.has(b.id)) - Number(named.has(a.id)) || Number(recent.has(b.id)) - Number(recent.has(a.id)))
@@ -165,7 +170,14 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
       const x = confirmed(a, key), y = confirmed(b, key);
       if (typeof x === "number" && typeof y === "number" && x > y) derivedAmounts.add(x - y);
     }
-    // Totals for a two-unit spread: combined starting prices and booking amounts.
+    // Totals for a spread of two or three listings: combined prices and booking amounts.
+    for (const c of unitPacks) {
+      if (c === a || c === b) continue;
+      const [x3, y3, z3] = [a, b, c].map(pack => confirmed(pack, "startingPriceAed"));
+      if ([x3, y3, z3].every(v => typeof v === "number")) derivedAmounts.add(x3 + y3 + z3);
+      const [bx3, by3, bz3] = [a, b, c].map(bookingOf);
+      if ([bx3, by3, bz3].every(v => typeof v === "number")) derivedAmounts.add(bx3 + by3 + bz3);
+    }
     const x = confirmed(a, "startingPriceAed"), y = confirmed(b, "startingPriceAed");
     if (typeof x === "number" && typeof y === "number") derivedAmounts.add(x + y);
     const bx = bookingOf(a), by = bookingOf(b);

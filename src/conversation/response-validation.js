@@ -129,7 +129,7 @@ export function validateBuyerResponse(message, options = {}) {
   const namedPropertyRating = buyer.useType === "investment" && packs.some(pack => pack.name?.confirmed && pack.name.value &&
     text.toLowerCase().split(String(pack.name.value).toLowerCase()).slice(1).some(afterName =>
       /^\s*(?:[:—-]|is(?: rated)?|scores?|gets?|earns?)\s*(?:a\s+)?\d+(?:\.\d+)?\s*(?:out of|\/)\s*(?:10|100)\b/i.test(afterName)));
-  if (namedPropertyRating || /\b(?:investment|roi|returns?)[ -]+(?:score|rating|grade)(?:\s*(?::|=|is|of|—|-))?\s*(?:\d+(?:\.\d+)?|excellent|exceptional|strong|weak|high|low|good|poor|[a-f][+-]?)(?:\b|$)|\b\d+(?:\.\d+)?\s*(?:out of|\/)\s*\d+[^.!?\n]{0,35}\b(?:investment|roi|returns?)\b|(?:درجة|تقييم)\s+الاستثمار\s*[:—-]?\s*(?:\d|ممتاز|مرتفع|قوي|ضعيف)/i.test(text)) violations.push({ type: "unsupported_investment_score" });
+  if (namedPropertyRating || /\b(?:investment|roi|returns?)[ -]+(?:score|rating|grade)(?:\s*(?::|=|is|of|—|-))?\s*(?:\d+(?:\.\d+)?|excellent|exceptional|strong|weak|high|low|good|poor|[a-f][+-]?)(?:\b|$)|\b\d+(?:\.\d+)?\s*(?:out of|\/)\s*\d+(?!\s*(?:plan|payment|split|structure))[^.!?\n]{0,35}\b(?:investment|roi|returns?)\b|(?:درجة|تقييم)\s+الاستثمار\s*[:—-]?\s*(?:\d|ممتاز|مرتفع|قوي|ضعيف)/i.test(text)) violations.push({ type: "unsupported_investment_score" });
   if (/\b(?:easy|effortless|quick|straightforward)\s+(?:to\s+)?(?:resell|resale)|\b(?:resale|reselling)\s+(?:is|will be|should be)\s+(?:easy|effortless|quick|straightforward)|\b(?:definitely|certainly|guaranteed to)\s+outperform/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   if (/\b(?:resell|reselling|resale)\b[^.!?\n]{0,25}\b(?:easily|easy|straightforward|effortless|quickly)\b/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   const educationTurn = ["education", "investment_education"].includes(options.responseStage || options.strategy?.type);
@@ -177,6 +177,7 @@ function planClaims(value) {
  * label every fact in the exact format; every figure still has to match a
  * confirmed record, and a sentence only borrows facts from its own property.
  */
+const COMPARATIVE = /\b(?:below|under|above|over|more|less|than|versus|vs|compared|cheaper|lower|higher|bigger|smaller|instead|against|whereas|while)\b/i;
 const INHERITS = /^(?:[•*-]\\s|\\d+[.)]\\s)|^(?:it|its|it's|this|that|these|those|they|their|there|here|the (?:project|unit|apartment|studio|villa|townhouse|home|plan|payment plan|building|development|handover|price|starting price|initial payment|booking|1 bedroom|2 bedroom|3 bedroom|one|first|second))\\b/i;
 
 function featureItems(value) {
@@ -213,7 +214,12 @@ function automaticCitations(message, packs, allowedClaims = [], options = {}) {
     // ("It...", "The plan...", a bullet line). Otherwise an unnamed sentence
     // may cite any listing (catalogue-wide statements like "options start from").
     const inherits = names.size === 0 && previous && INHERITS.test(segment);
-    const scopedSet = names.size === 1 ? narrowUnits(segment, mentioned) : inherits ? narrowUnits(segment, previous) : names.size === 0 ? packs : mentioned;
+    // "It is lighter than X" / "below AED 1,900,000; the closest is Y": a comparison
+    // may cite another listing's real figure (the commercial checks still pin
+    // "Y from AED ..." to Y's own price).
+    const comparative = names.size >= 1 && COMPARATIVE.test(segment);
+    const scopedSet = comparative ? packs
+      : names.size === 1 ? narrowUnits(segment, mentioned) : inherits ? narrowUnits(segment, previous) : names.size === 0 ? packs : mentioned;
     if (names.size) previous = names.size === 1 ? mentioned : (packs.length === 1 ? [packs[0]] : null);
     for (const pack of mentioned) claims.push({ text: segment, projectId: pack.projectId, unitId: pack.unitId, field: "name", value: pack.name.value, auto: true });
     for (const scoped of scopedSet) for (const [field, fact] of Object.entries(scoped)) {
@@ -296,7 +302,7 @@ function validateClaimCitations(message, claims, packs, options) {
   for (const claim of extractCommercialClaims(normalizeBuyerText(message))) {
     if (claim.type === "amount" && derived.has(claim.value)) continue;
     if (comparisonAmountSupported(message, claim, comparisonDifferences)) continue;
-    if (claim.type === "amount" && buyerAmounts.has(claim.value) && buyerAmountContext(message, claim)) continue;
+    if (claim.type === "amount" && buyerAmounts.has(claim.value) && (buyerAmountContext(message, claim) || !sentenceNamesListing(message, claim.index, packs))) continue;
     if (claim.type === "split" && claim.value === options.educationalSplit) continue;
     if (claim.type === "percent" && Object.values(options.stagePercents || {}).some(list => list.includes(Number(claim.value)))) continue;
     if (!supported.some(row => citationSupportsClaim(row, claim, message))) violations.push({ type: "uncited_claim", claimType: claim.type });
@@ -571,7 +577,7 @@ function validateRecommendationSelection(message, packs, options) {
       const paymentComparisonQuestion = /^how much cash (?:each|the options?)\s+(?:needs?|requires?)\b/i.test(subject) && questionRequests(message).some(question => question.includes(match[0]) && inferQuestionField(question) === "advisoryNextAction");
       // Only a name-like subject ("Falcon Heights") can smuggle in unselected
       // inventory; ordinary wording ("for you is X", "starting with") cannot.
-      const nameLike = /^(?:[A-Z][\w'’-]*|[a-z][\w'’-]*\s+(?:over|instead|rather)\b)/.test(subject) && !/^(?:I|It|This|That|These|Those|Both|Either)\b/.test(subject) && !PLACE.test(subject);
+      const nameLike = /^(?:[A-Z][\w'’-]*|[a-z][\w'’-]*\s+(?:over|instead|rather)\b)/.test(subject) && !/^(?:i|it|this|that|these|those|both|either|them|one|the|aed|dhs|dh|\d)/i.test(subject) && !PLACE.test(subject);
       if (nameLike && !analysisMethod && !paymentComparisonQuestion && !/^(?:this\b|that\b|it\b|these\b|those\b|income\b|growth\b|rental\b|capital\b|appreciation\b|entry\b|exit\b|cash\b|payment\b|risk\b|resale\b|comparing\b|considering\b|keeping\b|waiting\b|exploring\b|lower (?:initial|upfront|entry)|a mix\b|both\b)/i.test(subject)) violations.push({ type: "unsupported_recommendation_subject" });
       continue;
     }
@@ -608,6 +614,15 @@ function validateRecommendationSelection(message, packs, options) {
     if (opportunity.tradeoffs?.some(row => ["different_area", "outside_preferred_area"].includes(row.code)) && (!/outside|different area|challenger/i.test(message) || !buyer.preferredAreas?.some(area => message.includes(area)))) violations.push({ type: "area_tradeoff_hidden" });
   }
   return violations;
+}
+
+// The buyer's own amount in a sentence that names no listing cannot be a misquoted price.
+function sentenceNamesListing(message, index, packs) {
+  const text = String(message);
+  const start = Math.max(text.lastIndexOf(". ", index), text.lastIndexOf("\n", index), text.lastIndexOf("? ", index)) + 1;
+  const endOffset = text.slice(index).search(/[.!?](?:\s|$)|\n/);
+  const sentence = text.slice(start, endOffset < 0 ? undefined : index + endOffset).toLowerCase();
+  return packs.some(pack => pack.name?.value && sentence.includes(String(pack.name.value).toLowerCase()));
 }
 
 function buyerAmountContext(message, claim) {
