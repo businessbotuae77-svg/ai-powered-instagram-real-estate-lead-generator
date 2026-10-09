@@ -3,6 +3,7 @@ import test from "node:test";
 import { composeReplyWithModel } from "../src/conversation/llm.js";
 import { inferQuestionField, questionRequests, validateBuyerResponse } from "../src/conversation/response-validation.js";
 import { buildFactPack } from "../src/facts/retrieval.js";
+import { systemText } from "../src/conversation/model-request.js";
 
 const buyer = {
   useType: "investment", budgetAed: 3_000_000, investmentStrategy: "UNDECIDED",
@@ -14,7 +15,7 @@ const metadata = (message, extra = {}) => ({ message, askedQuestion: false, ques
 function client(output, inspect = () => {}) {
   return { apiKey: "synthetic", baseUrl: "https://synthetic.example.test", fetchImpl: async (_url, options) => {
     const request = JSON.parse(options.body);
-    inspect(JSON.parse(request.messages[0].content), request.system);
+    inspect(JSON.parse(request.messages[0].content), systemText(request.system));
     return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(output) }] }) };
   } };
 }

@@ -1,4 +1,5 @@
 import { localizeDraft } from "./localize.js";
+import { KeyedQueue } from "./keyed-queue.js";
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
 import { decideConversation } from "./decision.js";
 import { conversationalScope } from "./question-scope.js";
@@ -71,14 +72,11 @@ export class ConversationEngine {
     this.broker = broker || brokerProfile();
     this.services = services || loadServices();
     this.logger = logger || (process.env.NODE_ENV === "production" ? event => console.info("[advisor]", JSON.stringify(event)) : null);
-    this.turnQueue = Promise.resolve();
+    this.turns = new KeyedQueue();
   }
 
   handleMessage(instagramUserId, message, options = {}) {
-    const task = () => this.processTurn(instagramUserId, message, options);
-    const result = this.turnQueue.then(task, task);
-    this.turnQueue = result.catch(() => {});
-    return result;
+    return this.turns.run(String(instagramUserId), () => this.processTurn(instagramUserId, message, options));
   }
 
   async processTurn(instagramUserId, message, options = {}) {

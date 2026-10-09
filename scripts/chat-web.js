@@ -69,6 +69,7 @@ function llmStatus() {
     claudeEnabled: enabled,
     claudeRuntime: modelRuntimeStatus(llm),
     model: enabled ? llm.model : null,
+    understandingModel: enabled ? llm.understandingModel || llm.model : null,
     keyHint: enabled && key.length >= 4 ? `…${key.slice(-4)}` : null,
     runtimeKeyAllowed: ALLOW_RUNTIME_LLM_KEY
   };
