@@ -5,6 +5,7 @@ import { ProcessedEventStore } from "./processed-events.js";
 import { AlertLedger, CallRequestStore, sendWhatsAppAlert } from "./whatsapp.js";
 import { parseInstagramMessages, sendInstagramText, verifySignature, verifyWebhookChallenge } from "./meta.js";
 import { runtimeRoot } from "./json-store.js";
+import { KeyedQueue } from "../conversation/keyed-queue.js";
 import { handoffConfirmation, handoffFailureNotice } from "../conversation/contact.js";
 
 export function messageEventAgeMs(event, now = Date.now()) {
@@ -63,8 +64,8 @@ export class IntegrationOrchestrator {
     this.events = events || new ProcessedEventStore({ rootDir: this.rootDir });
     this.alerts = alerts || new AlertLedger({ rootDir: this.rootDir });
     this.callRequests = callRequests || new CallRequestStore({ rootDir: this.rootDir });
-    this.queue = Promise.resolve();
-    this.processing = Promise.resolve();
+    // One sender's messages are handled in order; different senders in parallel.
+    this.processing = new KeyedQueue();
   }
 
   handleVerify(query) {
@@ -119,7 +120,7 @@ export class IntegrationOrchestrator {
 
     for (const event of messages) await this.events.enqueue(event);
 
-    this.queue = this.queue.then(() => this.#processMessages(messages)).catch(async (error) => {
+    this.#processMessages(messages).catch(async (error) => {
       await this.log.record({
         integration: "orchestrator",
         operation: "queue",
@@ -133,10 +134,7 @@ export class IntegrationOrchestrator {
   }
 
   processMessageEvent(event, options = {}) {
-    const task = () => this.#processMessageEvent(event, options);
-    const result = this.processing.then(task, task);
-    this.processing = result.catch(() => {});
-    return result;
+    return this.processing.run(String(event?.senderId || ""), () => this.#processMessageEvent(event, options));
   }
 
   async retryPending() {
@@ -282,11 +280,7 @@ export class IntegrationOrchestrator {
   }
 
   async #processMessages(messages) {
-    const outputs = [];
-    for (const event of messages) {
-      outputs.push(await this.processMessageEvent(event));
-    }
-    return outputs;
+    return Promise.all(messages.map(event => this.processMessageEvent(event)));
   }
 
   async #safeInstagramSend(recipientId, text, mid, callRequest = null, choices = null, sendProgress = null) {

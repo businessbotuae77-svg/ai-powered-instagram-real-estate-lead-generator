@@ -4,6 +4,7 @@ import { composeReplyWithModel } from "../src/conversation/llm.js";
 import { inferQuestionField, validateBuyerResponse } from "../src/conversation/response-validation.js";
 import { buildFactPack } from "../src/facts/retrieval.js";
 import { collectComparisonAmounts, collectComparisonDifferences, validateMessage } from "../src/facts/checker.js";
+import { systemText } from "../src/conversation/model-request.js";
 
 const buyer = { budgetAed: 2_000_000, budgetHardCap: true, budgetFlexible: false,
   useType: "investment", investmentGoal: "TOTAL_RETURN", investmentStrategy: "HANDOVER_EXIT",
@@ -21,7 +22,7 @@ const output = (message, extra = {}) => ({ message, askedQuestion: false, questi
 function client(response, inspect = () => {}) {
   return { apiKey: "synthetic", model: "synthetic", baseUrl: "https://synthetic.test", fetchImpl: async (_url, request) => {
     const body = JSON.parse(request.body);
-    inspect(JSON.parse(body.messages[0].content), body.system);
+    inspect(JSON.parse(body.messages[0].content), systemText(body.system));
     return { ok: true, json: async () => ({ content: [{ type: "text", text: typeof response === "string" ? response : JSON.stringify(response) }] }) };
   } };
 }

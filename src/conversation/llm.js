@@ -1,9 +1,8 @@
 import { CONVERSATION_POLICY } from "./policy.js";
 import { inferQuestionField, questionRequests, validateBuyerResponse } from "./response-validation.js";
 import { isFlexiblePreference } from "./preference-state.js";
-import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
-
-const DEFAULT_MODEL = "claude-sonnet-5";
+import { recordModelException, recordModelHttpError, recordModelOutcome, recordModelUsage } from "./model-runtime.js";
+import { cachedSystem, DEFAULT_MODEL, DEFAULT_UNDERSTANDING_MODEL, thinkingOff } from "./model-request.js";
 
 function stripCodeFence(raw) {
   if (!raw || typeof raw !== "string") return raw;
@@ -64,6 +63,7 @@ export function createAnthropicClient(options = {}) {
   return {
     apiKey,
     model: options.model || process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
+    understandingModel: options.understandingModel || process.env.ANTHROPIC_UNDERSTANDING_MODEL || DEFAULT_UNDERSTANDING_MODEL,
     baseUrl: options.baseUrl || "https://api.anthropic.com"
   };
 }
@@ -107,7 +107,8 @@ export async function composeReplyWithModel(client, options = {}) {
   const factPacks = packs.map(pack => Object.fromEntries(Object.entries(pack).filter(([key, value]) =>
     ["projectId", "unitId", "fit"].includes(key) || (value && typeof value === "object" && "confirmed" in value)
   )));
-  const system = [
+  // Everything but the language line is identical on every request, so it is cached.
+  const fixedSystem = [
     CONVERSATION_POLICY,
     "Output must be raw JSON only. Do not wrap in markdown code fences or add any prose before or after the JSON object.",
     "Compose one complete buyer response in the selected language from the deterministic strategy, buyer state and supported facts below.",
@@ -131,9 +132,10 @@ export async function composeReplyWithModel(client, options = {}) {
     'Return a single JSON object, no markdown: {"message":"...","askedQuestion":true,"questionField":"exact required field or allowed next step","claims":[{"text":"exact quoted span in message","projectId":"...","unitId":"...","field":"exact fact-pack field","value":"exact field value (preserve number/boolean type)"}],"proposedActions":[]}. Set askedQuestion false and questionField null if none.',
     "Cite every material property fact and inventory mention using the exact current projectId/unitId and field value. Each citation text must appear verbatim in message and contain its field value. Cite name separately from price, size, bedrooms or features when necessary; multiple citations may cover the same sentence. Buyer-stated amounts and validated computed opportunity differences do not need a property-field citation. Citation metadata cannot make an unsupported claim true.",
     "For research or computed facts use a supplied allowedClaims item: include its evidenceId, projectId, unitId if present, field, exact value and exact message span. Its source, record, scope and verification date are application-owned. Do not cite thesis prose or unsupportedClaims as factual evidence, copy an evidenceId to a different scope, or extend a supported catalyst into a claim of appreciation or demand.",
-    "Research claims retain evidenceClass, confidence, scope, source record and checked date. FACT reports an observation; CALCULATION reports arithmetic with its stated inputs. SCENARIO is an assumption and FORECAST is disabled. Never upgrade either to confirmed evidence. Research prices and plan examples are observations, not commercial quotes or proof of availability. A project-wide launch price cannot become a bedroom-specific launch price. Transaction activity cannot establish easy resale. Readiness measures research coverage and must never be shown as a marketing grade or investment score.",
-    `Write natural ${language === "ar" ? "Arabic" : "English"}. Ordinary replies should be two to five short sentences; use compact lists when a comparison or schedule requires them.`
+    "Research claims retain evidenceClass, confidence, scope, source record and checked date. FACT reports an observation; CALCULATION reports arithmetic with its stated inputs. SCENARIO is an assumption and FORECAST is disabled. Never upgrade either to confirmed evidence. Research prices and plan examples are observations, not commercial quotes or proof of availability. A project-wide launch price cannot become a bedroom-specific launch price. Transaction activity cannot establish easy resale. Readiness measures research coverage and must never be shown as a marketing grade or investment score."
   ].join("\n");
+  const system = cachedSystem(fixedSystem,
+    `Write natural ${language === "ar" ? "Arabic" : "English"}. Ordinary replies should be two to five short sentences; use compact lists when a comparison or schedule requires them.`);
   const payload = {
     currentMessage: message,
     recentTurns: recentTurns.slice(-6).map(turn => ({ role: turn.role, text: turn.text, stage: turn.stage, questionField: turn.questionField || null })),
@@ -161,6 +163,8 @@ export async function composeReplyWithModel(client, options = {}) {
     requiredQuestion,
     areaGuide
   };
+  const model = client.model || DEFAULT_MODEL;
+  const startedAt = Date.now();
   let response;
   try {
     response = await (client.fetchImpl || fetch)(`${client.baseUrl}/v1/messages`, {
@@ -168,9 +172,9 @@ export async function composeReplyWithModel(client, options = {}) {
       signal: AbortSignal.timeout(15000),
       headers: { "content-type": "application/json", "x-api-key": client.apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
-        model: client.model,
+        model,
         max_tokens: 1800,
-        thinking: { type: "disabled" },
+        ...thinkingOff(model),
         system,
         messages: [{ role: "user", content: JSON.stringify(payload) }]
       })
@@ -191,6 +195,7 @@ export async function composeReplyWithModel(client, options = {}) {
     console.warn("[llm] response JSON parse error:", err?.name || "parse_error");
     return null;
   }
+  recordModelUsage(client, "composition", { model, startedAt, usage: data.usage });
   const text = (data.content || []).filter(block => block.type === "text").map(block => block.text).join("\n").trim();
   const jsonStr = extractFirstJsonObject(text);
   if (!jsonStr) {

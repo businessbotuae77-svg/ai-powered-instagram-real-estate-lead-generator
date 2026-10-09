@@ -54,6 +54,8 @@ Meta webhook path: `http://127.0.0.1:8787/webhook/meta`
 
 Docs:
 
+- Deployment plan (cost, speed, go-live steps): `docs/DEPLOYMENT-PLAN.md`
+- Coding agents (Claude Code, Codex): `AGENTS.md`
 - Broker mode (how Claude answers, fact checks, harness): `docs/BROKER-MODE.md`
 - Milestone 1: `docs/MILESTONE_1.md`
 - Milestone 2: `docs/MILESTONE_2.md`

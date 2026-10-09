@@ -335,7 +335,10 @@ export class AirtableStore {
 
   async saveBuyer(buyer) {
     this.buyers.set(String(buyer.instagramUserId), { ...buyer });
-    await writeJson(path.join(this.runtimeDir, "buyers.json"), [...this.buyers.values()]);
+    // Different buyers' turns run concurrently: write one full snapshot at a time.
+    const write = () => writeJson(path.join(this.runtimeDir, "buyers.json"), [...this.buyers.values()]);
+    this.buyerWrites = (this.buyerWrites || Promise.resolve()).then(write, write);
+    await this.buyerWrites;
     return this.getBuyer(buyer.instagramUserId);
   }
 

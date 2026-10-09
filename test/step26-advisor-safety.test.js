@@ -5,6 +5,7 @@ import { buildFactPack } from "../src/facts/retrieval.js";
 import { validateBuyerResponse } from "../src/conversation/response-validation.js";
 import { advisorBudgetPolicy } from "../src/conversation/advisor-opportunities.js";
 import { parseAdvisoryFacts } from "../src/conversation/advisory-memory.js";
+import { systemText } from "../src/conversation/model-request.js";
 
 const offline = { useLlm: false };
 
@@ -46,7 +47,7 @@ async function withModelUnderstanding(services, understanding, run) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
     const payload = JSON.parse(options.body);
-    const result = payload.system.includes("extract structured buyer requirements")
+    const result = systemText(payload.system).includes("extract structured buyer requirements")
       ? understanding : { message: "I can help with that.", askedQuestion: false,
         questionField: null, claims: [], proposedActions: [] };
     return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(result) }] }) };

@@ -5,7 +5,8 @@ import { advisorBudgetPolicy } from "./advisor-opportunities.js";
 import { inferQuestionField, knownField, questionRequests, sanitizeBuyerLanguage, validateBuyerResponse } from "./response-validation.js";
 import { isFlexiblePreference } from "./preference-state.js";
 import { formatStages, packPaymentStages, stagePercentsFor } from "../facts/payment-stages.js";
-import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
+import { recordModelException, recordModelHttpError, recordModelOutcome, recordModelUsage } from "./model-runtime.js";
+import { cachedSystem, DEFAULT_MODEL, thinkingOff } from "./model-request.js";
 import { extractFirstJsonObject } from "./llm.js";
 
 // Broker mode: Claude answers the buyer directly from a compact, relevant slice
@@ -15,7 +16,6 @@ import { extractFirstJsonObject } from "./llm.js";
 // booking actions stay with the deterministic flows, and anything that fails
 // is repaired sentence by sentence or replaced by the deterministic reply.
 
-const DEFAULT_MODEL = "claude-sonnet-5";
 const MAX_UNITS = 10;
 const MAX_KNOWLEDGE = 6;
 
@@ -361,13 +361,16 @@ export async function composeBrokerReply(client, { buyer, message, recentTurns =
   if (!client?.apiKey) return null;
   if (typeof client.onBroker === "function") client.onBroker({ buyer, message, recentTurns, context, permissions, ownerLine, validation });
   const payload = brokerPayload({ buyer, message, recentTurns, context, permissions, ownerLine, alreadyAsked });
+  const model = client.model || DEFAULT_MODEL;
+  const startedAt = Date.now();
   let response;
   try {
+    // Thinking stays off: it slowed replies and shared the 900-token limit with the JSON answer.
     response = await (client.fetchImpl || fetch)(`${client.baseUrl}/v1/messages`, {
       method: "POST",
       signal: AbortSignal.timeout(Number(process.env.BROKER_TIMEOUT_MS || 25000)),
       headers: { "content-type": "application/json", "x-api-key": client.apiKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: client.model || DEFAULT_MODEL, max_tokens: 900, system: SYSTEM,
+      body: JSON.stringify({ model, max_tokens: 900, ...thinkingOff(model), system: cachedSystem(SYSTEM),
         messages: [{ role: "user", content: JSON.stringify(payload) }] })
     });
   } catch (error) {
@@ -380,6 +383,7 @@ export async function composeBrokerReply(client, { buyer, message, recentTurns =
   }
   let data;
   try { data = await response.json(); } catch (error) { recordModelException(client, "composition", error); return null; }
+  recordModelUsage(client, "composition", { model, startedAt, usage: data.usage });
   const raw = (data.content || []).filter(block => block.type === "text").map(block => block.text).join("\n").trim();
   let output = null;
   const json = extractFirstJsonObject(raw);

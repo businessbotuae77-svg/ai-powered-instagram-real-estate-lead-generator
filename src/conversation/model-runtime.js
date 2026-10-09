@@ -43,11 +43,34 @@ export function recordModelException(client, stage, error) {
   console.warn(`[llm] request failed: stage=${stage} category=${category}`);
 }
 
+const usageTotals = new WeakMap();
+const USAGE_FIELDS = { inputTokens: "input_tokens", cacheReadTokens: "cache_read_input_tokens",
+  cacheWriteTokens: "cache_creation_input_tokens", outputTokens: "output_tokens" };
+
+/**
+ * Token counts and latency of one model response, kept as running totals per
+ * stage since the process started so /api/health shows what replies cost.
+ */
+export function recordModelUsage(client, stage, { model = null, startedAt = null, usage = null } = {}) {
+  if (!client || !STAGES.includes(stage) || !usage || typeof usage !== "object") return;
+  const ms = Number.isFinite(startedAt) ? Date.now() - startedAt : 0;
+  const call = Object.fromEntries(Object.entries(USAGE_FIELDS).map(([key, field]) => [key, Number.isFinite(usage[field]) ? usage[field] : 0]));
+  const all = usageTotals.get(client) || {};
+  const totals = { requests: 0, totalMs: 0, ...Object.fromEntries(Object.keys(USAGE_FIELDS).map(key => [key, 0])), ...all[stage] };
+  for (const key of Object.keys(USAGE_FIELDS)) totals[key] += call[key];
+  usageTotals.set(client, { ...all, [stage]: { ...totals, requests: totals.requests + 1, totalMs: totals.totalMs + ms, model } });
+  console.info(`[llm] usage stage=${stage} model=${model} ms=${ms} input=${call.inputTokens} cache_read=${call.cacheReadTokens} cache_write=${call.cacheWriteTokens} output=${call.outputTokens}`);
+}
+
 export function modelRuntimeStatus(client) {
   if (!client?.apiKey) return { status: "disabled", stages: {} };
   const stages = observations.get(client) || {};
   const values = Object.values(stages);
   const status = !values.length ? "unverified" : values.some(value => value.status === "failed") ? "degraded"
     : values.length === STAGES.length ? "healthy" : "partially_verified";
-  return { status, stages: structuredClone(stages) };
+  const totals = usageTotals.get(client);
+  if (!totals) return { status, stages: structuredClone(stages) };
+  const usage = Object.fromEntries(Object.entries(totals).map(([stage, { totalMs, ...rest }]) =>
+    [stage, { ...rest, averageMs: Math.round(totalMs / rest.requests) }]));
+  return { status, stages: structuredClone(stages), usage };
 }

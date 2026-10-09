@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { setupConversation } from "./helpers.js";
 import { extractFactsFromMessage } from "../src/conversation/extract.js";
+import { systemText } from "../src/conversation/model-request.js";
 
 const offline = { useLlm: false };
 const inventedContext = /confirmed option.*(?:fits|details)|for that property|which project|what project|which details|approved evidence|approved matrix/i;
@@ -102,7 +103,7 @@ test("model ask_facts misclassification cannot replace broad investment educatio
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
     const payload = JSON.parse(options.body);
-    const result = payload.system.includes("extract structured buyer requirements")
+    const result = systemText(payload.system).includes("extract structured buyer requirements")
       ? { facts: {}, intents: ["ask_facts"], signals: [] }
       : { message: "I don't have current confirmed terms for that property yet. Which project are you asking about?",
         askedQuestion: true, questionField: "comparisonProjects", claims: [], proposedActions: [] };
@@ -146,7 +147,7 @@ test("reset model context cannot resurrect the previous search on Fresh or the n
     const payload = JSON.parse(options.body);
     const input = JSON.parse(payload.messages[0].content);
     requests.push(input);
-    const isUnderstanding = payload.system.includes("extract structured buyer requirements");
+    const isUnderstanding = systemText(payload.system).includes("extract structured buyer requirements");
     const result = isUnderstanding ? { facts: {}, intents: [], signals: [] }
       : { message: input.draftReply ?? input.fallbackDraft, askedQuestion: Boolean(input.requiredQuestion),
         questionField: input.requiredQuestion?.field || null, claims: [], proposedActions: [] };
@@ -264,7 +265,7 @@ test("model understanding cannot turn a project name into new bedroom or type re
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
     const payload = JSON.parse(options.body);
-    const data = payload.system.includes("extract structured buyer requirements")
+    const data = systemText(payload.system).includes("extract structured buyer requirements")
       ? { facts: { project: selectedPack.name.value, bedrooms: 0, propertyType: "studio" }, intents: ["ask_facts"], signals: [] }
       : { message: "Malformed composition", askedQuestion: false, questionField: null };
     return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(data) }] }) };

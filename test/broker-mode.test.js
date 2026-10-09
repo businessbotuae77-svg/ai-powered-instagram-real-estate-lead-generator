@@ -3,6 +3,7 @@ import test from "node:test";
 import { setupConversation } from "./helpers.js";
 import { brokerPayload, buildBrokerContext, brokerEligible, composeBrokerReply, repairBrokerReply, validateBrokerReply } from "../src/conversation/broker-mode.js";
 import { loadAreaGuide } from "../src/facts/area-guide.js";
+import { systemText } from "../src/conversation/model-request.js";
 
 // A fake Claude for broker mode: `reply(payload)` returns the JSON it should send.
 function brokerClient(reply, seen = [], requests = []) {
@@ -10,8 +11,8 @@ function brokerClient(reply, seen = [], requests = []) {
     apiKey: "test-only", model: "test-model", baseUrl: "https://example.test",
     fetchImpl: async (_url, request) => {
       const body = JSON.parse(request.body);
-      requests.push(body.system);
-      if (!/senior property advisor/.test(body.system)) return { ok: false, status: 503, json: async () => ({}) };
+      requests.push(systemText(body.system));
+      if (!/senior property advisor/.test(systemText(body.system))) return { ok: false, status: 503, json: async () => ({}) };
       const payload = JSON.parse(body.messages[0].content);
       seen.push(payload);
       const output = reply(payload);

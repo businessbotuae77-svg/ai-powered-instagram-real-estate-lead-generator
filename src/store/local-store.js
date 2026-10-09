@@ -57,7 +57,10 @@ export class LocalStore {
   }
 
   async persistBuyers() {
-    await writeJson(path.join(this.runtimeDir, "buyers.json"), [...this.buyers.values()]);
+    // Different buyers' turns run concurrently: write one full snapshot at a time.
+    const write = () => writeJson(path.join(this.runtimeDir, "buyers.json"), [...this.buyers.values()]);
+    this.buyerWrites = (this.buyerWrites || Promise.resolve()).then(write, write);
+    await this.buyerWrites;
   }
 
   listDevelopers() {

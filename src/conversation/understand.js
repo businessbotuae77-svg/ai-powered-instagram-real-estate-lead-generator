@@ -1,5 +1,6 @@
 import { CONVERSATION_POLICY } from "./policy.js";
-import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
+import { recordModelException, recordModelHttpError, recordModelOutcome, recordModelUsage } from "./model-runtime.js";
+import { cachedSystem, DEFAULT_MODEL, thinkingOff } from "./model-request.js";
 import { normalizeBuyerText } from "./text.js";
 /**
  * Claude (or local) understanding → structured buyer updates.
@@ -10,8 +11,6 @@ import { parseMoney, normalizeArea, normalizeBedrooms, normalizePropertyType, no
 import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { ADVISORY_FACT_FIELDS, parseAdvisoryFacts, normalizeAdvisoryFacts } from "./advisory-memory.js";
 import { canonicalQuestionField, isPropertyFactUncertainty, parseFlexiblePreferences } from "./preference-state.js";
-
-const DEFAULT_MODEL = "claude-sonnet-5";
 
 const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
   "You extract structured buyer requirements from Abu Dhabi off-plan property chat.",
@@ -80,6 +79,9 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
     recentTurns: recentTurns.slice(-6).map((t) => ({ role: t.role, text: t.text }))
   });
 
+  // Clients from createAnthropicClient carry a cheaper understanding model.
+  const model = client.understandingModel || client.model || DEFAULT_MODEL;
+  const startedAt = Date.now();
   try {
     const response = await (client.fetchImpl || fetch)(`${client.baseUrl}/v1/messages`, {
       method: "POST",
@@ -90,10 +92,10 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
         "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
-        model: client.model || DEFAULT_MODEL,
+        model,
         max_tokens: 500,
-        thinking: { type: "disabled" },
-        system: UNDERSTAND_SYSTEM,
+        ...thinkingOff(model),
+        system: cachedSystem(UNDERSTAND_SYSTEM),
         messages: [{ role: "user", content: user }]
       })
     });
@@ -102,6 +104,7 @@ export async function understandMessageWithModel(client, { message, buyer, lastA
       return null;
     }
     const data = await response.json();
+    recordModelUsage(client, "understanding", { model, startedAt, usage: data.usage });
     const text = (data.content || [])
       .filter((block) => block.type === "text")
       .map((block) => block.text)
