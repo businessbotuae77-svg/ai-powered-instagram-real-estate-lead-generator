@@ -104,6 +104,7 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
   const types = new Set((buyer.propertyTypes || []).map(t => String(t).toLowerCase()));
   const beds = new Set(buyer.bedrooms || []);
   const rejected = new Set(buyer.rejectedProjects || []);
+  const family = (buyer.priorities || []).includes("family_space");
 
   const scored = [];
   for (const unit of catalog.units || []) {
@@ -123,6 +124,7 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
     if (types.size && types.has(String(unit.propertyType || "").toLowerCase())) score += 10;
     if (beds.size && beds.has(unit.bedrooms)) score += 10;
     if (rejected.has(project.id) && !named.has(project.id)) score -= 60;
+    if (family) score += unit.bedrooms >= 2 ? 15 + (/villa|townhouse/i.test(unit.propertyType || "") ? 10 : 0) : -30;
     if (price === undefined && !named.has(project.id)) score -= 10;
     scored.push({ pack, score, price });
   }
@@ -145,6 +147,7 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
     if (ceiling && price !== undefined && price > ceiling) return false;
     if (typeRequired && !types.has(String(confirmed(pack, "propertyType") || "").toLowerCase())) return false;
     if (minBeds !== null && typeof confirmed(pack, "bedrooms") === "number" && confirmed(pack, "bedrooms") < minBeds) return false;
+    if (family && typeof confirmed(pack, "bedrooms") === "number" && confirmed(pack, "bedrooms") < 2) return false;
     return true;
   }).map(pack => ({ projectId: pack.projectId, unitId: pack.unitId }));
   // Price and initial-payment differences between listings shown together are

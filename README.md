@@ -54,6 +54,7 @@ Meta webhook path: `http://127.0.0.1:8787/webhook/meta`
 
 Docs:
 
+- Broker mode (how Claude answers, fact checks, harness): `docs/BROKER-MODE.md`
 - Milestone 1: `docs/MILESTONE_1.md`
 - Milestone 2: `docs/MILESTONE_2.md`
 - Milestone 3: `docs/MILESTONE_3.md`
