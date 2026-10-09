@@ -24,12 +24,6 @@ const ASK_PROMPTS = {
   phone: "If you want an advisor to follow up, what number works best?"
 };
 
-/** Core fields needed before we run a confident inventory match. */
-export const CORE_QUALIFICATION = ["budgetAed", "preferredAreas", "propertyTypes"];
-
-/** Extra fields asked after a match, especially for high-intent paths. */
-export const CONTACT_QUALIFICATION = ["name", "phone"];
-
 export function qualificationGaps(
   buyer,
   { includeCash = false, includeFinancing = false, includeContact = false, includeUseType = false } = {}

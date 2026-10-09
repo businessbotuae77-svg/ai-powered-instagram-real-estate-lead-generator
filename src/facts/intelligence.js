@@ -388,7 +388,3 @@ export function normalizePaymentSchedule(record) {
     sourceCategory: "payment_schedule", sourceRecordId: record.id
   };
 }
-
-export function areaIntelligenceFor(intelligence, area) {
-  return (intelligence?.areas || []).find(row => row.usable && row.name?.toLowerCase() === String(area).toLowerCase()) || null;
-}

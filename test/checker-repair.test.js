@@ -3,7 +3,7 @@ import test from "node:test";
 import { composeReplyWithModel } from "../src/conversation/llm.js";
 import { validateBuyerResponse } from "../src/conversation/response-validation.js";
 import { validateMessage } from "../src/facts/checker.js";
-import { buildFactPack } from "../src/facts/retrieval.js";
+import { buildFactPack, buildProjectKnowledgePack } from "../src/facts/retrieval.js";
 import { renderProjectCard } from "../src/conversation/project-copy.js";
 import { fallbackSafeText } from "../src/conversation/replies.js";
 import { areaGuideClaims, findAreaEntry, loadAreaGuide } from "../src/facts/area-guide.js";
@@ -79,4 +79,16 @@ test("the listing card and last-resort fallback read as sentences, not data rows
   const fallback = fallbackSafeText([pack]);
   assert.match(fallback, /Nawayef Park Views by Modon on Hudayriyat Island, from AED 2,000,000\./);
   assert.doesNotMatch(fallback, / · /);
+  const otherUnit = { ...pack, unitId: "npv-2", startingPriceAed: { ...pack.startingPriceAed, value: 2_100_000 },
+    startingPriceText: { ...pack.startingPriceText, value: "AED 2,100,000" } };
+  assert.equal((fallbackSafeText([pack, otherUnit]).match(/Nawayef Park Views/g) || []).length, 1);
+});
+
+test("project-knowledge fallback does not imply a unit match or invent current commercial terms", () => {
+  const knowledgePack = buildProjectKnowledgePack({ id: "masdar-project", name: "Masdar Grove", developerName: "Example Developer",
+    area: "Masdar City", emirate: "Abu Dhabi", source: "Example source", lastVerified: new Date().toISOString() });
+  const fallback = fallbackSafeText([knowledgePack]);
+  assert.match(fallback, /Masdar Grove by Example Developer in Masdar City/);
+  assert.match(fallback, /unit prices, availability, payment terms or handover dates/);
+  assert.doesNotMatch(fallback, /option that fits|payment plan.*confirmed|handover is/i);
 });

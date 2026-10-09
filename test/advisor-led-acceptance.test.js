@@ -68,7 +68,7 @@ async function askPriority(services, id = "investor") {
 
 async function acceptance(services, id, options = OFFLINE) {
   const fresh = await services.engine.handleMessage(id, "Start fresh", options);
-  assert.equal(fresh.nextQuestion?.field, "useType", fresh.reply);
+  assert.equal(fresh.nextQuestion?.field, "explorationTopic", fresh.reply);
   safe(fresh);
   const investor = await services.engine.handleMessage(id, "Exploring investment opportunities", options);
   assert.equal(investor.buyer.useType, "investment");
@@ -334,6 +334,7 @@ test("acceptance B: insufficient commercial evidence allows one different useful
 
 test("regression 14: rejected model question loops fall back to advisor discovery across the exact flow", async t => {
   const services = await setup();
+  services.engine.brokerMode = false;
   const payloads = [];
   services.engine.llm = model(payload => "currentMessage" in payload
     ? output("What matters most to you? What's your priority?", { askedQuestion: true, questionField: "investmentObjective" })

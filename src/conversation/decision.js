@@ -51,8 +51,8 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   const topic = judgmentTopic(text);
   if (topic) return { ...response(judgmentAnswer(topic, buyer), "professional_topic"), handoffReason: topic, handoffTopic: handoffTopic(topic), serviceTopic: topic };
   if (intents.includes("start_fresh")) {
-    const prompt = say("Are you buying a home, investing, or just exploring?", "هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟");
-    return response(say(`Starting fresh. ${prompt}`, `لنبدأ من جديد. ${prompt}`), "exploring", "useType", prompt);
+    const prompt = say("What are you curious about — an area, a project, or what your budget could buy?", "ما الذي تود معرفته — منطقة أم مشروع أم الخيارات التي تناسب ميزانيتك؟");
+    return response(say(`Fresh start. ${prompt}`, `لنبدأ من جديد. ${prompt}`), "exploring", "explorationTopic", prompt);
   }
   const scope = conversationalScope(text);
   if (scope === "investment_education") {
@@ -138,18 +138,28 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
         choices: [{ id: "continue", label: "Continue", value: "Continue" }, { id: "start_fresh", label: "Start fresh", value: "Start fresh" }]
       } };
     }
-    return response(say("Hi 👋 I'm an AI property guide. Are you buying a home, investing, or just exploring?", "مرحباً 👋 أنا دليل عقاري بالذكاء الاصطناعي. هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟"), "exploring", "useType", say("Are you buying a home, investing, or just exploring?", "هل تبحث عن منزل للسكن أم للاستثمار أم تستكشف الخيارات؟"));
+    const prompt = say("What are you curious about — an area, a project, or what your budget could buy?", "ما الذي تود معرفته — منطقة أم مشروع أم الخيارات التي تناسب ميزانيتك؟");
+    return response(say(`Hi 👋 I can help you explore Abu Dhabi areas, compare current projects, or understand payment plans. ${prompt}`, `مرحباً 👋 أساعدك في استكشاف مناطق أبوظبي ومقارنة المشاريع الحالية وفهم خطط السداد. ${prompt}`), "exploring", "explorationTopic", prompt);
   }
   if (/^(just )?explor(?:ing|e)[.!?]*$/i.test(text.trim())) {
-    const prompt = say("What would you like to understand first — areas, prices, investment, or how buying works?", "ما الذي تود فهمه أولاً: المناطق أم الأسعار أم الاستثمار أم إجراءات الشراء؟");
+    const prompt = say("What would help first — choosing an area, comparing projects, or seeing what a budget could buy?", "ما الذي يفيدك أولاً — اختيار منطقة أم مقارنة المشاريع أم معرفة ما تتيحه ميزانيتك؟");
     return response(say(`Happy to help. ${prompt}`, `يسعدني مساعدتك. ${prompt}`), "exploring", "explorationTopic", prompt);
   }
+  if (buyer.advisorLed && buyer.budgetAed && [null, "advisoryNextAction"].includes(lastAskedField) &&
+      /^(?:i (?:don't|do not) know|not sure|unsure|idk|no preference|whatever you think|you choose)[.!?]*$/i.test(text.trim())) {
+    return response(say("No problem. I'll keep the shortlist balanced and compare confirmed prices, payment commitments and handover; rental or resale outcomes need project-specific evidence.", "لا مشكلة. سأوازن الخيارات وأقارن الأسعار والتزامات السداد ومواعيد التسليم المؤكدة؛ أما دخل الإيجار أو إعادة البيع فيحتاج إلى أدلة خاصة بكل مشروع."), "exploring");
+  }
   if (buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.cashDeploymentPreference && !buyer.liquidityPriority && !isFlexiblePreference(buyer, "priorities") && !buyer.advisorLed && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use") {
-    const prompt = say("What should I optimise for — best overall, growth potential, lowest cash upfront, safer exit, or should I choose?", "ما الذي أركز عليه: الأنسب إجمالاً أم فرص النمو أم أقل دفعة مقدمة أم سهولة الخروج أم أختار لك؟");
-    const result = response(say(`Your budget is around AED ${Number(buyer.budgetAed).toLocaleString("en-US")}. ${prompt}`, `الميزانية حوالي AED ${Number(buyer.budgetAed).toLocaleString("en-US")}. ${prompt}`), "exploring", "investmentObjective", prompt);
+    const prompt = say("Should I start with a balanced shortlist, lower upfront cash, growth potential, or evidence for an easier resale?", "هل أبدأ بقائمة متوازنة أم بدفعة أولى أقل أم بفرص النمو أم بأدلة تسهّل إعادة البيع؟");
+    const result = response(say(`I can compare current options by entry price, payment timing and handover; rental or resale performance needs project-specific evidence. ${prompt}`, `أستطيع مقارنة الخيارات الحالية بسعر الدخول ومواعيد السداد والتسليم؛ أما أداء الإيجار أو إعادة البيع فيحتاج إلى أدلة خاصة بكل مشروع. ${prompt}`), "exploring", "investmentObjective", prompt);
     return { ...result, nextQuestion: { ...result.nextQuestion, choices: choicesForField("investmentObjective")?.choices || null } };
   }
   if (/^(i (don't|do not) know|not sure|unsure|idk|ما أعرف|لا أعرف)[.!?]*$/i.test(text.trim()) && !buyer.budgetAed) {
+    if (lastAskedField === "explorationTopic") {
+      const overview = areaAnswer({ text: "areas", buyer, catalog, lastAskedField, ar, askedFields });
+      if (overview) return { ...overview, text: say(`No problem. Here's a quick Abu Dhabi starting point:\n${overview.text}`, `لا مشكلة. إليك بداية سريعة للتعرف على أبوظبي:\n${overview.text}`) };
+      return response(say("No problem. Tell me any area or project that caught your eye, and I'll start there.", "لا مشكلة. أخبرني بأي منطقة أو مشروع لفت انتباهك وسأبدأ منه."), "exploring");
+    }
     if (isFlexiblePreference(buyer, "useType")) {
       const explanation = say("No problem — I can explain the property choices as we go. For a home, I'd start with how you want to live. For investment, I'd compare entry price, payment commitments and resale evidence before selecting a property.", "لا مشكلة — أستطيع شرح الخيارات العقارية معك. للسكن أبدأ بما يناسب حياتك، وللاستثمار أقارن سعر الدخول والتزامات السداد وأدلة إعادة البيع قبل اختيار العقار.");
       return response(explanation, "exploring");

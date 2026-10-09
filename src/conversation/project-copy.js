@@ -121,10 +121,6 @@ export function renderProjectIntro({ buyer, packs, mode = "exact", mismatches = 
   return parts.filter(Boolean).join("\n\n");
 }
 
-export function renderFocusedFact(answerText) {
-  return answerText;
-}
-
 function joinNatural(values) {
   if (!values.length) return "";
   if (values.length === 1) return values[0];

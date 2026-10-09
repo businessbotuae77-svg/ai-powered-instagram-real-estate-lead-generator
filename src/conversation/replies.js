@@ -27,7 +27,6 @@ export function buildConversationReply({
   matchMode = "none",
   mismatches = [],
   highIntent = false,
-  handoffRequested = false,
   offerCallRequest = false,
   pendingOffer = null,
   unsure = [],
@@ -42,10 +41,10 @@ export function buildConversationReply({
   let callRequest = null;
 
   if (intents.includes("start_fresh")) {
-    lines.push("Starting fresh. Are you buying a home, investing, or just exploring?");
+    lines.push("Fresh start. What are you curious about — an area, a project, or what your budget could buy?");
     nextQuestion = {
-      field: "useType",
-      prompt: "Are you buying a home, investing, or just exploring?",
+      field: "explorationTopic",
+      prompt: "What are you curious about — an area, a project, or what your budget could buy?",
       choices: null
     };
     return finish(lines, "exploring", nextQuestion, null);
@@ -122,12 +121,9 @@ export function buildConversationReply({
       nextPending = { type: "session_choice" };
       return finish(lines, "welcome_back", nextQuestion, nextPending);
     }
-    lines.push("What budget are you working with?");
-    nextQuestion = {
-      field: "budgetAed",
-      prompt: "What budget are you working with?",
-      choices: budgetRangeChoices()
-    };
+    const prompt = "What are you curious about — an area, a project, or what your budget could buy?";
+    lines.push(`Hi 👋 I can help you explore Abu Dhabi areas, compare current projects, or understand payment plans. ${prompt}`);
+    nextQuestion = { field: "explorationTopic", prompt, choices: null };
     return finish(lines, "qualifying", nextQuestion, null);
   }
 
@@ -483,15 +479,33 @@ export function fallbackSafeText(packs) {
   if (!packs.length) {
     return "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
   }
-  // Last-resort reply: still a readable sentence per option, never a data row.
-  const rows = packs.map((pack) => {
+  const commercialProjectIds = new Set(packs.filter(pack => !pack.knowledgeOnly && pack.unitId).map(pack => pack.projectId));
+  const seenCommercial = new Set();
+  const commercial = [];
+  for (const pack of packs) {
+    if (pack.knowledgeOnly || !pack.unitId || seenCommercial.has(pack.projectId)) continue;
+    commercial.push(pack);
+    seenCommercial.add(pack.projectId);
+  }
+  const projectOnly = packs.filter(pack => (pack.knowledgeOnly || !pack.unitId) && !commercialProjectIds.has(pack.projectId));
+  const projectRows = projectOnly.map(pack => {
+    const name = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null].filter(Boolean).join(" ");
+    const area = pack.area?.confirmed ? ` ${/\bisland$/i.test(pack.area.value) ? "on" : "in"} ${pack.area.value}` : "";
+    return name ? `${name}${area}.` : null;
+  }).filter(Boolean);
+  const listingRows = commercial.map((pack) => {
     const name = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null].filter(Boolean).join(" ");
     const area = pack.area?.confirmed ? ` ${/\bisland$/i.test(pack.area.value) ? "on" : "in"} ${pack.area.value}` : "";
     const price = pack.startingPriceText?.confirmed ? `, from ${pack.startingPriceText.value}` : "";
     return `${name}${area}${price}.`;
   });
-  const lead = rows.length > 1 ? "Here are the options that fit what you've told me:" : "Here's the option that fits what you've told me:";
-  return [lead, ...rows.map(row => rows.length > 1 ? `• ${row}` : row), "Ask me about the payment plan, handover or the area and I'll go through it."].join("\n");
+  const lines = ["Here's what I can confirm from the information available:", ...projectRows, ...listingRows];
+  if (!commercial.length && projectRows.length) {
+    lines.push("I don't have confirmed unit prices, availability, payment terms or handover dates in this project information; those need a current check.");
+  } else if (commercial.length) {
+    lines.push("I can check the payment plan, handover or availability for these listings.");
+  }
+  return lines.join("\n");
 }
 
 /** Natural offline composition of the same deterministic advisory strategy. */

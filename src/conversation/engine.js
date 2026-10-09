@@ -376,7 +376,6 @@ export class ConversationEngine {
       understandingSource: understanding?.source || null
     });
 
-    const handoffRequested = false;
     const highIntent = hasHighIntent(intents, signals);
     const offerCallRequest =
       Boolean(options.offerCallRequest) ||
@@ -558,7 +557,7 @@ export class ConversationEngine {
     if (!draft) draft = contact || buildConversationReply({
       buyer, message: text, intents, packs, matches: matchResult.matches,
       matchMode: matchResult.mode, mismatches: matchResult.mismatches || [],
-      highIntent, handoffRequested, offerCallRequest,
+      highIntent, offerCallRequest,
       pendingOffer: this.memory.getPendingOffer(instagramUserId), unsure, ack, lastAskedField, updatedFields
     });
     // An unanswered connection offer lapses once the conversation moves on, so a
@@ -645,9 +644,10 @@ export class ConversationEngine {
     const serviceTerms = configuredServiceTerms(this.services);
     const permittedContacts = permittedContactDetails(this.broker);
     if (buyer.phone) permittedContacts.phones.push(String(buyer.phone).replace(/\D/g, ""));
+    const allowedBuyerAmounts = [buyer.budgetAed, buyer.cashAvailableAed].filter(value => value != null);
     const validationOptions = { buyer, opportunities: responseOpportunities, allowedClaims, comparisonFacts, stageAmounts: stageAmountsFor(packs), stagePercents: stagePercentsFor(packs),
       configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents, permittedContacts,
-      allowedBuyerAmounts: [buyer.budgetAed, buyer.cashAvailableAed].filter(v => v != null),
+      allowedBuyerAmounts,
       educationalSplit: draft.educationalSplit,
       permittedRecommendations: ["matched", "soft_match"].includes(draft.stage)
         ? matchResult.matches.map(m => ({ projectId: m.project.id, unitId: m.unit.id })) : [],
@@ -655,8 +655,12 @@ export class ConversationEngine {
     // Broker mode: on stages no deterministic flow owns, Claude answers from the
     // relevant catalogue slice. A rejected reply leaves the deterministic draft.
     let brokerContext = null;
+    let brokerAttempted = false;
+    let brokerValidationResult = null;
+    let brokerValidatedText = null;
     const brokerValidation = { forbiddenActions, permittedContacts, configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents };
     if (this.llm && options.useLlm !== false && this.brokerMode && brokerEligible({ draft, contact, buyer, intents, scope, catalogError })) {
+      brokerAttempted = true;
       const conversation = this.memory.recentContext(instagramUserId, 11);
       if (conversation.at(-1)?.role === "user") conversation.pop();
       const context = buildBrokerContext({ catalog, buyer, message: text, advisor, draft, recentTurns: conversation, areaGuide: advisor.areaGuide });
@@ -668,12 +672,14 @@ export class ConversationEngine {
         draft = applyBrokerReply(draft, reply);
         packs = context.packs;
         brokerContext = context;
+        brokerValidationResult = reply.validation;
+        brokerValidatedText = reply.message;
         this.memory.setPendingOffer(instagramUserId, draft.pendingOffer);
       }
     }
     // Every deterministic stage can be expressed naturally. The model composes
     // one complete message; rejected output leaves the safe strategy unchanged.
-    if (!draft.broker && this.llm && options.useLlm !== false) {
+    if (!draft.broker && !brokerAttempted && this.llm && options.useLlm !== false) {
       const composed = await composeReplyWithModel(this.llm, {
         buyer,
         packs,
@@ -696,25 +702,27 @@ export class ConversationEngine {
       if (composed) draft = { ...draft, text: composed.message, polished: true };
     }
 
-    const allowedBuyerAmounts = [buyer.budgetAed, buyer.cashAvailableAed].filter(
-      (value) => value !== null && value !== undefined
-    );
-
-    let check = draft.broker ? validateBrokerReply(draft.text, brokerContext, { buyer, buyerMessage: text, ...brokerValidation }) : validateMessage(draft.text, packs, {
-      handoffRequested,
-      handoffReason: handoffRequested ? "buyer_requested" : null,
-      allowedBuyerAmounts,
-      educationalSplit: draft.educationalSplit,
-      allowedClaims, comparisonFacts,
-      buyer,
-      opportunities: validationOpportunities,
-      configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents, stageAmounts: stageAmountsFor(packs), stagePercents: stagePercentsFor(packs)
-    });
-    const responseCheck = draft.broker ? { ok: true, violations: [] } : validateBuyerResponse(draft.text, { ...validationOptions,
-      packs, requiredQuestion: draft.nextQuestion, allowedActions, forbiddenActions });
-    if (!responseCheck.ok) check = { ...check, ok: false, violations: [...check.violations, ...responseCheck.violations] };
+    const validateCurrentReply = currentText => {
+      if (draft.broker) {
+        if (brokerValidationResult && currentText === brokerValidatedText) return brokerValidationResult;
+        return validateBrokerReply(currentText, brokerContext, { buyer, buyerMessage: text, ...brokerValidation });
+      }
+      const facts = validateMessage(currentText, packs, {
+        allowedBuyerAmounts,
+        educationalSplit: draft.educationalSplit,
+        allowedClaims, comparisonFacts,
+        buyer,
+        opportunities: validationOpportunities,
+        configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents, stageAmounts: stageAmountsFor(packs), stagePercents: stagePercentsFor(packs)
+      });
+      const response = validateBuyerResponse(currentText, { ...validationOptions,
+        packs, requiredQuestion: draft.nextQuestion, allowedActions, forbiddenActions });
+      return response.ok ? facts : { ...facts, ok: false, violations: [...facts.violations, ...response.violations] };
+    };
+    let check = validateCurrentReply(draft.text);
 
     let replyText = draft.text;
+    const checkedReplyText = draft.text;
     // Never send the same reply twice in a row; move the conversation on instead.
     // Compared without a trailing question, so new information is never treated as a repeat.
     const body = text => String(text || "").trim().replace(/\n[^\n]*[?؟]\s*$/, "").trim();
@@ -743,6 +751,7 @@ export class ConversationEngine {
         draft = { ...draft, text: fresh, nextQuestion: offer ? { field: "advisoryNextAction", prompt: fresh } : null, pendingOffer: offer };
       }
     }
+    if (replyText !== checkedReplyText && check.ok) check = validateCurrentReply(replyText);
     if (!check.ok && draft.broker && draft.template) {
       // Defensive: a broker reply that fails here gives way to the template reply.
       this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type), broker: true });
@@ -750,8 +759,7 @@ export class ConversationEngine {
       packs = draft.factPacks || brokerContext?.packs || packs;
       replyText = draft.text;
       this.memory.setPendingOffer(instagramUserId, draft.pendingOffer || null);
-      check = validateMessage(draft.text, packs, { allowedBuyerAmounts, allowedClaims, comparisonFacts, buyer, opportunities: validationOpportunities,
-        configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents, stageAmounts: stageAmountsFor(packs), stagePercents: stagePercentsFor(packs) });
+      check = validateCurrentReply(draft.text);
     }
     if (!check.ok) {
       this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type) });
@@ -761,12 +769,9 @@ export class ConversationEngine {
         : buyer.advisorLed
           ? "You're open, so I'll do the filtering using the budget and constraints you've shared. I don't have enough current evidence for a reliable shortlist yet. I'll check entry price, payment commitments, timing and resale evidence before suggesting a property."
           : "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
-      check = validateMessage(replyText, packs, {
-        handoffRequested,
-        handoffReason: handoffRequested ? "buyer_requested" : null,
-        allowedBuyerAmounts,
-        buyer,
-        opportunities: validationOpportunities
+      check = validateBuyerResponse(replyText, {
+        buyer, packs: fallbackPacks, allowedBuyerAmounts, permittedContacts,
+        allowedActions: [], forbiddenActions
       });
       draft = { ...draft, text: replyText, stage: "fact_check_fallback", polished: false, nextQuestion: null, pendingOffer: null };
       this.memory.setPendingOffer(instagramUserId, null);
@@ -946,7 +951,8 @@ export function createConversationEngine(services, options = {}) {
     llm: options.llm || null,
     advisorOptions: options.advisorOptions || {},
     broker: options.broker || null,
-    services: options.services || null
+    services: options.services || null,
+    brokerMode: options.brokerMode ?? null
   });
 }
 
