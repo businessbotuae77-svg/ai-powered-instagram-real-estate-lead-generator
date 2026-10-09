@@ -2,6 +2,11 @@
 // Claude's composed replies would face in production.
 //   node scripts/compose-harness.js capture <dir>   writes <dir>/<scenario>.turn<N>.payload.json
 //   node scripts/compose-harness.js replay <dir>    uses <dir>/<scenario>.turn<N>.output.json as the model reply
+//   node scripts/compose-harness.js step <dir> <scenario>
+//     runs the conversation with the outputs written so far and stops at the
+//     first composed turn with no output, writing its payload. Each payload then
+//     holds the replies the buyer actually saw, so a turn-by-turn simulation
+//     sees the same conversation history production would.
 // Replay writes <dir>/report.json and prints a summary. No network or API key is used.
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -49,6 +54,17 @@ async function catalogServices() {
   Object.assign(npv, { status: "Off-plan", handover: "Q1 2028", paymentPlanAvailable: true, source: "Modon official page",
     paymentPlanSummary: "60/40 plan: 10% down payment on booking, 50% in instalments during construction, 40% on handover (Modon official page, checked 2026-10-06; individual instalment dates not published)." });
   const names = new Set(research.map(row => row.name));
+  // A research row replaces the seed project of the same name; its priced
+  // seed units (Hudayriyat Shores townhouses, Hudayriyat Villas) move with it.
+  const renamed = new Map(store.projects.filter(row => names.has(row.name)).map(row => [row.id, research.find(r => r.name === row.name)]));
+  for (const [seedId, row] of renamed) {
+    const seed = store.projects.find(p => p.id === seedId);
+    row.developerId = seed.developerId;
+    for (const key of ["status", "handover", "paymentPlanSummary", "paymentPlanAvailable", "initialPaymentAed", "description", "features", "developerId", "developer", "source"]) {
+      if ((row[key] === undefined || row[key] === null || row[key] === "") && seed[key] !== undefined) row[key] = seed[key];
+    }
+  }
+  store.units = store.units.map(unit => renamed.has(unit.projectId) ? { ...unit, projectId: renamed.get(unit.projectId).id } : unit);
   store.projects = [...store.projects.filter(row => !names.has(row.name)), ...research];
   store.units = [...store.units.filter(unit => store.projects.some(p => p.id === unit.projectId)),
     { id: "unit_npv_1br", name: "Nawayef Park Views 1BR", projectId: npv.id, propertyType: "apartment", bedrooms: 1,
@@ -144,14 +160,24 @@ async function runScenario(name, turns, mode, dir) {
       await writeFile(`${file}.payload.json`, JSON.stringify({ system: body.system, user: JSON.parse(body.messages[0].content) }, null, 1));
       return null;
     }
-    try { return await readFile(`${file}.output.json`, "utf8"); } catch { return null; }
+    try { return await readFile(`${file}.output.json`, "utf8"); } catch {}
+    if (mode === "step") {
+      await writeFile(`${file}.payload.json`, JSON.stringify({ system: body.system, user: JSON.parse(body.messages[0].content) }, null, 1));
+      c.state.pending = `${file}.payload.json`;
+    }
+    return null;
   } });
   const engine = new ConversationEngine({ buyers: services.buyers, properties: services.properties, memory: new ConversationMemory(), llm: c });
   try {
     for (let i = 0; i < turns.length; i++) {
-      c.state.turn = i; c.state.options = null; c.state.broker = null; warnings.length = 0;
+      c.state.turn = i; c.state.options = null; c.state.broker = null; c.state.pending = null; warnings.length = 0;
       const result = await engine.handleMessage(`harness_${name}`, turns[i]);
-      const row = { turn: i, buyer: turns[i], reply: result.reply, stage: result.stage, llm: result.llm ?? null, warnings: [...warnings] };
+      const row = { turn: i, buyer: turns[i], reply: result.reply, stage: result.stage, llm: result.llm ?? null, warnings: [...warnings],
+        words: String(result.reply).split(/\s+/).filter(Boolean).length };
+      if (mode === "step" && c.state.pending) {
+        results.push({ ...row, reply: null, pending: c.state.pending });
+        break;
+      }
       if (mode === "replay" && c.state.broker) {
         let output = null;
         try { output = JSON.parse(await readFile(path.join(dir, `${name}.turn${i}.output.json`), "utf8")); } catch {}
@@ -192,12 +218,22 @@ export async function brokerInputFor(scenario, turn, dir) {
 
 async function main() {
   const [mode, dirArg, only] = process.argv.slice(2);
-  if (!["capture", "replay", "adversarial"].includes(mode) || !dirArg) {
-    console.error("usage: node scripts/compose-harness.js capture|replay|adversarial <dir> [scenario]");
+  if (!["capture", "replay", "adversarial", "step"].includes(mode) || !dirArg || (mode === "step" && !SCENARIOS[only])) {
+    console.error("usage: node scripts/compose-harness.js capture|replay|adversarial <dir> [scenario]\n       node scripts/compose-harness.js step <dir> <scenario>");
     process.exit(1);
   }
   const dir = path.resolve(dirArg);
   await mkdir(dir, { recursive: true });
+  if (mode === "step") {
+    const rows = await runScenario(only, SCENARIOS[only], "step", dir);
+    for (const row of rows) {
+      console.log(`[turn ${row.turn}] BUYER: ${row.buyer}`);
+      if (row.pending) { console.log(`PENDING turn ${row.turn}: write ${row.pending.replace(/payload\.json$/, "output.json")} (payload: ${row.pending})`); return; }
+      console.log(`[turn ${row.turn}] BOT (${row.llm === "broker" ? "broker" : "deterministic"}): ${row.reply}`);
+    }
+    console.log("DONE");
+    return;
+  }
   const report = {};
   for (const [name, turns] of Object.entries(SCENARIOS)) {
     if (only && name !== only) continue;

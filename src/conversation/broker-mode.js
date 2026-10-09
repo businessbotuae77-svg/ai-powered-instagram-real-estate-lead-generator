@@ -90,7 +90,7 @@ function modelListing(pack, ceiling) {
  * recommendation, the engine's matches and in-budget units in the buyer's areas
  * come first; at most MAX_UNITS priced listings and MAX_KNOWLEDGE project-only entries.
  */
-export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draft = {}, recentTurns = [], areaGuide = [], now = Date.now() }) {
+export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draft = {}, recentTurns = [], areaGuide = [], acceptedOffer = null, now = Date.now() }) {
   const lower = String(message || "").toLowerCase();
   const recentText = recentTurns.slice(-6).map(turn => turn.text || "").join(" ").toLowerCase();
   const ceiling = advisorBudgetPolicy(buyer).ceilingAed;
@@ -105,6 +105,11 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
   const beds = new Set(buyer.bedrooms || []);
   const rejected = new Set(buyer.rejectedProjects || []);
   const family = (buyer.priorities || []).includes("family_space");
+  // What "yes", "both" or "the top two" refer to: the listings in the offer the
+  // buyer just accepted, else the last shortlist the bot recommended.
+  const keyOf = row => `${row.projectId}|${row.unitId || ""}`;
+  const offered = new Set((acceptedOffer?.subjects || []).map(keyOf));
+  const shortlist = new Set((recentTurns.filter(turn => turn.role === "assistant" && turn.recommended?.length).at(-1)?.recommended || []).map(keyOf));
 
   const scored = [];
   for (const unit of catalog.units || []) {
@@ -114,6 +119,8 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
     const price = confirmed(pack, "startingPriceAed");
     let score = 0;
     if (named.has(project.id)) score += 100;
+    if (offered.has(`${project.id}|${unit.id}`)) score += 90;
+    if (shortlist.has(`${project.id}|${unit.id}`)) score += 60;
     if (unit.id === buyer.activeRecommendationUnitId) score += 80;
     if (unit.id === advisor.primary?.unitId) score += 70;
     if (matched.has(unit.id)) score += 50 - Math.min(matched.get(unit.id), 10);
@@ -133,7 +140,8 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
   // Projects named now or just discussed stay in view, so a follow-up never
   // mentions a project the checker cannot see.
   for (const row of scored) {
-    if ((named.has(row.pack.projectId) || recent.has(row.pack.projectId) || row.pack.unitId === buyer.activeRecommendationUnitId) && !unitPacks.includes(row.pack) && unitPacks.length < MAX_UNITS + 4) unitPacks.push(row.pack);
+    const key = `${row.pack.projectId}|${row.pack.unitId || ""}`;
+    if ((named.has(row.pack.projectId) || recent.has(row.pack.projectId) || offered.has(key) || shortlist.has(key) || row.pack.unitId === buyer.activeRecommendationUnitId) && !unitPacks.includes(row.pack) && unitPacks.length < MAX_UNITS + 4) unitPacks.push(row.pack);
   }
   const withUnits = new Set(unitPacks.map(pack => pack.projectId));
   const knowledge = projects.filter(p => !withUnits.has(p.id) && (named.has(p.id) || recent.has(p.id) || p.id === interest || mentionedAreas.has(p.area)))
@@ -200,6 +208,18 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
   // The subject when a sentence says "it": named now, else just discussed, else the active pick.
   const contextScope = [...named].length === 1 ? [...named] : recent.size === 1 ? [...recent] : interest ? [interest]
     : buyer.activeRecommendationProjectId ? [buyer.activeRecommendationProjectId] : [];
+  const label = key => {
+    const pack = unitPacks.find(row => keyOf(row) === key);
+    const listing = pack && modelListing(pack, ceiling);
+    return listing ? [listing.name, listing.unit].filter(Boolean).join(" ") : null;
+  };
+  const previousReplies = recentTurns.filter(turn => turn.role === "assistant").map(turn => String(turn.text || "")).filter(Boolean);
+  const said = previousReplies.join(" ").toLowerCase();
+  // An area whose tagline or two of its landmarks were already sent is pitched.
+  const areasAlreadyPitched = areaGuide.filter(entry => {
+    const heads = (entry.highlights || []).map(item => item.toLowerCase().split(/\s+/).slice(0, 2).join(" "));
+    return (entry.tagline && said.includes(entry.tagline.toLowerCase())) || heads.filter(head => said.includes(head)).length >= 2;
+  }).map(entry => entry.area);
   return {
     packs, permitted, ceiling, derivedAmounts: [...derivedAmounts], stageAmounts, stagePercents: stagePercentsFor(unitPacks), noPropertyContext, requiredClaims, contextScope,
     allowedClaims: areaGuideClaims(areas, { now }),
@@ -208,8 +228,18 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
     allAreas: areaGuide.filter(entry => entry.tagline).map(entry => `${entry.area}: ${entry.tagline}`),
     enginePicks,
     engineDraft: draft.text || null,
-    suggestedQuestion: draft.nextQuestion?.prompt || null
+    suggestedQuestion: draft.nextQuestion?.prompt || null,
+    buyerAccepted: acceptedOffer?.action ? { step: acceptedOffer.action, listings: [...offered].map(label).filter(Boolean) } : null,
+    lastShortlist: [...shortlist].map(label).filter(Boolean),
+    areasAlreadyPitched,
+    previousReplies,
+    areaLines: areaGuide.flatMap(areaGuideLines)
   };
+}
+
+function areaGuideLines(entry) {
+  const local = [entry, entry.ar || {}];
+  return local.flatMap(row => ["tagline", "character", "detail", "highlights", "bestFor", "considerations"].flatMap(key => row[key] || [])).map(String);
 }
 
 const BUYER_FIELDS = ["language", "useType", "budgetAed", "cashAvailableAed", "preferredAreas", "openToOtherAreas", "bedrooms", "propertyTypes",
@@ -217,36 +247,42 @@ const BUYER_FIELDS = ["language", "useType", "budgetAed", "cashAvailableAed", "p
   "projectInterest", "shownProjects", "rejectedProjects", "activeRecommendationProjectId", "activeRecommendationUnitId", "noCalls",
   "contactDeclined", "preferredContactChannel", "familySize", "householdNotes"];
 
-const SYSTEM = `You are the senior property advisor behind an Instagram DM account for Abu Dhabi property. You are the best broker in Abu Dhabi: warm, sharp, confident and concise, and you know every area's lifestyle and selling points. You are an AI assistant; never claim to be a person or a licensed agent, or to have visited a property.
+const SYSTEM = `You are the senior property advisor behind an Instagram DM account for Abu Dhabi property: the sharpest broker in Abu Dhabi, warm, confident and brief, who knows every area's lifestyle and selling points. You are an AI assistant; never claim to be a person or a licensed agent, or to have visited a property.
 
 ANSWER FIRST
-- The first sentence answers exactly what the buyer just asked or asked for, with substance. Never reply with only a qualifying question.
-- Then add the one or two points that matter most for their goal. Usually 2 to 5 short sentences; a compact list only for prices or payment stages. No filler ("No rush", "Got it", "That's everything I have").
-- Use the conversation and buyer profile. "It", "that one", "the second one", "the top two" refer to what was just discussed or shown; never ask "which project?" when one is in the conversation. Never ask for anything in knownFields.
+- Your first sentence answers exactly what the buyer just asked or asked for, with substance. Never reply with only a question.
+- Then the one or two points that matter most for their goal, and at most one closing question.
+- This is an Instagram DM: 3 to 5 short lines, about 40 to 90 words. A compact list only for prices or payment stages. No filler ("No rush", "Got it", "Great question", "That's everything I have").
+- Use the conversation and buyer profile. "It", "that one", "both", "the top two" mean what you last showed or offered (buyerAccepted, lastShortlist); never ask "which project?" when one is in the conversation. Never ask for anything in knownFields.
+- Never comment on, correct or apologise for your earlier messages: just answer now. Never repeat a sentence you already sent.
+- Attribute to the buyer only what they said in the conversation. Profile fields may be inferred: use them to choose, but never quote them back ("since you prefer...") unless the buyer said it.
 - Reply in replyLanguage. If the buyer writes Arabic, reply in Arabic (keep project names and AED figures as written).
 
 SELL LIKE AN EXPERT
-- Sell the location: say what the area is known for and who it suits (areaGuide), naming landmarks where useful.
-- Recommend by fit, with conviction: choose listings where withinBudget is not false that match what the buyer told you. Family with children: 2+ bedrooms, villas or townhouses when listed, never a studio. Rental income from day one: ready property. Growth or selling at handover: off-plan, explain the payment plan and cash needed before handover. A large budget: propose a larger home or a spread of two or three listings, with the combined total. enginePicks are the system's ranking; follow them unless they contradict what the buyer said, then pick better.
-- Give reasons tied to the buyer's stated goal (never invent a goal). "It is under your budget" is never the main reason.
-- Price objection: first separate total price from cash needed now, then step down within the same project or area (smaller unit) before switching area.
-- Payment questions: give the paymentStages amounts exactly as listed (they are worked out by the system on the starting price) plus the handover date; mention that exact instalment dates come from the developer.
-- Comparisons: answer the angle asked (investment vs lifestyle), side by side on price, booking amount, payment plan and handover. Never "neither is better".
-- When something is not available (no listing in an area, no released price, no rent data), say so in one sentence, offer that the team can source it, and suggest the closest listing with a reason.
-- After a "yes": deliver the step you offered, then move one step forward (payment stages, then availability, then floor plans or speaking with the team).
+- Sell the location once: the first time an area comes up, say what it is known for and who it suits (areaGuide), with one or two landmarks. Areas in areasAlreadyPitched are known to the buyer: do not repeat their pitch or landmarks; add something new or nothing.
+- Landmarks are on the island or in the area. Never put them "next to", "near", "beside", "close to" or "on the doorstep of" a project: no listing says where a building sits. Write "on Yas Island, home to Ferrari World", not "near Ferrari World".
+- Recommend by fit, with conviction: listings where withinBudget is not false that match what the buyer told you. Family with children: 2+ bedrooms, villas or townhouses first when listed, never a studio. Rental income from day one: ready property. Growth or selling at handover: off-plan, with the payment plan and the cash needed before handover. A large budget: a larger home, or a spread of two or three listings with the combined total. enginePicks are the system's ranking; follow them unless they contradict what the buyer said.
+- Give reasons tied to the buyer's stated goal (never invent one). "It is under your budget" is never the main reason.
+- Price objection: separate total price from cash needed now, then step down within the same project or area (a smaller unit) before switching area.
+- Payment questions: give the paymentStages amounts as listed, plus handover. The booking amount is part of the total before handover, not on top of it. Exact instalment dates come from the developer.
+- Comparisons: compare what the buyer asked about, else your lastShortlist, side by side on price, booking amount, payment plan and handover, then give a clear pick for their goal. Never "neither is better".
+- When something is missing (no listing in an area, no released price, no rent data), say so in one sentence, offer that the team can check current options, and suggest the closest listing with a reason. Never imply stock exists at a price ("in that range", "at that level").
+- After a "yes" (buyerAccepted): deliver exactly that step for exactly those listings, then offer the next one (payment stages, then availability, then floor plans or speaking with the team).
 
 FACT RULES (checked automatically; a sentence that breaks one is removed)
-- Every price, amount, percentage, payment split, date, handover, size, bedroom count and availability you state must appear in listings exactly as written (copy "AED 2,000,000" as written), or be the buyer's own budget, a difference between two listing prices, or the combined price of listings you propose together.
-- Never calculate other amounts yourself. Never state rent, yield, ROI, appreciation, resale prices, fees, service charges, distances, travel times, launch dates or amenities that are not in listings or areaGuide.
-- Listings marked "do not quote" have no released price: describe them and say pricing is not released yet.
+- Every price, amount, percentage, payment split, date, handover, size, bedroom count and availability must appear in listings exactly as written (copy "AED 2,000,000"), or be the buyer's own budget, a difference between two listing prices, or the combined price of listings you propose together.
+- Never calculate other amounts. Never state rent, yield, ROI, appreciation, resale prices, fees, service charges, distances, travel times, launch dates, layouts or amenities that are not in listings or areaGuide.
+- Never call an area early-stage, emerging, established or in demand, and never say who an area suits, unless areaGuide says so.
+- Listings marked "do not quote" have no released price: say pricing is not released yet and nothing more about them; prefer priced listings that fit.
+- "No developer payment plan on file" means none is on file, not that none exists.
 - Never name a project that is not in listings.
-- No guarantees about returns, growth or resale; explain what drives value (area stage, developer, payment plan, handover timing) qualitatively.
+- No promised outcomes: never say a property gives, earns or delivers income, rent or growth, or that it will be rented, rise or sell. Say what it suits ("it is ready, so it can be rented out straight away") and what drives value (area, developer, payment plan, handover timing).
 - Never say a booking, reservation, EOI, viewing, call or message to the team has been arranged, sent or confirmed. Do not ask for phone numbers or offer calls; if the buyer wants a person, say you can connect them with the team.
-- Never use internal words: fact pack, listing data, engine, catalogue, database, verified stock, evidence gap, enginePicks.
+- Never use internal words: fact pack, listing data, engine, catalogue, database, verified stock, evidence gap, enginePicks, payload.
 
 OUTPUT: one JSON object only, no markdown:
 {"message": "the DM text", "recommended": [{"projectId": "...", "unitId": "..."}], "questionField": "advisoryNextAction|compare|payment_details|availability|budgetAed|preferredAreas|propertyTypes|bedrooms|useType|investmentObjective|exitHorizon|cashAvailableAed|moveInTimeline|areaInterest|null", "offer": "payment_details|availability|compare|null"}
-recommended: the listings you recommend in this message (empty if none). offer: the next step your closing question offers, so a "yes" can be acted on.`;
+recommended: every listing you recommend or put forward in this message (empty if none). offer: the next step your closing question offers, so a "yes" can be acted on.`;
 
 function knownFields(buyer) {
   return ["budgetAed", "cashAvailableAed", "preferredAreas", "bedrooms", "propertyTypes", "financing", "useType", "investmentObjective", "exitHorizon"]
@@ -269,6 +305,9 @@ export function brokerPayload({ buyer, message, recentTurns, context, permission
     ownerApprovedLine: ownerLine || null,
     fallbackDraft: context.engineDraft,
     suggestedQuestion: context.suggestedQuestion,
+    buyerAccepted: context.buyerAccepted || null,
+    lastShortlist: context.lastShortlist || [],
+    areasAlreadyPitched: context.areasAlreadyPitched || [],
     replyLanguage: buyer.language === "ar" ? "Arabic" : "English"
   };
 }
@@ -289,6 +328,74 @@ export function brokerQuestionField(question) {
 
 export function canOfferHandoff(buyer) {
   return !buyer.salesPathStopped && !buyer.contactDeclined && !buyer.declinedSuggestions?.includes("handoff");
+}
+
+// Where a building sits is never in the listings, so a landmark "next to" or
+// "near" a project is invented. Area-level lines in the guide are allowed.
+const PROXIMITY = /\b(?:next(?: door)? to|beside|near(?:by)?|close (?:to|by)|minutes? (?:from|away)|walking distance|(?:on|at) (?:the|your) doorstep|steps? (?:from|away)|right by|a short (?:drive|walk|hop)|around the corner)\b|بجانب|بالقرب من|قريب(?:ة)? من|على بعد|خطوات من|مجاور/i;
+const PLACE_WORDS = /\b(?:[A-Z][\w'.-]+|beach(?:es)?|sea|water(?:front)?|mall|airport|parks?|schools?|city|downtown|marina|golf|circuit|museum|landmarks?|everything|amenities|attractions|home|island)\b|[\u0600-\u06FF]{3,}/;
+const NOT_A_PLACE = /^\s*(?:your|the|a)?\s*(?:budget|ceiling|limit|maximum|top|price|AED|\d)/i;
+const GENERIC_WORDS = new Set(["island", "abu", "dhabi", "the", "al", "it", "its", "this", "that", "with", "for", "your", "you", "both", "also", "and", "our", "there"]);
+function landmarkWords(sentence) {
+  return [...(sentence.match(/\b[A-Z][\w'.-]+/g) || []), ...(sentence.match(/[\u0600-\u06FF]{4,}/g) || [])].map(word => word.toLowerCase()).filter(word => !GENERIC_WORDS.has(word));
+}
+export function proximityViolations(text, areaLines = []) {
+  const violations = [];
+  sentencesOf(text).flat().forEach((sentence, index) => {
+    const match = sentence.match(PROXIMITY);
+    if (!match) return;
+    const after = sentence.slice(match.index + match[0].length, match.index + match[0].length + 40);
+    const trailing = /^(?:close by|nearby|next door|around the corner)$/i.test(match[0]) || /doorstep/i.test(match[0]);
+    if (!trailing && (NOT_A_PLACE.test(after) || !PLACE_WORDS.test(after))) return;
+    const phrase = match[0].toLowerCase();
+    const words = landmarkWords(sentence);
+    const supported = areaLines.some(line => {
+      const lower = line.toLowerCase();
+      return lower.includes(phrase) && words.some(word => lower.includes(word));
+    });
+    if (!supported) violations.push({ type: "proximity_claim", index, text: sentence });
+  });
+  return violations;
+}
+
+// Income, rent or growth stated as an outcome rather than what a property suits.
+const PROMISE = [
+  /\b(?:gives?|get|gets|earns?|delivers?|generates?|brings?|provides?|produces?|locks? in)\s+(?:you\s+)?(?:(?:a|an|steady|instant|immediate|regular|passive|strong|solid|good|reliable)\s+)*(?:rental\s+)?(?:income|rent|returns?|yield|cash ?flow|growth|appreciation|capital gains?)\b/i,
+  /\b(?:income|rent|returns?)\s+(?:now|today|from day one|straight away|immediately|right away)\b/i,
+  /\b(?:growth|appreciation|gains?)\s+(?:later|at handover|by handover|until handover)\b/i,
+  /\b(?:will|is going to|is sure to|is bound to)\s+(?:be\s+)?(?:rented|let|leased|rise|grow|appreciate|increase|go up|gain value|sell|outperform)\b/i,
+  /\b(?:rented|let|leased|tenanted)\s+(?:out\s+)?(?:immediately|instantly|in no time)\b/i,
+  /دخل(?:اً|ا)?(?:\s+إيجاري(?:اً|ا)?)?\s+(?:الآن|فوري|فورا|فوراً|من اليوم الأول)|تؤج(?:ّ|َّ)?ر\s+فور|نمو(?:اً|ا)?\s+(?:حتى|عند|بعد)\s+التسليم|مضمون/
+];
+const HEDGE = /\b(?:can|could|may|might|potential(?:ly)?|option|suits?|suited|ideal for|if|aim|designed|ready to|no guarantee|not guaranteed|isn't guaranteed)\b|يمكن|قد |إمكانية|مناسب/i;
+export function promiseViolations(text) {
+  const violations = [];
+  sentencesOf(text).flat().forEach((sentence, index) => {
+    for (const pattern of PROMISE) {
+      const match = sentence.match(pattern);
+      if (match && !HEDGE.test(sentence.slice(Math.max(0, match.index - 60), match.index))) { violations.push({ type: "outcome_promise", index, text: sentence }); return; }
+    }
+  });
+  return violations;
+}
+
+// Corrections or apologies about earlier messages read as a broken bot.
+const SELF_CORRECTION = /\b(?:to correct (?:my|the) (?:last|previous|earlier)|correction to my|correct(?:ing)? myself|i should have (?:answered|mentioned|said|included|given|shared)|i missed (?:that|your)|my (?:mistake|apologies|bad)|apologi[sz]e|sorry (?:for|about) (?:the|my|that)|i was wrong|i misspoke)\b|أعتذر|تصحيحاً لرسالتي|تصحيح لرسالتي|كان (?:يجب|ينبغي) أن أ/i;
+
+// A sentence that mostly repeats one already sent wastes the buyer's time.
+function wordsOf(sentence) {
+  return new Set((String(sentence).toLowerCase().match(/[\p{L}\d][\p{L}\d,'-]*/gu) || []).filter(word => word.length > 2));
+}
+export function repeatedSentences(text, previousReplies = [], keep = []) {
+  const earlier = previousReplies.flatMap(reply => sentencesOf(reply).flat()).map(wordsOf).filter(set => set.size >= 5);
+  const violations = [];
+  sentencesOf(text).flat().forEach((sentence, index) => {
+    if (keep.some(value => sentence.includes(value))) return;
+    const words = wordsOf(sentence);
+    if (words.size < 7) return;
+    if (earlier.some(set => [...words].filter(word => set.has(word)).length / words.size >= 0.8)) violations.push({ type: "repeated_sentence", index, text: sentence });
+  });
+  return violations;
 }
 
 export function validateBrokerReply(text, context, { buyer, buyerMessage = "", forbiddenActions = [], permittedContacts = null, configuredAmounts = [], configuredPercents = [] }) {
@@ -312,6 +419,11 @@ export function validateBrokerReply(text, context, { buyer, buyerMessage = "", f
   // connect is allowed only when the buyer has not declined contact.
   if (questions.some(q => /\b(?:call you|give you a call|whatsapp|your (?:number|phone|mobile)|phone number)\b/i.test(q)) ||
       (!handoffOk && questions.some(q => brokerQuestionField(q) === "handoffOffer"))) violations.push({ type: "broker_contact_question" });
+  violations.push(...proximityViolations(text, context.areaLines || []), ...promiseViolations(text));
+  if (SELF_CORRECTION.test(text)) violations.push({ type: "self_correction" });
+  // Figures the buyer asked for again may be repeated; everything else is new.
+  const keep = (context.requiredClaims || []).map(claim => String(claim.value)).concat((context.requiredClaims || []).filter(c => c.type === "amount").map(c => Number(c.value).toLocaleString("en-US")));
+  violations.push(...repeatedSentences(text, context.previousReplies || [], keep));
   return { ok: violations.length === 0, violations, metadata };
 }
 
@@ -455,7 +567,29 @@ export async function composeBrokerReply(client, { buyer, message, recentTurns =
   const offerWords = { payment_details: /payment|plan|schedule|break ?down|stages|instal/i, availability: /availab|units? left|still open/i, compare: /compare|side by side|versus|vs\b/i };
   const offer = questionText && OFFER_ACTIONS.has(output.offer) && offerWords[output.offer].test(questionText) ? output.offer : null;
   const handoff = field === "handoffOffer" && canOfferHandoff(buyer);
-  return { message: repaired.text, recommended, questionField: offer ? "advisoryNextAction" : field, questionText, offer, handoff, validation: repaired.result };
+  // What a "yes" to the offer covers: listings named in the closing question,
+  // else those recommended, else the priced listings the message names.
+  const subjects = offer ? (listingsIn(questionText, context.packs).length ? listingsIn(questionText, context.packs)
+    : recommended.length ? recommended : listingsIn(repaired.text, context.packs).slice(0, 3)) : [];
+  return { message: repaired.text, recommended, questionField: offer ? "advisoryNextAction" : field, questionText, offer, subjects, handoff, validation: repaired.result };
+}
+
+/** Priced listings a text names; a size in the text ("studio", "2 bedroom") narrows a project to that unit. */
+function listingsIn(text, packs = []) {
+  const value = String(text || "");
+  const sizes = [...value.matchAll(/\b(\d)\s*(?:-\s*)?(?:bed(?:room)?s?|br)\b/gi)].map(m => Number(m[1]));
+  // "studio" inside a project name ("Yas Studio One") is not a size.
+  const names = [...new Set(packs.map(pack => pack.name?.value).filter(Boolean))].sort((a, b) => b.length - a.length);
+  const stripped = names.reduce((rest, name) => rest.split(name).join(" "), value);
+  if (/\bstudios?\b/i.test(stripped)) sizes.push(0);
+  const rows = [];
+  for (const name of names) {
+    if (!value.includes(name)) continue;
+    const units = packs.filter(pack => pack.unitId && pack.name?.value === name && pack.startingPriceAed?.confirmed);
+    const sized = units.filter(pack => sizes.includes(pack.bedrooms?.value));
+    for (const pack of sized.length ? sized : units.length === 1 ? units : []) rows.push({ projectId: pack.projectId, unitId: pack.unitId });
+  }
+  return rows;
 }
 
 /** Turn an accepted broker reply into the draft fields the engine persists. */
@@ -472,8 +606,10 @@ export function applyBrokerReply(draft, reply) {
     knowledgeOnly: false, commercialQuote: null, researchClaims: [], projectRelations: null, comparisonFacts: null,
     factTopic: null, educationalSplit: null, investmentTheses: null,
     nextQuestion: reply.questionField ? { field: reply.questionField, prompt: reply.questionText, choices } : null,
+    recommended: reply.recommended,
     // "Want me to connect you with our team?": a "yes" goes to the contact flow.
-    pendingOffer: reply.offer ? { type: "advisory_next_action", action: reply.offer } : reply.handoff ? { type: "handoff_offer", reason: "tailored" } : null,
+    pendingOffer: reply.offer ? { type: "advisory_next_action", action: reply.offer, ...(reply.subjects?.length ? { subjects: reply.subjects } : {}) }
+      : reply.handoff ? { type: "handoff_offer", reason: "tailored" } : null,
     advisoryExposure: primary ? {
       projectIds: [...new Set(reply.recommended.map(row => row.projectId))],
       primaryProjectId: primary.projectId, primaryUnitId: primary.unitId, upgradeProjectId: null

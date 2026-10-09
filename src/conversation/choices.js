@@ -56,7 +56,8 @@ export function resolveChoice(groupKey, message, filePath) {
       if (!needle) continue;
       const exact = text === needle;
       const canMatchInsideSentence = !/^\d+$/.test(needle);
-      if (exact || (canMatchInsideSentence && new RegExp(`\\b${escapeRegex(needle)}\\b`, "i").test(text))) {
+      // "plan" inside "off-plan" is a property status, not a payment choice.
+      if (exact || (canMatchInsideSentence && new RegExp(`(?<!\\boff[- ]?)\\b${escapeRegex(needle)}\\b`, "i").test(text))) {
         ranked.push({ choice, value: choice.value, length: needle.length });
       }
     }

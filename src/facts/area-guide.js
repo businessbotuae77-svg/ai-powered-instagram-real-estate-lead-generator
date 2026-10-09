@@ -193,7 +193,7 @@ export function areaOverviewText(guide = [], { limit = 12, ar = false } = {}) {
   return [ar ? "لكل منطقة في أبوظبي طابع مختلف:" : "Each area in Abu Dhabi has its own personality:", ...rows].join("\n");
 }
 
-/** One area in depth: what it is known for, who it suits, and one honest caveat. */
+/** One area in depth: what it is known for and who it suits. Considerations stay advisor guidance. */
 export function areaDetailText(entry, { projectNames = [], ar = false } = {}) {
   if (!entry) return null;
   const detail = ar ? entry.ar?.detail : entry.detail;
@@ -202,7 +202,6 @@ export function areaDetailText(entry, { projectNames = [], ar = false } = {}) {
   parts.push(entry.character ? `${entry.character}.` : areaTaglineSentence(entry));
   if (entry.highlights.length) parts.push(`Highlights include ${joinList(entry.highlights.slice(0, 4))}.`);
   if (entry.bestFor.length) parts.push(`It suits ${joinList(entry.bestFor.slice(0, 3))}.`);
-  if (entry.considerations.length) parts.push(`Worth knowing: ${entry.considerations[0]}.`);
   if (projectNames.length) parts.push(`Projects I follow there: ${joinList(projectNames.slice(0, 3))}.`);
   return parts.filter(Boolean).join(" ");
 }

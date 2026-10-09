@@ -120,3 +120,53 @@ test("broker mode can be switched off", async () => {
   await setup.engine.handleMessage("off", "2M Yas 2 bedroom");
   assert.equal(called, false);
 });
+
+test("landmarks stay on the island, outcomes are never promised, and earlier replies are never corrected or repeated", async () => {
+  const setup = await setupConversation();
+  const { buyer, catalog } = await contextFor(setup, "rules", ["Invest", "3M", "Yas"]);
+  const previous = "Yas Park Views is a strong pick on Yas Island for a long-term investor who wants a known developer.";
+  const context = buildBrokerContext({ catalog, buyer, message: "Tell me more", areaGuide: loadAreaGuide(),
+    recentTurns: [{ role: "user", text: "Yas" }, { role: "assistant", text: previous }] });
+  const check = text => validateBrokerReply(text, context, { buyer, buyerMessage: "Tell me more" }).violations.map(v => v.type);
+  assert.deepEqual(check("Yas Park Views is on Yas Island, home to Ferrari World and Yas Mall."), []);
+  assert.ok(check("Yas Park Views sits next to Yas Mall and Ferrari World.").includes("proximity_claim"));
+  assert.ok(check("Yas Park Views has Ferrari World and Yas Marina Circuit on the doorstep.").includes("proximity_claim"));
+  assert.deepEqual(check("The 3 bedroom is close to your budget."), []);
+  assert.ok(check("Reem Gate gives you income now and Yas Park Views growth later.").includes("outcome_promise"));
+  assert.deepEqual(check("Reem Gate is ready, so it can be rented out straight away."), []);
+  assert.ok(check("To correct my last message, Yas Park Views is on Yas Island.").includes("self_correction"));
+  assert.ok(check(previous).includes("repeated_sentence"));
+  // Area-level lines from the guide stay allowed.
+  const reem = buildBrokerContext({ catalog, buyer, message: "Reem?", areaGuide: loadAreaGuide() });
+  assert.deepEqual(validateBrokerReply("Reem Gate is on Al Reem Island, next to Al Maryah Island, Abu Dhabi's financial district.", reem, { buyer }).violations.map(v => v.type), []);
+});
+
+test("'Sure' after an offer about two listings answers for both, and the next payload knows the shortlist", async () => {
+  const setup = await setupConversation();
+  await setup.engine.handleMessage("pair", "Invest", { useLlm: false });
+  await setup.engine.handleMessage("pair", "5M", { useLlm: false });
+  const seen = [];
+  setup.engine.llm = brokerClient(payload => {
+    const ypv = payload.listings.find(row => row.name === "Yas Park Views" && /3 bedroom/.test(row.unit));
+    const reem = payload.listings.find(row => row.name === "Reem Gate");
+    if (payload.buyerMessage === "Best overall") return { message: `With 5M I'd pair two homes: the Yas Park Views 3 bedroom from ${ypv.startingPrice} and the ready Reem Gate 2 bedroom from ${reem.startingPrice}. Want me to break down the payment plan for both?`,
+      recommended: [{ projectId: ypv.projectId, unitId: ypv.unitId }, { projectId: reem.projectId, unitId: reem.unitId }], questionField: "advisoryNextAction", offer: "payment_details" };
+    return "not json";
+  }, seen);
+  const best = await setup.engine.handleMessage("pair", "Best overall");
+  assert.equal(best.check.ok, true, JSON.stringify(best.check));
+  assert.equal(best.pendingOffer?.subjects?.length, 2);
+  const yes = await setup.engine.handleMessage("pair", "Sure");
+  assert.match(yes.reply, /Yas Park Views/);
+  assert.match(yes.reply, /AED 2,080,000|AED 520,000/, yes.reply);
+  assert.match(yes.reply, /Reem Gate is ready, with no developer payment plan on file/);
+  assert.doesNotMatch(yes.reply, /Yas Studio One/);
+  assert.deepEqual(seen[1].buyerAccepted?.listings, ["Yas Park Views 3 bedroom apartment", "Reem Gate 2 bedroom apartment"]);
+  assert.deepEqual(seen[1].lastShortlist, ["Yas Park Views 3 bedroom apartment", "Reem Gate 2 bedroom apartment"]);
+});
+
+test("asking 'ready or off-plan?' is not a stated payment-plan preference", async () => {
+  const setup = await setupConversation();
+  const result = await setup.engine.handleMessage("status_q", "Should I buy ready or off-plan?", { useLlm: false });
+  assert.notEqual(result.buyer.financing, "payment_plan");
+});

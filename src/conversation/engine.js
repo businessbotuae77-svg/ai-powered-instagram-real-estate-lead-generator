@@ -487,17 +487,16 @@ export class ConversationEngine {
       askedFields });
     // "Yes" to "Want me to break down the payment plan?" offered about a project
     // the engine has not picked: answer it from that project's listings.
-    const offered = pendingAtStart?.type === "advisory_next_action" && pendingAtStart.projectId && isAffirmation(text) && !contact ? pendingAtStart : null;
+    // The broker's offers carry the exact listings they were about ("both").
+    const offered = pendingAtStart?.type === "advisory_next_action" && (pendingAtStart.projectId || pendingAtStart.subjects?.length) && isAffirmation(text) && !contact ? pendingAtStart : null;
     if (offered && ["payment_details", "availability"].includes(offered.action)) {
-      const project = catalog.projects.find(p => p.id === offered.projectId);
-      const units = project ? catalog.units.filter(unit => unit.projectId === project.id && unit.active !== false).slice(0, 3) : [];
-      const unitPacks = units.map(unit => buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }));
+      const unitPacks = offeredPacks(catalog, offered);
       const answer = unitPacks.length ? answerFactQuestion(offered.action === "availability" ? "availability" : "payment plan", unitPacks) : null;
       if (answer?.handled) {
-        const next = offered.action === "payment_details" ? "Want me to check current availability?" : null;
+        const next = offered.action === "payment_details" ? (buyer.language === "ar" ? "هل تريد التحقق من التوفر الحالي؟" : "Want me to check current availability?") : null;
         draft = { text: [answer.text, next].filter(Boolean).join("\n"), stage: "fact_answer", factTopic: answer.topic, factPacks: unitPacks,
           nextQuestion: next ? { field: "advisoryNextAction", prompt: next } : null,
-          pendingOffer: next ? { type: "advisory_next_action", action: "availability", projectId: project.id } : null, callRequest: null };
+          pendingOffer: next ? { type: "advisory_next_action", action: "availability", ...(offered.projectId ? { projectId: offered.projectId } : {}), ...(offered.subjects ? { subjects: offered.subjects } : {}) } : null, callRequest: null };
         packs = unitPacks;
       }
     }
@@ -574,7 +573,7 @@ export class ConversationEngine {
       matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
     }
     if (draft.factPacks) packs = draft.factPacks;
-    if (draft.stage === "fact_answer" && ["paymentPlan", "initial"].includes(draft.factTopic) && buyer.activeRecommendationProjectId && !buyer.salesPathStopped) {
+    if (draft.stage === "fact_answer" && ["paymentPlan", "initial"].includes(draft.factTopic) && buyer.activeRecommendationProjectId && !buyer.salesPathStopped && !draft.nextQuestion) {
       const prompt = buyer.language === "ar" ? "هل تريد التحقق من التوفر الحالي؟" : "Want me to check current availability?";
       draft = { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "advisoryNextAction", prompt },
         pendingOffer: { type: "advisory_next_action", action: "availability" } };
@@ -659,7 +658,8 @@ export class ConversationEngine {
     if (this.llm && options.useLlm !== false && this.brokerMode && brokerEligible({ draft, contact, buyer, intents, scope, catalogError })) {
       const conversation = this.memory.recentContext(instagramUserId, 11);
       if (conversation.at(-1)?.role === "user") conversation.pop();
-      const context = buildBrokerContext({ catalog, buyer, message: text, advisor, draft, recentTurns: conversation, areaGuide: advisor.areaGuide });
+      const acceptedOffer = pendingAtStart?.type === "advisory_next_action" && isAffirmation(text) ? pendingAtStart : null;
+      const context = buildBrokerContext({ catalog, buyer, message: text, advisor, draft, recentTurns: conversation, areaGuide: advisor.areaGuide, acceptedOffer });
       const reply = await composeBrokerReply(this.llm, { buyer, message: text, recentTurns: conversation, context,
         permissions: { noCalls: Boolean(buyer.noCalls), contactDeclined: Boolean(buyer.contactDeclined), humanContact: brokerLabel(this.broker, buyer.language) },
         ownerLine: serviceSuggestion?.line || null, validation: brokerValidation, alreadyAsked: [...askedFields] });
@@ -858,6 +858,9 @@ export class ConversationEngine {
       factCheckOk: check.ok,
       pendingOffer: this.memory.getPendingOffer(instagramUserId),
       questionField: draft.nextQuestion?.field || null,
+      // The shortlist this reply put forward, so "both" or "the top two" resolve next turn.
+      recommended: check.ok && draft.broker ? draft.recommended || [] : check.ok && draft.advisoryExposure?.primaryUnitId
+        ? [{ projectId: draft.advisoryExposure.primaryProjectId, unitId: draft.advisoryExposure.primaryUnitId }] : [],
       serviceId: serviceSuggestion && check.ok && draft.stage !== "fact_check_fallback" ? serviceSuggestion.id : null
     });
 
@@ -968,6 +971,21 @@ function activeRecommendationPack(catalog, buyer) {
   const project = catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId);
   const unit = project && catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === project.id);
   return unit ? buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }) : null;
+}
+
+// The listings an accepted offer was about: its exact units, else up to three
+// units of its project.
+function offeredPacks(catalog, offered) {
+  const pack = (project, unit) => buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) });
+  if (offered.subjects?.length) {
+    return offered.subjects.map(row => {
+      const project = catalog.projects.find(p => p.id === row.projectId);
+      const unit = project && catalog.units.find(u => u.id === row.unitId && u.projectId === project.id && u.active !== false);
+      return unit ? pack(project, unit) : null;
+    }).filter(Boolean);
+  }
+  const project = catalog.projects.find(p => p.id === offered.projectId);
+  return project ? catalog.units.filter(unit => unit.projectId === project.id && unit.active !== false).slice(0, 3).map(unit => pack(project, unit)) : [];
 }
 
 // The project most recently named in the bot's own replies, if any.

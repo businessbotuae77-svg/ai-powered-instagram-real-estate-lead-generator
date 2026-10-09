@@ -22,7 +22,7 @@ export function answerFactQuestion(message, packs = []) {
     if (seen.has(pack.projectId)) continue;
     seen.add(pack.projectId);
     const units = packs.filter(row => row.projectId === pack.projectId);
-    lines.push(["paymentPlan", "handover"].includes(topic) || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
+    lines.push(topic === "paymentPlan" ? formatPlan(units) : topic === "handover" || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
   }
   return {
     handled: true,
@@ -65,6 +65,25 @@ function unitWords(pack) {
   return null;
 }
 
+// The plan once per project, then the stage amounts for each unit asked about.
+function formatPlan(units) {
+  const [pack] = units;
+  if (units.length === 1 || !pack.paymentPlanSummary?.confirmed) return formatTopicLine(pack, "paymentPlan");
+  const name = pack.name?.value || "This project";
+  const plan = String(pack.paymentPlanSummary.value).replace(/\s*\([^)]*\)/g, "").trim().replace(/[.;,]$/, "");
+  const lines = [`The payment plan for ${name} is ${plan}.`];
+  for (const unit of units) {
+    const stages = packPaymentStages(unit);
+    if (stages.length) lines.push(`${capitalize(unitWords(unit) || "Unit")} (${unit.startingPriceText.value}): ${stages.map(stage => `${stage.label.toLowerCase()} ${stage.percent}% is AED ${stage.amountAed.toLocaleString("en-US")}`).join(", ")}.`);
+  }
+  if (pack.handover?.confirmed) lines.push(`Handover is ${pack.handover.value}.`);
+  return lines.join("\n");
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function formatTopicLine(pack, topic) {
   const name = pack.name?.value || "This project";
   const unit = unitWords(pack);
@@ -79,6 +98,10 @@ function formatTopicLine(pack, topic) {
     }
     if (pack.paymentPlanAvailable?.confirmed && pack.paymentPlanAvailable.value) {
       return `${name}: a payment plan is listed as available. The split is not confirmed yet.`;
+    }
+    // A ready unit with no plan on file: the price is what to budget for.
+    if (/ready/i.test(String(pack.status?.value || pack.handover?.value || "")) && pack.startingPriceText?.confirmed) {
+      return `${name} is ready, with no developer payment plan on file, so budget for the full ${pack.startingPriceText.value} at purchase, in cash or with a mortgage.`;
     }
     return `${name}: payment plan details are not confirmed yet.`;
   }

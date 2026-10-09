@@ -48,7 +48,7 @@ test("'Areas' answers with each area's personality, then a tap goes deep on one"
   const yas = await engine.handleMessage("areas_u1", "Yas");
   assert.match(yas.reply, /Ferrari World/);
   assert.match(yas.reply, /It suits young professionals/);
-  assert.match(yas.reply, /Worth knowing:/);
+  assert.doesNotMatch(yas.reply, /Worth knowing:/);
   assert.equal(yas.nextQuestion.field, "budgetAed");
   assert.deepEqual(yas.buyer.preferredAreas, ["Yas Island"]);
 });
