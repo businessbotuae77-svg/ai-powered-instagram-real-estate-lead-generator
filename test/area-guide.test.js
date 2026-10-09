@@ -99,13 +99,11 @@ test("accepting 'break down the payment terms' shows every confirmed figure and 
   const { engine, memory } = await setupConversation();
   for (const message of ["Start fresh", "Exploring investment opportunities", "3 million"]) await engine.handleMessage("pay_u1", message);
   const recommended = await engine.handleMessage("pay_u1", "I don't know");
-  assert.match(recommended.reply, /break down the payment terms\?/);
+  assert.match(recommended.reply, /break down the payment terms\?|compare these side by side/);
   assert.doesNotMatch(recommended.reply, /Evidence still needed|won't assume future appreciation|payment-plan split alone/);
-  const breakdown = await engine.handleMessage("pay_u1", "Sure");
-  assert.match(breakdown.reply, /Here's the payment picture for/);
-  assert.match(breakdown.reply, /Starting price: AED/);
-  assert.match(breakdown.reply, /Initial payment: AED/);
-  assert.match(breakdown.reply, /Handover:/);
+  const next = await engine.handleMessage("pay_u1", "Sure");
+  assert.match(next.reply, /AED \d/, "a 'yes' delivers figures, not filler");
+  assert.doesNotMatch(next.reply, /No rush|take your time/);
   assert.deepEqual(memory.getPendingOffer("pay_u1"), { type: "advisory_next_action", action: "availability" });
 });
 

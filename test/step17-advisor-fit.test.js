@@ -32,7 +32,7 @@ test("step 17b Reem Gate is exact when financing is not constrained", async () =
 
   assert.equal(result.fitTier, "exact");
   assert.equal(result.matches[0].project.name, "Reem Gate");
-  assert.match(result.reply, /prefer Reem Gate.*fits your preferred area and price range/is);
+  assert.match(result.reply, /prefer Reem Gate.*2 bedroom apartment on Al Reem Island in the area you want/is);
   assert.doesNotMatch(result.reply, /compromise|trade-off|no exact match/i);
   assert.ok(result.check.ok);
 });

@@ -152,6 +152,8 @@ export function parseAdvisoryFacts(message, { buyer = null, lastAskedField = nul
   if (categories.includes("initial_payment_too_high")) priorities.push("lower_initial_cash");
   if (/\b(?:low(?:er)? (?:initial|upfront|down)|less (?:initial )?cash|easy payment|easier (?:payment|instal+ments?))\b/.test(text)) priorities.push("lower_initial_cash");
   if (/\b(?:larger|bigger|more space|spacious|extra bedroom|additional bedroom)\b/.test(text)) priorities.push("more_space");
+  // A household with children needs family space (2+ bedrooms).
+  if (/\b(?:my family|our family|for (?:a |the )?family|family home|kids|children|child|my son|my daughter|baby)\b/.test(text)) priorities.push("family_space");
   if (/\b(?:move in (?:now|soon)|ready (?:home|property)|earlier handover)\b/.test(text)) priorities.push("earlier_handover");
   if (priorities.length) facts.priorities = [...new Set(priorities)];
   Object.assign(facts, flexibleAnswer.facts);

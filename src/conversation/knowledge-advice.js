@@ -1,4 +1,6 @@
-import { buildProjectKnowledgePack } from "../facts/retrieval.js";
+import { buildFactPack, buildProjectKnowledgePack } from "../facts/retrieval.js";
+import { answerFactQuestion } from "./fact-answers.js";
+import { advisorBudgetPolicy } from "./advisor-opportunities.js";
 import { buildInvestmentThesis } from "./investment-thesis.js";
 import { areaGuideFromCatalog, areaPitchSentence, findAreaEntry } from "../facts/area-guide.js";
 
@@ -46,8 +48,33 @@ export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
       if (sentence) rows.push(sentence);
     }
   }
+  // Priced units of a single named project: lead with what it costs.
+  const unitPacks = selected.length === 1 && !ar ? (catalog.units || []).filter(unit => unit.projectId === selected[0].id && unit.active !== false)
+    .slice(0, 4).map(unit => buildFactPack({ project: selected[0], unit, downPaymentAed: unit.initialPaymentAed ?? selected[0].initialPaymentAed, bedroomLabel: String(unit.bedrooms) }))
+    .filter(pack => pack.startingPriceText?.confirmed) : [];
+  if (unitPacks.length) {
+    const lines = [rows[0]];
+    lines.push(answerFactQuestion("price", unitPacks).text);
+    // Say plainly when nothing in the project fits the buyer's budget or size.
+    const ceiling = advisorBudgetPolicy(buyer).ceilingAed;
+    const minBeds = buyer.bedrooms?.length ? Math.min(...buyer.bedrooms) : null;
+    const fits = unitPacks.filter(pack => (!ceiling || pack.startingPriceAed.value <= ceiling) && (minBeds === null || (pack.bedrooms?.value ?? 0) >= minBeds));
+    if ((ceiling || minBeds !== null) && !fits.length) {
+      lines.push(`I don't have an option there that fits ${ceiling ? `your AED ${Number(buyer.budgetAed).toLocaleString("en-US")} budget` : "what you need"}${minBeds !== null && ceiling ? ` with ${minBeds} bedroom${minBeds === 1 ? "" : "s"}` : ""} right now.`);
+      const prompt = "Want me to show what does fit your budget?";
+      return { text: [lines.join(" "), prompt].join("\n"), stage: "knowledge_answer", nextQuestion: { field: "advisoryNextAction", prompt },
+        pendingOffer: null, callRequest: null, factPacks: [...unitPacks, ...packs], investmentTheses: theses };
+    }
+    const plan = unitPacks.find(pack => pack.paymentPlanSummary?.confirmed);
+    if (plan) lines.push(`Payment plan: ${String(plan.paymentPlanSummary.value).replace(/\s*\([^)]*\)/g, "").trim().replace(/[.;,]$/, "")}${plan.handover?.confirmed ? `, with handover ${/ready/i.test(String(plan.handover.value)) ? "already done" : `in ${plan.handover.value}`}` : ""}.`);
+    lines.push(...rows.slice(1));
+    const prompt = "Want me to break down the payment plan?";
+    return { text: [lines.join(" "), prompt].join("\n"), stage: "knowledge_answer", nextQuestion: { field: "advisoryNextAction", prompt },
+      pendingOffer: { type: "advisory_next_action", action: "payment_details", projectId: selected[0].id }, callRequest: null,
+      factPacks: [...unitPacks, ...packs], investmentTheses: theses };
+  }
   rows.push(ar ? "لا أملك وحدة بشروط تجارية حالية لهذا المشروع. يمكننا مناقشة توجهه ومخاطر الاستثمار دون تخمين سعر أو توفر."
-    : "I don't have a current commercial unit to quote for this project, but we can still assess its positioning and the evidence needed for your strategy.");
+    : "Pricing for this project isn't released yet, so I won't guess a number, but I can walk you through how it fits your plans.");
   return { text: rows.join(" "), stage: "knowledge_answer", nextQuestion: null, pendingOffer: null, callRequest: null,
     factPacks: packs, investmentTheses: theses };
 }

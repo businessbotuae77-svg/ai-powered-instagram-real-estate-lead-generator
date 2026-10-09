@@ -148,7 +148,7 @@ test("reset model context cannot resurrect the previous search on Fresh or the n
     requests.push(input);
     const isUnderstanding = payload.system.includes("extract structured buyer requirements");
     const result = isUnderstanding ? { facts: {}, intents: [], signals: [] }
-      : { message: input.draftReply, askedQuestion: Boolean(input.requiredQuestion),
+      : { message: input.draftReply ?? input.fallbackDraft, askedQuestion: Boolean(input.requiredQuestion),
         questionField: input.requiredQuestion?.field || null, claims: [], proposedActions: [] };
     return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(result) }] }) };
   };
@@ -163,9 +163,10 @@ test("reset model context cannot resurrect the previous search on Fresh or the n
     assert.equal(education.buyer.projectInterest, null);
     assert.ok(requests.length > 0, "The test must inspect at least one model payload");
     for (const input of requests) {
-      assert.equal(input.buyer.budgetAed, null);
-      assert.deepEqual(input.buyer.preferredAreas, []);
-      assert.doesNotMatch(JSON.stringify(input.recentTurns || []), /2M|Yas|1 bedroom|1,200,000/i);
+      // Broker payloads omit empty fields; either way the old search must be gone.
+      assert.equal(input.buyer.budgetAed ?? null, null);
+      assert.deepEqual(input.buyer.preferredAreas ?? [], []);
+      assert.doesNotMatch(JSON.stringify(input.recentTurns || input.conversation || []), /2M|Yas|1 bedroom|1,200,000/i);
       assert.equal(input.buyer.noCalls, true);
       assert.equal(input.buyer.preferredContactChannel, "instagram");
     }

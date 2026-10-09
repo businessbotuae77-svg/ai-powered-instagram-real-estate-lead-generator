@@ -1,3 +1,4 @@
+import { packPaymentStages } from "../facts/payment-stages.js";
 /**
  * Answer a specific commercial question from confirmed fact packs only.
  */
@@ -14,7 +15,15 @@ export function answerFactQuestion(message, packs = []) {
   const topic = detectFactTopic(text);
   if (!topic) return { handled: false, text: null, topic: null };
 
-  const lines = packs.map((pack) => formatTopicLine(pack, topic)).filter(Boolean);
+  // Project-wide answers (plan, handover) once per project; unit answers per unit.
+  const seen = new Set();
+  const lines = [];
+  for (const pack of packs) {
+    if (seen.has(pack.projectId)) continue;
+    seen.add(pack.projectId);
+    const units = packs.filter(row => row.projectId === pack.projectId);
+    lines.push(["paymentPlan", "handover"].includes(topic) || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
+  }
   return {
     handled: true,
     topic,
@@ -32,11 +41,41 @@ export function detectFactTopic(message) {
   return null;
 }
 
+// Several units of one project: one sentence listing each unit's figure.
+function formatUnitList(units, topic) {
+  const name = units[0].name?.value || "This project";
+  const parts = units.map(pack => {
+    const unit = unitWords(pack) || "unit";
+    if (topic === "price") return pack.startingPriceText?.confirmed ? `${unit} from ${pack.startingPriceText.value}` : `${unit}: price not confirmed yet`;
+    if (topic === "initial") {
+      if (pack.downPaymentText?.confirmed) return `${unit} ${pack.downPaymentText.value}`;
+      const booking = packPaymentStages(pack).find(stage => stage.key === "booking");
+      return booking ? `${unit} AED ${booking.amountAed.toLocaleString("en-US")} (${booking.percent}%)` : `${unit}: not confirmed yet`;
+    }
+    if (topic === "availability") return pack.availability?.confirmed ? `${unit} ${String(pack.availability.value).toLowerCase()}` : `${unit}: not confirmed yet`;
+    return null;
+  }).filter(Boolean);
+  const lead = topic === "price" ? `${name} prices` : topic === "initial" ? `Initial payment at ${name}` : `Availability at ${name}`;
+  return `${lead}: ${parts.join("; ")}.`;
+}
+
+function unitWords(pack) {
+  if (pack.bedrooms?.value === 0) return "studio";
+  if (pack.bedrooms?.confirmed) return `${pack.bedrooms.value} bedroom ${pack.propertyType?.value || ""}`.trim();
+  return null;
+}
+
 function formatTopicLine(pack, topic) {
   const name = pack.name?.value || "This project";
+  const unit = unitWords(pack);
   if (topic === "paymentPlan") {
     if (pack.paymentPlanSummary?.confirmed) {
-      return `${name}: ${pack.paymentPlanSummary.value}`;
+      const plan = String(pack.paymentPlanSummary.value).replace(/\s*\([^)]*\)/g, "").trim().replace(/[.;,]$/, "");
+      const stages = packPaymentStages(pack);
+      const lines = [`The payment plan for ${name} is ${plan}.`];
+      if (stages.length) lines.push(`On the ${pack.startingPriceText.value} starting price${unit ? ` (${unit})` : ""}: ${stages.map(stage => `${stage.label.toLowerCase()} ${stage.percent}% is AED ${stage.amountAed.toLocaleString("en-US")}`).join(", ")}.`);
+      if (pack.handover?.confirmed) lines.push(`Handover is ${pack.handover.value}.`);
+      return lines.join(" ");
     }
     if (pack.paymentPlanAvailable?.confirmed && pack.paymentPlanAvailable.value) {
       return `${name}: a payment plan is listed as available. The split is not confirmed yet.`;
@@ -44,19 +83,23 @@ function formatTopicLine(pack, topic) {
     return `${name}: payment plan details are not confirmed yet.`;
   }
   if (topic === "handover") {
-    if (pack.handover?.confirmed) return `${name}: handover ${pack.handover.value}`;
+    if (pack.handover?.confirmed) return /ready/i.test(String(pack.handover.value)) ? `${name} is ready now.` : `${name} hands over in ${pack.handover.value}.`;
     return `${name}: handover is not confirmed yet.`;
   }
   if (topic === "price") {
-    if (pack.startingPriceText?.confirmed) return `${name}: starting price ${pack.startingPriceText.value}`;
+    if (pack.startingPriceText?.confirmed) return `${name}${unit ? ` ${unit}` : ""} starts from ${pack.startingPriceText.value}.`;
     return `${name}: starting price is not confirmed yet.`;
   }
   if (topic === "initial") {
-    if (pack.downPaymentText?.confirmed) return `${name}: initial payment ${pack.downPaymentText.value}`;
+    if (pack.downPaymentText?.confirmed) return `The initial payment for ${name}${unit ? ` (${unit})` : ""} is ${pack.downPaymentText.value}.`;
+    const booking = packPaymentStages(pack).find(stage => stage.key === "booking");
+    if (booking) return `The booking payment for ${name}${unit ? ` (${unit})` : ""} is ${booking.percent}%, which is AED ${booking.amountAed.toLocaleString("en-US")} on the ${pack.startingPriceText.value} starting price.`;
     return `${name}: initial payment is not confirmed yet.`;
   }
   if (topic === "availability") {
-    if (pack.availability?.confirmed) return `${name}: availability ${pack.availability.value}`;
+    if (pack.availability?.confirmed) return /available/i.test(String(pack.availability.value))
+      ? `Good news: ${name}${unit ? ` (${unit})` : ""} is showing as available right now.`
+      : `${name}${unit ? ` (${unit})` : ""} is showing availability as ${String(pack.availability.value).toLowerCase()}.`;
     return `${name}: availability is not confirmed yet.`;
   }
   return null;
