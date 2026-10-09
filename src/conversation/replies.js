@@ -78,7 +78,7 @@ export function buildConversationReply({
         "I can put in a call request with the number I already have on file. Use Request a Call below to confirm, or send a different number."
       );
     } else {
-      lines.push("I can connect you with an advisor. Enter the number you would like us to call, then tap Request Call.");
+      lines.push("I can connect you with an advisor. What's the best number to reach you on?");
     }
     callRequest = {
       offered: true,

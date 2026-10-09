@@ -47,11 +47,11 @@ export function contactDecision({ message, buyer, pending, explicitCall = false,
   };
   if (channel !== "instagram" && !buyer.phone) {
     const prompt = channel === "phone"
-      ? (ar ? "ما الرقم الذي تريد أن نتصل به؟" : "Enter the number you'd like us to use:")
+      ? (ar ? "ما الرقم الذي تريد أن نتصل به؟" : "What's the best number to reach you on?")
       : (ar ? `ما رقم واتساب الأنسب ليتواصل معك ${who}؟` : `What's the best WhatsApp number for ${who === "our team" ? "us" : who} to use?`);
     return {
       text: channel === "phone"
-        ? (ar ? `سأرسل طلب الاتصال إلى ${label}. ${prompt}` : `I'll pass your call request to ${label}. Enter the number you'd like us to use, then tap Request Call.`)
+        ? (ar ? `سأرسل طلب الاتصال إلى ${label}. ${prompt}` : `Happy to set that up. I'll pass your call request to ${label}. ${prompt}`)
         : prompt,
       stage: channel === "phone" ? "call_offer" : "follow_up_phone",
       nextQuestion: { field: "phone", prompt, inputType: "tel" },

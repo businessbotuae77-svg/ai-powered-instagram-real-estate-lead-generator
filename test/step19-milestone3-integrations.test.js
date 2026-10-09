@@ -98,7 +98,7 @@ test("step 19f Test F no call wanted continues without notification", async () =
   assert.equal(declined.alertRecommended, false);
   assert.equal(declined.callRequest, null);
   assert.match(declined.reply, /continue here|confirmed details|no problem/i);
-  assert.doesNotMatch(declined.reply, /Enter the number you would like us to call/i);
+  assert.doesNotMatch(declined.reply, /best number to reach you|Enter the number you would like us to call/i);
 });
 
 test("step 19g reserve interest alone does not notify", async () => {
