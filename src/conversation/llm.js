@@ -93,6 +93,8 @@ function questionContract(question, buyer) {
  */
 export async function composeReplyWithModel(client, options = {}) {
   if (!client?.apiKey) return null;
+  // Development harness hook (scripts/compose-harness.js); production clients never set it.
+  if (typeof client.onCompose === "function") client.onCompose(options);
   const {
     buyer = {}, packs = [], draftText = "", message = "", recentTurns = [], intents = [],
     opportunities = [], strategy = null, permittedRecommendations = null, allowedActions = [], forbiddenActions = [], language = "en",

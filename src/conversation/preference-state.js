@@ -49,8 +49,8 @@ export function normalizePreferenceFacts(input = {}) {
 }
 
 const UNCERTAINTY = /\b(?:idk|unsure|not (?:really )?sure|don'?t know|dont know|do not know|no idea|no preference|no particular preference|don'?t have (?:any|a) preference)\b/i;
-const DELEGATION = /\b(?:you choose|whatever you think|best (?:overall|option)|choose for me|advise me|i(?:'m| am) open)\b/i;
-const SHORT_FLEXIBLE = /^(?:(?:honestly|to be honest)[, ]+)?(?:(?:i(?:'m| am)|i honestly|i really|i)\s+)?(?:idk|unsure|not (?:really )?sure|don'?t know|dont know|do not know|no idea|no preference|no particular preference|don'?t have (?:any|a) preference|you choose|whatever you think(?: is best)?|best (?:overall|option)|choose for me|advise me|open|flexible|not bothered|anywhere|skip|maybe later)(?:\s+(?:really|yet|please|thanks|about that|what i want|what matters|which is best|at this point))?[.!?]*$/i;
+const DELEGATION = /\b(?:you choose|whatever you think|best (?:overall|option)|choose for me|advise me|i(?:'m| am) open|(?:go with )?your pick|you decide|up to you|surprise me|what (?:do|would) you recommend|recommend something|show me what i can get|what can i get)\b|اختر لي|اختار لي|أختار لك/i;
+const SHORT_FLEXIBLE = /^(?:(?:honestly|to be honest)[, ]+)?(?:(?:i(?:'m| am)|i honestly|i really|i)\s+)?(?:idk|unsure|not (?:really )?sure|don'?t know|dont know|do not know|no idea|no preference|no particular preference|don'?t have (?:any|a) preference|you choose|whatever you think(?: is best)?|best (?:overall|option)|choose for me|advise me|open|flexible|not bothered|anywhere|skip|maybe later|(?:go with )?your pick|you decide|up to you|surprise me|what (?:do|would) you recommend|recommend something|show me what i can get|what can i get|اختر لي|اختار لي|أختار لك)(?:\s+(?:really|yet|please|thanks|about that|what i want|what matters|which is best|at this point))?[.!?]*$/i;
 const INVESTMENT_SLOTS = new Set(["investmentObjective", "exitHorizon", "riskTolerance", "cashDeploymentPreference", "liquidityPriority", "incomeRequirement"]);
 const EXPLICIT_SLOTS = [
   ["budgetAed", /\bbudget\b/],

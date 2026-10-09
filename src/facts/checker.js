@@ -95,9 +95,15 @@ export function validateMessage(message, packs, options = {}) {
   const literalResearch = literalResearchClaims(message, evidenceClaims);
   const allowed = collectAllowedClaims(packs, evidenceClaims);
   const derivedAmounts = collectOpportunityAmounts(packs, options.opportunities || [], options.buyer || {});
+  // Differences between listings shown together (application arithmetic).
+  for (const amount of options.derivedAmounts || []) if (Number.isFinite(Number(amount))) derivedAmounts.add(Math.round(Number(amount)));
   const comparisonDifferences = collectComparisonDifferences(packs, options.comparisonFacts);
   for (const difference of comparisonDifferences.filter(row => row.monetary)) derivedAmounts.add(Math.abs(difference.delta));
   for (const amount of derivedAmounts) allowed.amounts.add(amount);
+  // Stage amounts on a listing's starting price: allowed, but only within that listing's scope.
+  const stageAmounts = options.stageAmounts || {};
+  for (const amounts of Object.values(stageAmounts)) for (const amount of amounts) allowed.amounts.add(amount);
+  for (const percents of Object.values(options.stagePercents || {})) for (const percent of percents) allowed.percents.add(String(percent));
   // Owner-configured service fees (data/services.json) may be quoted as written.
   for (const amount of options.configuredAmounts || []) allowed.amounts.add(Math.round(Number(amount)));
   for (const percent of options.configuredPercents || []) allowed.percents.add(String(percent));
@@ -116,6 +122,7 @@ export function validateMessage(message, packs, options = {}) {
   const claims = extractCommercialClaims(message);
   const violations = claims.filter((claim) => !claimAllowed(claim, allowed) && !literalResearchSupports(claim, literalResearch));
   const monetaryAmounts = new Set(derivedAmounts);
+  for (const amounts of Object.values(stageAmounts)) for (const amount of amounts) monetaryAmounts.add(amount);
   for (const pack of packs) {
     for (const [key, fact] of Object.entries(pack)) if (/Aed$/.test(key) && fact?.confirmed === true && typeof fact.value === "number") monetaryAmounts.add(fact.value);
   }
@@ -264,18 +271,27 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
   const servicePercents = new Set((options.configuredPercents || []).map(String));
   // Keep decimal amounts intact while splitting full sentences and list rows.
   const segments = text.split(/\n|(?<=[.!?])\s+(?=[A-Z\u0600-\u06ff])/);
-  let previousPack = null;
+  // The property already under discussion scopes sentences that name none.
+  const contextSet = (options.contextScope || []).length ? packs.filter(pack => options.contextScope.includes(pack.projectId)) : [];
+  let previousSet = contextSet.length ? contextSet : null;
   for (const segment of segments) {
     const lower = segment.toLowerCase();
     const mentioned = names.filter(({ name }) => lower.includes(name));
-    const scoped = mentioned.length === 1 ? mentioned[0].pack : mentioned.length === 0 ? previousPack : null;
+    const distinctNames = new Set(mentioned.map(row => row.name));
+    // One project named (possibly several of its units), narrowed by any bedroom
+    // count or "studio" in the sentence; otherwise the previous sentence's scope.
+    // Unnamed sentences inherit the previous property only when they point back to it.
+    const inherits = distinctNames.size === 0 && previousSet && /^(?:[•*-]\\s|\\d+[.)]\\s)|^(?:it|its|it's|this|that|these|those|they|their|there|here|the (?:project|unit|apartment|studio|villa|townhouse|home|plan|payment plan|building|development|handover|price|starting price|initial payment|booking|1 bedroom|2 bedroom|3 bedroom|one|first|second))\\b/i.test(segment);
+    let scopedSet = distinctNames.size === 1 ? narrowUnits(segment, mentioned.map(row => row.pack)) : inherits ? narrowUnits(segment, previousSet) : null;
     // A newly named property (or an ambiguous pair) ends the previous scope,
     // so follow-on lines never inherit an earlier property's figures.
-    if (mentioned.length) previousPack = scoped;
+    if (distinctNames.size) previousSet = distinctNames.size === 1 ? mentioned.map(row => row.pack) : null;
     // Multi-property comparisons are checked globally and by structured model
     // citations; there is no unambiguous single offer for a comparison sentence.
-    if (!scoped) continue;
-    const own = collectAllowedClaims([scoped], (options.allowedClaims || []).filter(claim => claim.projectId === scoped.projectId && (!claim.unitId || claim.unitId === scoped.unitId)));
+    if (!scopedSet?.length) continue;
+    const scoped = scopedSet[0];
+    const inSet = claim => scopedSet.some(pack => claim.projectId === pack.projectId && (!claim.unitId || claim.unitId === pack.unitId));
+    const own = collectAllowedClaims(scopedSet, (options.allowedClaims || []).filter(inSet));
     // A sourced multi-project research sentence keeps the scope of its own
     // record. A project name inside that exact fact does not reassign it to
     // the last commercial pack; only its literal spans are allowed here.
@@ -283,19 +299,24 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
     for (const claim of extractCommercialClaims(segment)) {
       // A configured service fee belongs to the service sentence, not to a property.
       if (/\bfee\b/i.test(segment) && ((claim.type === "amount" && serviceAmounts.has(claim.value)) || (claim.type === "percent" && servicePercents.has(String(claim.value))))) continue;
+      if (claim.type === "amount" && scopedSet.some(pack => (options.stageAmounts?.[`${pack.projectId}|${pack.unitId || ""}`] || []).includes(claim.value))) continue;
+      if (claim.type === "percent" && scopedSet.some(pack => (options.stagePercents?.[`${pack.projectId}|${pack.unitId || ""}`] || []).includes(Number(claim.value)))) continue;
       if (claim.type === "amount" && (derivedAmounts.has(claim.value) || (buyerAmounts.has(claim.value) && /\b(your|you have|budget|cash available|ceiling|put down)\b|ميزاني|المتاح|الدفعة التي|لديك|لديك|سقف/i.test(segment)))) continue;
+      // The buyer's own amount opening a sentence ("AED 2,500,000 works well...") is not a listing price.
+      if (claim.type === "amount" && buyerAmounts.has(claim.value) && !/(?:from|starts?|starting|priced|costs?|price|initial|booking|down\s*payment|deposit|handover)\s*(?:at|of|is|:)?\s*(?:around|about)?\s*(?:aed|dhs)?\s*$/i.test(segment.slice(0, claim.index)) &&
+          /\b(?:works?|goal|working with|enough|room|headroom|gives you|plenty|with)\b/i.test(segment)) continue;
       if (!claimAllowed(claim, own) && !literalResearchSupports(claim, literal)) violations.push({ ...claim, type: "offer_mismatch", projectId: scoped.projectId, unitId: scoped.unitId });
     }
     for (const match of segment.matchAll(/(?:starts?(?:\s+at|\s+from)?|starting\s+price|price\s*[:—-]?|costs?|priced\s+at)\s*(?:of\s*)?((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?(?:\s*[Mk]\b)?|\d+(?:\.\d+)?\s*[Mk]\b)/gi)) {
       if (literal.some(row => row.value.includes(match[0]))) continue;
-      if (!scoped.startingPriceAed?.confirmed || normalizeAmount(match[1]) !== Number(scoped.startingPriceAed.value)) violations.push({ type: "price_scope", projectId: scoped.projectId });
+      if (!scopedSet.some(pack => pack.startingPriceAed?.confirmed && normalizeAmount(match[1]) === Number(pack.startingPriceAed.value))) violations.push({ type: "price_scope", projectId: scoped.projectId });
     }
     for (const match of segment.matchAll(/(?:initial\s+payment|down\s*payment|initial\s+commitment)\s*[:—-]?\s*(?:of\s*)?((?:AED|Dhs|Dh)\s*[\d,]+(?:\.\d+)?|\d+(?:\.\d+)?\s*[Mk]\b)/gi)) {
-      if (!scoped.downPaymentAed?.confirmed || normalizeAmount(match[1]) !== Number(scoped.downPaymentAed.value)) violations.push({ type: "cash_scope", projectId: scoped.projectId });
+      if (!scopedSet.some(pack => pack.downPaymentAed?.confirmed && normalizeAmount(match[1]) === Number(pack.downPaymentAed.value))) violations.push({ type: "cash_scope", projectId: scoped.projectId });
     }
     // Payment ratios alone never prove installment cadence, dates or the amount
     // due initially. Preserve exact schedule wording only when supplied.
-    const plan = scoped.paymentPlanSummary?.confirmed ? String(scoped.paymentPlanSummary.value).toLowerCase() : "";
+    const plan = scopedSet.map(pack => pack.paymentPlanSummary?.confirmed ? String(pack.paymentPlanSummary.value).toLowerCase() : "").join(" | ");
     for (const assertion of segment.match(/(?:monthly|quarterly|annual|yearly|every month|every quarter)[^.!?\n]{0,50}(?:installments?|payments?)|(?:installments?|payments?)[^.!?\n]{0,50}(?:monthly|quarterly|annual|yearly|every month|every quarter)/gi) || []) {
       if (!plan.includes(assertion.toLowerCase())) violations.push({ type: "unsupported_payment_schedule", projectId: scoped.projectId });
     }
@@ -310,10 +331,25 @@ function scopedClaimViolations(message, packs, derivedAmounts, options) {
       if (!literal.some(row => row.value.toLowerCase().includes(assertion.toLowerCase()))) violations.push({ type: "unsupported_initial_percentage", projectId: scoped.projectId });
     }
     const availabilityAssertion = /\b(?:is|are|has|have)\s+(?:currently\s+|now\s+)?(?:available|in stock|ready to move)|\bunits?\s+(?:are\s+)?available\b|\bavailability\s*:\s*available\b/i.test(segment);
-    if (availabilityAssertion && (!scoped.availability?.confirmed || !/available|ready/i.test(String(scoped.availability.value)))) violations.push({ type: "availability_scope", projectId: scoped.projectId });
-    if (/\b(?:last|only)\s+\d+\s+units?\b|\b\d+\s+units?\s+(?:left|remaining)\b/i.test(segment) && !(scoped.availabilityNotes?.confirmed && lower.includes(String(scoped.availabilityNotes.value).toLowerCase()))) violations.push({ type: "unsupported_scarcity", projectId: scoped.projectId });
+    if (availabilityAssertion && !scopedSet.some(pack => pack.availability?.confirmed && /available|ready/i.test(String(pack.availability.value)))) violations.push({ type: "availability_scope", projectId: scoped.projectId });
+    if (/\b(?:last|only)\s+\d+\s+units?\b|\b\d+\s+units?\s+(?:left|remaining)\b/i.test(segment) && !scopedSet.some(pack => pack.availabilityNotes?.confirmed && lower.includes(String(pack.availabilityNotes.value).toLowerCase()))) violations.push({ type: "unsupported_scarcity", projectId: scoped.projectId });
   }
   return violations;
+}
+
+/** Units of one project narrowed to the bedroom count (or studio) a sentence names. */
+export function narrowUnits(segment, packs) {
+  if (!packs?.length) return packs;
+  // "Yas Studio One" names a project, not a studio unit.
+  for (const name of new Set(packs.map(pack => pack.name?.value).filter(Boolean))) segment = segment.split(name).join(" ");
+  const studio = /\bstudios?\b/i.test(segment);
+  const bedrooms = [...segment.matchAll(/\b(\d+)\s*(?:-|\s)?(?:bed(?:room)?s?|br)\b/gi)].map(match => Number(match[1]));
+  const counts = new Set([...bedrooms, ...(studio ? [0] : [])]);
+  // One unit size named: narrow to it. Several ("than a studio", "1 or 2 bed"): keep all.
+  const wanted = counts.size === 1 ? [...counts][0] : null;
+  if (wanted === null) return packs;
+  const narrowed = packs.filter(pack => !pack.unitId || pack.bedrooms?.value === wanted);
+  return narrowed.length ? narrowed : packs;
 }
 
 export function missingDataHandoff(packs) {

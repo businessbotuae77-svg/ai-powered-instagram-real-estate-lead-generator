@@ -49,6 +49,20 @@ function wantsSpace(buyer, objectionCodes, priorityCodes) {
   return objectionCodes.has("too_small") || (["more_space", "space", "size", "unit_size", "larger_unit", "family_space", "extra_bedroom", "additional_bedroom"].some(code => priorityCodes.has(code)));
 }
 
+// A family home: two or more bedrooms, villas and townhouses first; never a studio.
+function familyFit(candidate, context) {
+  if (!context.family) return 0;
+  const beds = value(candidate.factPack, "bedrooms");
+  const type = String(value(candidate.factPack, "propertyType") || "").toLowerCase();
+  return (typeof beds === "number" && beds >= 2 ? 1 : -1) + (/villa|townhouse/.test(type) ? 0.5 : 0);
+}
+
+// Low cash the buyer actually asked for, as opposed to an open "you choose".
+function explicitLowCash(buyer, objectionCodes, priorityCodes) {
+  return buyer.cashDeploymentPreference === "lower_initial" || objectionCodes.has("initial_payment_too_high") || objectionCodes.has("payment_plan_bad") ||
+    buyer.cashAvailableAed != null || ["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"].some(code => priorityCodes.has(code));
+}
+
 function wantsLowCash(buyer, objectionCodes, priorityCodes) {
   return buildInvestmentStrategy(buyer).advisorLedDiscovery || buyer.cashDeploymentPreference === "lower_initial" || objectionCodes.has("initial_payment_too_high") || objectionCodes.has("payment_plan_bad") || buyer.cashAvailableAed != null || buyer.financing === "payment_plan" || ["initial_cash", "low_initial_cash", "lower_initial_cash", "lower_initial_payment", "payment_leverage", "easier_payment"].some(code => priorityCodes.has(code));
 }
@@ -478,6 +492,8 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
     priorities: priorityCodes,
     space: wantsSpace(buyer, objections, priorityCodes),
     lowCash: wantsLowCash(buyer, objections, priorityCodes),
+    lowCashExplicit: explicitLowCash(buyer, objections, priorityCodes),
+    family: priorityCodes.has("family_space"),
     spaceReferences: candidates.filter(candidate => !preferenceGaps(candidate, buyer).length && !eligibility(candidate, buyer, budgetPolicy.ceilingAed, options).length),
     maxInitial: Math.max(0, ...candidates.map(row => value(row.factPack, "downPaymentAed") || 0)),
     maxConstruction: Math.max(0, ...candidates.map(row => paymentAmount(row, "constructionCashAed") ?? 0)),
@@ -504,13 +520,18 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
       const frontier = new Set(rows.filter(candidate => !rows.some(other => other.unit.id !== candidate.unit.id &&
         compareBenefits(candidate, other, buyer, context).length > 0 &&
         compareBenefits(other, candidate, buyer, context).length === 0)).map(candidate => candidate.unit.id));
-      return [...rows].sort((a, b) => Number(frontier.has(b.unit.id)) - Number(frontier.has(a.unit.id)) ||
+      // A tiny ticket against a large budget is not "best overall": prefer units
+      // using at least ~35% of the budget, then the lower entry within that band.
+      const usesBudget = row => value(row.factPack, "startingPriceAed") >= budgetPolicy.originalBudgetAed * 0.35 ? 1 : 0;
+      return [...rows].sort((a, b) => (context.lowCashExplicit ? 0 : usesBudget(b) - usesBudget(a)) ||
+        familyFit(b, context) - familyFit(a, context) ||
+        Number(frontier.has(b.unit.id)) - Number(frontier.has(a.unit.id)) ||
         value(a.factPack, "startingPriceAed") - value(b.factPack, "startingPriceAed") ||
         (value(a.factPack, "downPaymentAed") ?? Infinity) - (value(b.factPack, "downPaymentAed") ?? Infinity) ||
         String(a.unit.id).localeCompare(String(b.unit.id)));
     }
     return [...rows].sort((a, b) => {
-      const scoreDifference = ranking(b, buyer, context).score - ranking(a, buyer, context).score;
+      const scoreDifference = ranking(b, buyer, context).score - ranking(a, buyer, context).score + familyFit(b, context) * 40 - familyFit(a, context) * 40;
       return scoreDifference || value(a.factPack, "startingPriceAed") - value(b.factPack, "startingPriceAed") || String(a.unit.id).localeCompare(String(b.unit.id));
     });
   };

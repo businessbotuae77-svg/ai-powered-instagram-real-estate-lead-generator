@@ -15,10 +15,16 @@ export function comparisonReply(comparison, { preferredName = null, language = "
     if (preferredName) rows.push(`أفضل ${preferredName} لأولوياتك وفقاً لهذه الفروق الموثقة.`);
     return rows.join(" ") || "تفاصيل المقارنة غير كافية حالياً.";
   }
-  if (price) rows.push(`${a} starts at ${aed(price.a)} versus ${aed(price.b)} for ${b}; the entry-price difference is ${aed(Math.abs(price.delta))}.`);
-  if (cash && cash.delta) rows.push(`The documented initial commitments are ${aed(cash.a)} and ${aed(cash.b)} respectively, a difference of ${aed(Math.abs(cash.delta))}.`);
-  if (space) rows.push(`The bedroom configurations are ${space.a} and ${space.b} respectively.`);
-  if (date) rows.push(`The documented handovers are ${date.a} and ${date.b}.`);
+  // Two units of one project are told apart by size ("the 1 bedroom" / "the studio").
+  const size = n => n === 0 ? "studio" : `${n} bedroom`;
+  const sameName = a === b;
+  const la = sameName && space ? `the ${a} ${size(space.a)}` : a;
+  const lb = sameName && space ? `the ${size(space.b)}` : b;
+  const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
+  if (price) rows.push(`${cap(la)} starts at ${aed(price.a)} versus ${aed(price.b)} for ${lb}, a price difference of ${aed(Math.abs(price.delta))}.`);
+  if (cash && cash.delta) rows.push(`The initial payment is ${aed(cash.a)} versus ${aed(cash.b)}, a difference of ${aed(Math.abs(cash.delta))}.`);
+  if (space && !sameName) rows.push(`${a} is a ${size(space.a)} and ${b} a ${size(space.b)}.`);
+  if (date) rows.push(`Handover is ${date.a} versus ${date.b}.`);
   const upgrade = comparison.upgradeAssessment;
   if (upgrade?.worthPaying === false) rows.push(`I wouldn't pay the extra ${aed(upgrade.extraCostAed)} for your priorities without a supported benefit.`);
   if (preferredName) rows.push(`For you, I'd start with ${preferredName}.`);

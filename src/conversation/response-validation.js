@@ -1,4 +1,4 @@
-import { validateMessage, extractCommercialClaims, collectOpportunityAmounts, collectComparisonDifferences, comparisonAmountSupported, CONTACT_DETAIL } from "../facts/checker.js";
+import { validateMessage, extractCommercialClaims, collectOpportunityAmounts, collectComparisonDifferences, comparisonAmountSupported, CONTACT_DETAIL, narrowUnits } from "../facts/checker.js";
 import { normalizeBuyerText } from "./text.js";
 import { advisorBudgetPolicy } from "./advisor-opportunities.js";
 import { confirmedEvidenceClass } from "../facts/advisor-claims.js";
@@ -109,11 +109,14 @@ export function validateBuyerResponse(message, options = {}) {
   if (INTERNAL_LANGUAGE.test(text)) violations.push({ type: "internal_language" });
   if (/\{\{|\}\}|\b(?:projectId|unitId|undefined|NaN)\b|AED\s*(?:[.;]|$)/i.test(text)) violations.push({ type: "unresolved_template" });
   if (options.permittedContacts) violations.push(...contactDetailViolations(text, options.permittedContacts));
-  const questions = questionRequests(text);
+  const questions = options.questionList || questionRequests(text);
   if (!options.allowMultipleQuestions && questions.length > 1) violations.push({ type: "multiple_questions" });
   if (buyer.salesPathStopped && questions.length) violations.push({ type: "sales_path_stopped" });
+  const fieldOf = options.questionFieldOf || inferQuestionField;
   for (const question of questions) {
-    const field = inferQuestionField(question) || (questions.length === 1 ? metadata?.questionField || options.requiredQuestion?.field : null);
+    const field = fieldOf(question) || (questions.length === 1 ? metadata?.questionField || options.requiredQuestion?.field : null);
+    // An offered next step is not a qualification question, so it cannot be "already answered".
+    if ((options.offerFields || []).includes(field)) continue;
     if (field && isFlexiblePreference(buyer, field)) violations.push({ type: "flexible_field_question", field: canonicalQuestionField(field) });
     if (field && knownField(buyer, field) && !(options.revisitFields || []).includes(field)) violations.push({ type: "known_field_question", field });
     if (field === "phone" && requiredQuestion?.field !== "phone" && !allowedActions.some(action => ["contact", "request_contact"].includes(actionType(action)))) violations.push({ type: "unnecessary_contact_capture" });
@@ -130,7 +133,7 @@ export function validateBuyerResponse(message, options = {}) {
   if (/\b(?:easy|effortless|quick|straightforward)\s+(?:to\s+)?(?:resell|resale)|\b(?:resale|reselling)\s+(?:is|will be|should be)\s+(?:easy|effortless|quick|straightforward)|\b(?:definitely|certainly|guaranteed to)\s+outperform/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   if (/\b(?:resell|reselling|resale)\b[^.!?\n]{0,25}\b(?:easily|easy|straightforward|effortless|quickly)\b/i.test(text)) violations.push({ type: "unsupported_performance_claim" });
   const educationTurn = ["education", "investment_education"].includes(options.responseStage || options.strategy?.type);
-  if (metadata && (!packs.length || educationTurn)) {
+  if (metadata && (!packs.length || educationTurn || options.noPropertyContext)) {
     // History is context, not a fresh listing retrieval or a current search.
     // In particular, educational questions must not inherit an imaginary offer
     // from an earlier turn or a search the buyer has explicitly reset.
@@ -174,31 +177,65 @@ function planClaims(value) {
  * label every fact in the exact format; every figure still has to match a
  * confirmed record, and a sentence only borrows facts from its own property.
  */
-function automaticCitations(message, packs) {
+const INHERITS = /^(?:[•*-]\\s|\\d+[.)]\\s)|^(?:it|its|it's|this|that|these|those|they|their|there|here|the (?:project|unit|apartment|studio|villa|townhouse|home|plan|payment plan|building|development|handover|price|starting price|initial payment|booking|1 bedroom|2 bedroom|3 bedroom|one|first|second))\\b/i;
+
+function featureItems(value) {
+  return String(value).toLowerCase().split(/\s*(?:,|;|\band\b|\/)\s*/).map(item => item.trim()).filter(item => item.length > 2);
+}
+
+function automaticCitations(message, packs, allowedClaims = [], options = {}) {
   const segments = message.split(/\n|(?<=[.!?])\s+(?=[A-Z\u2022])/).map(text => text.trim()).filter(Boolean);
   const named = pack => pack.name?.confirmed && pack.name.value ? String(pack.name.value).toLowerCase() : null;
   const claims = [];
-  let previous = packs.length === 1 ? packs[0] : null;
+  // The property already under discussion is the subject until another is named.
+  const contextScope = (options.contextScope || []).length ? packs.filter(pack => options.contextScope.includes(pack.projectId)) : [];
+  let previous = packs.length === 1 ? [packs[0]] : contextScope.length ? contextScope : null;
+  // Short forms ("Studio One", "Park Views") count when only one listing uses them.
+  const shortNames = new Map();
+  for (const pack of packs) {
+    const full = named(pack);
+    if (!full) continue;
+    const words = full.split(/\s+/);
+    if (words.length >= 3) {
+      const short = words.slice(1).join(" ");
+      shortNames.set(short, shortNames.has(short) && shortNames.get(short) !== full ? null : full);
+    }
+  }
   for (const segment of segments) {
     const lower = segment.toLowerCase();
-    const mentioned = packs.filter(pack => named(pack) && lower.includes(named(pack)));
+    const shortHits = new Set([...shortNames].filter(([short, full]) => full && lower.includes(short)).map(([, full]) => full));
+    const mentioned = packs.filter(pack => named(pack) && (lower.includes(named(pack)) || shortHits.has(named(pack))));
     const names = new Set(mentioned.map(named));
-    // Several units of one project share facts like name, area and developer only.
-    const scoped = names.size === 1 && mentioned.length === 1 ? mentioned[0] : names.size === 0 ? previous : null;
-    if (names.size) previous = scoped || (packs.length === 1 ? packs[0] : null);
+    // Units of one named project, narrowed by a bedroom count or "studio" in the
+    // sentence; a figure is supported only by a unit it actually belongs to.
+    // A comparison naming several projects may borrow only those projects' facts.
+    // A sentence inherits the previous property only when it points back to it
+    // ("It...", "The plan...", a bullet line). Otherwise an unnamed sentence
+    // may cite any listing (catalogue-wide statements like "options start from").
+    const inherits = names.size === 0 && previous && INHERITS.test(segment);
+    const scopedSet = names.size === 1 ? narrowUnits(segment, mentioned) : inherits ? narrowUnits(segment, previous) : names.size === 0 ? packs : mentioned;
+    if (names.size) previous = names.size === 1 ? mentioned : (packs.length === 1 ? [packs[0]] : null);
     for (const pack of mentioned) claims.push({ text: segment, projectId: pack.projectId, unitId: pack.unitId, field: "name", value: pack.name.value, auto: true });
-    if (!scoped) continue;
-    for (const [field, fact] of Object.entries(scoped)) {
+    for (const scoped of scopedSet) for (const [field, fact] of Object.entries(scoped)) {
       if (AUTO_SKIP_FIELDS.has(field) || field === "name" || !fact?.confirmed || fact.value == null || !["string", "number"].includes(typeof fact.value)) continue;
       const value = fact.value;
       let stated;
       if (field === "paymentPlanSummary") {
         const own = planClaims(value);
         const said = planClaims(segment);
-        stated = said.length > 0 && said.every(row => own.some(part => part.type === row.type && part.value === row.value));
+        // Each plan figure is then checked against this listing's own plan.
+        stated = said.some(row => own.some(part => part.type === row.type && part.value === row.value));
       } else if (typeof value === "number") stated = containsNumber(segment, value);
+      else if (["features", "description"].includes(field)) stated = featureItems(value).some(item => lower.includes(item));
       else stated = String(value).length > 1 && lower.includes(String(value).toLowerCase());
       if (stated) claims.push({ text: segment, projectId: scoped.projectId, unitId: scoped.unitId, field, value, auto: true });
+    }
+    // Approved area knowledge restated in the sentence (landmarks, amenities).
+    for (const row of allowedClaims) {
+      if (row.field !== "areaHighlight" || typeof row.value !== "string") continue;
+      const words = (row.value.toLowerCase().match(/[a-z][a-z'-]+/g) || []).filter(word => word.length > 3);
+      if (words.length && words.filter(word => lower.includes(word)).length >= Math.max(1, Math.ceil(words.length * 0.6)))
+        claims.push({ text: segment, evidenceId: row.evidenceId, projectId: row.projectId, unitId: row.unitId, field: row.field, value: row.value, auto: true });
     }
   }
   return claims;
@@ -210,8 +247,8 @@ function validateClaimCitations(message, claims, packs, options) {
   const supported = [];
   // A mislabelled property citation is ignored rather than fatal: it cannot
   // support anything, and the application's own citations are checked below.
-  const lenient = claim => !claim?.evidenceId;
-  for (const claim of [...claims, ...automaticCitations(message, packs)]) {
+  const lenient = claim => !claim?.evidenceId || claim.auto;
+  for (const claim of [...claims, ...automaticCitations(message, packs, options.allowedClaims || [], options)]) {
     const pack = packs.find(row => row.projectId === claim?.projectId && row.unitId === claim?.unitId);
     const field = claim?.evidenceId
       ? (options.allowedClaims || []).find(row => row.evidenceId === claim.evidenceId)
@@ -237,7 +274,7 @@ function validateClaimCitations(message, claims, packs, options) {
     }
     const valueText = String(field.value).toLowerCase();
     const numeric = typeof field.value === "number";
-    const paraphrasedPlan = claim.auto && claim.field === "paymentPlanSummary";
+    const paraphrasedPlan = claim.auto && ["paymentPlanSummary", "features", "description", "areaHighlight"].includes(claim.field);
     if (!paraphrasedPlan && (numeric ? !containsNumber(claim.text, field.value) : !claim.text.toLowerCase().includes(valueText))) {
       if (!lenient(claim)) violations.push({ type: "citation_value_missing", field: claim.field });
       continue;
@@ -252,6 +289,8 @@ function validateClaimCitations(message, claims, packs, options) {
     } });
   }
   const derived = collectOpportunityAmounts(packs, options.opportunities || [], options.buyer);
+  for (const amount of options.derivedAmounts || []) if (Number.isFinite(Number(amount))) derived.add(Math.round(Number(amount)));
+  for (const amounts of Object.values(options.stageAmounts || {})) for (const amount of amounts) derived.add(amount);
   const comparisonDifferences = collectComparisonDifferences(packs, options.comparisonFacts);
   const buyerAmounts = new Set([options.buyer.budgetAed, options.buyer.cashAvailableAed].filter(value => value != null));
   for (const claim of extractCommercialClaims(normalizeBuyerText(message))) {
@@ -259,6 +298,7 @@ function validateClaimCitations(message, claims, packs, options) {
     if (comparisonAmountSupported(message, claim, comparisonDifferences)) continue;
     if (claim.type === "amount" && buyerAmounts.has(claim.value) && buyerAmountContext(message, claim)) continue;
     if (claim.type === "split" && claim.value === options.educationalSplit) continue;
+    if (claim.type === "percent" && Object.values(options.stagePercents || {}).some(list => list.includes(Number(claim.value)))) continue;
     if (!supported.some(row => citationSupportsClaim(row, claim, message))) violations.push({ type: "uncited_claim", claimType: claim.type });
   }
   for (const pack of packs) {
@@ -381,6 +421,25 @@ const FILLER = new Set(["the", "and", "with", "its", "this", "that", "also", "ve
   "aed", "dhs", "starting", "starts", "start", "entry", "priced", "around", "about", "only", "inside", "within", "under", "budget", "your",
   "you", "for", "pick", "choice", "option", "best", "overall", "top", "go", "going", "would", "i'd", "it's", "it", "is", "on", "in", "at",
   "an", "of", "by", "to", "a", "as", "so", "here", "my", "our", "unit", "units", "property", "project", "development"]);
+// Ordinary listing vocabulary: describing a unit with these words adds no fact.
+const LISTING_WORDS = new Set(["bedroom", "bedrooms", "bed", "beds", "studio", "studios", "apartment", "apartments", "villa", "villas",
+  "townhouse", "townhouses", "home", "homes", "unit", "units", "sqft", "size", "sizes", "plan", "plans", "payment", "payments", "booking",
+  "handover", "off-plan", "offplan", "ready", "price", "prices", "priced", "entry", "ticket", "option", "options", "both", "each", "also",
+  "still", "now", "today", "currently", "right", "only", "lower", "higher", "cheaper", "bigger", "larger", "smaller", "more", "less",
+  "sooner", "later", "earlier", "available", "availability", "limited", "proper", "full", "new", "spread", "construction", "instalments",
+  "installments", "upfront", "cash", "initial", "down", "deposit", "percent", "over", "during", "after", "before", "same", "project",
+  "community", "island", "area", "developer", "launch", "phase", "stock", "pick", "choice", "fit", "match", "suits", "suit", "works"]);
+
+// Amenities and features a buyer could rely on; claiming one needs a source.
+const AMENITIES = new Set(["marina", "beach", "beachfront", "pool", "pools", "gym", "spa", "sauna", "jacuzzi", "balcony", "balconies",
+  "terrace", "terraces", "rooftop", "garden", "gardens", "parking", "garage", "concierge", "cinema", "golf", "clubhouse", "tennis", "padel",
+  "playground", "nursery", "school", "schools", "mall", "metro", "tram", "lagoon", "lagoons", "waterfront", "seafront", "sea", "canal",
+  "furnished", "maid", "maid's", "storage", "gated", "pets", "bbq", "promenade", "boardwalk", "hospital", "clinic", "mosque", "private",
+  "smart", "lake", "mangroves", "mangrove", "jogging", "cycling", "track", "tracks", "views", "view", "sea-view", "marina-view"]);
+function amenityWords(text) {
+  return [...new Set((String(text).toLowerCase().match(/[a-z][a-z']+/g) || []).filter(word => AMENITIES.has(word)))];
+}
+
 function wordSet(text) {
   return new Set((String(text).toLowerCase().match(/[a-z][a-z'-]+/g) || []).flatMap(word => [word, word.replace(/e?s$/, "")]));
 }
@@ -401,7 +460,7 @@ function unionCovered(fragment, rows, packs) {
   const numericValues = values.filter(value => typeof value === "number");
   const stringValues = values.filter(value => typeof value === "string").join(" ");
   if (!numbers.every(n => numericValues.includes(n) || containsNumber(stringValues, n))) return false;
-  const words = (fragment.toLowerCase().match(/[a-z][a-z'-]+/g) || []).filter(word => word.length > 2 && !FILLER.has(word));
+  const words = (fragment.toLowerCase().match(/[a-z][a-z'-]+/g) || []).filter(word => word.length > 2 && !FILLER.has(word) && !LISTING_WORDS.has(word));
   return words.every(word => known.has(word) || known.has(word.replace(/e?s$/, "")));
 }
 
@@ -411,7 +470,8 @@ function validatePropertyPredicates(message, citations, packs, options) {
   // may describe a project's area without a citation; named amenities may not.
   const areaPositioning = (options.allowedClaims || []).filter(row => row.field === "areaHighlight" && row.scope?.kind !== "highlights");
   const sentences = message.split(/\n|(?<=[.!?])\s+(?=[A-Z])/);
-  let previousProperty = false;
+  // "It has..." with a property already under discussion is a property claim.
+  let previousProperty = Boolean(options.implicitPropertyContext);
   for (const sentence of sentences) {
     const cited = citations.filter(row => sentence.includes(row.text) || row.text.includes(sentence));
     const relevant = [...cited, ...areaPositioning];
@@ -419,7 +479,7 @@ function validatePropertyPredicates(message, citations, packs, options) {
     const mentionsProperty = directlyNamed || (previousProperty && /^(?:It|This|That|The (?:project|property|unit)|Its)\b|^(?:هذا|هذه|وهو|وهي|يتوفر|يتضمن)/i.test(sentence));
     if (directlyNamed) previousProperty = true;
     if (!mentionsProperty) continue;
-    if (directlyNamed && cited.length && cited.every(row => row.field === "name")) {
+    if (directlyNamed && cited.length && cited.every(row => row.field === "name") && !options.skipDescriptionCheck) {
       let remainder = sentence.toLowerCase();
       for (const pack of packs) remainder = remainder.replaceAll(String(pack.name?.value || "").toLowerCase(), " ");
       const comparisonProofs = collectComparisonDifferences(packs, options.comparisonFacts);
@@ -430,6 +490,11 @@ function validatePropertyPredicates(message, citations, packs, options) {
       }
       // Name-only citations can support a preference sentence, never a fresh
       // descriptive claim hidden after a colon or inside the preference reason.
+      // Figures are checked by the commercial checks; only descriptive words remain here.
+      remainder = remainder.replace(/(?:aed|dhs)?\s*\d[\d,.]*\s*(?:m|k|million)?\b/g, " ");
+      // Confirmed listing words (areas, developers, unit types) are not a fresh description.
+      const listingWords = wordSet(packs.flatMap(pack => ["area", "developer", "propertyType", "status", "handover"].map(key => pack[key]?.confirmed ? pack[key].value : "")).join(" "));
+      remainder = remainder.replace(/[a-z][a-z'-]+/g, word => listingWords.has(word) ? " " : word);
       // Approved area positioning words are not a fresh property description.
       const positioning = wordSet(areaPositioning.map(row => row.value).join(" "));
       if (positioning.size) remainder = remainder.replace(/[a-z][a-z'-]+/g, word => positioning.has(word) || FILLER.has(word) ? " " : word);
@@ -443,6 +508,21 @@ function validatePropertyPredicates(message, citations, packs, options) {
       const fragments = assertion.split(/\s+(?:and|with)\s+|;|,(?!\d{3})/).map(part => part.replace(/^(?:a|an|the)\s+/i, "").trim()).filter(Boolean);
       for (const fragment of fragments) {
         const lower = fragment.toLowerCase();
+        if (options.predicateMode === "amenities") {
+          // Broker mode: wording is free; a claimed amenity must belong to the
+          // property's listing or its area guide. Figures are checked elsewhere.
+          const claimed = amenityWords(lower);
+          if (!claimed.length) continue;
+          const keys = new Set(relevant.filter(row => row.projectId).map(row => `${row.projectId}|${row.unitId || ""}`));
+          const scopePacks = packs.filter(pack => keys.has(`${pack.projectId}|${pack.unitId || ""}`) || keys.has(`${pack.projectId}|`));
+          const known = wordSet([...scopePacks.flatMap(pack => Object.values(pack).filter(fact => fact?.confirmed && typeof fact.value === "string").map(fact => fact.value)),
+            ...(options.allowedClaims || []).filter(row => row.field === "areaHighlight").map(row => row.value)].join(" "));
+          if (!claimed.every(word => known.has(word) || known.has(word.replace(/e?s$/, "")))) {
+            if (process.env.DEBUG_PREDICATES) console.error("AMENITY>>", JSON.stringify(fragment));
+            violations.push({ type: "unsupported_property_predicate" });
+          }
+          continue;
+        }
         const supported = relevant.some(row => {
           if (["name", "source", "lastVerified", "fit"].includes(row.field)) return false;
           const value = String(row.value).toLowerCase();
@@ -454,7 +534,10 @@ function validatePropertyPredicates(message, citations, packs, options) {
           if (["startingPriceAed", "startingPriceText", "downPaymentAed", "downPaymentText", "bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed"].includes(row.field)) return /^(?:starting price|initial payment|initial commitment|down payment|price|booking|cash|construction.?period cash|handover cash)\b/i.test(fragment);
           return false;
         });
-        if (!supported && !unionCovered(fragment, relevant, packs)) violations.push({ type: "unsupported_property_predicate" });
+        if (!supported && !unionCovered(fragment, relevant, packs)) {
+          if (process.env.DEBUG_PREDICATES) console.error("PREDICATE>>", JSON.stringify(fragment));
+          violations.push({ type: "unsupported_property_predicate" });
+        }
       }
     }
     const availability = sentence.match(/\b(?:is|are)\s+(?:currently\s+)?(available|sold out|ready to move)\b/i);
@@ -465,6 +548,9 @@ function validatePropertyPredicates(message, citations, packs, options) {
   }
   return violations;
 }
+
+// Abu Dhabi places: recommending an area is not recommending an unlisted project.
+const PLACE = /^(?:the\s+)?(?:Al\s+)?(?:Yas|Saadiyat|Hudayriyat|Reem|Masdar|Ramhan|Fahid|Raha|Maryah|Khalifa|Abu Dhabi|Reef|Ghadeer|Shamkha|Bateen|Corniche|Jubail|Mina|Zayed|Jurf|Marina|Downtown)\b/i;
 
 function validateRecommendationSelection(message, packs, options) {
   const violations = [];
@@ -485,7 +571,7 @@ function validateRecommendationSelection(message, packs, options) {
       const paymentComparisonQuestion = /^how much cash (?:each|the options?)\s+(?:needs?|requires?)\b/i.test(subject) && questionRequests(message).some(question => question.includes(match[0]) && inferQuestionField(question) === "advisoryNextAction");
       // Only a name-like subject ("Falcon Heights") can smuggle in unselected
       // inventory; ordinary wording ("for you is X", "starting with") cannot.
-      const nameLike = /^(?:[A-Z][\w'’-]*|[a-z][\w'’-]*\s+(?:over|instead|rather)\b)/.test(subject) && !/^(?:I|It|This|That|These|Those|Both|Either)\b/.test(subject);
+      const nameLike = /^(?:[A-Z][\w'’-]*|[a-z][\w'’-]*\s+(?:over|instead|rather)\b)/.test(subject) && !/^(?:I|It|This|That|These|Those|Both|Either)\b/.test(subject) && !PLACE.test(subject);
       if (nameLike && !analysisMethod && !paymentComparisonQuestion && !/^(?:this\b|that\b|it\b|these\b|those\b|income\b|growth\b|rental\b|capital\b|appreciation\b|entry\b|exit\b|cash\b|payment\b|risk\b|resale\b|comparing\b|considering\b|keeping\b|waiting\b|exploring\b|lower (?:initial|upfront|entry)|a mix\b|both\b)/i.test(subject)) violations.push({ type: "unsupported_recommendation_subject" });
       continue;
     }
@@ -495,7 +581,8 @@ function validateRecommendationSelection(message, packs, options) {
   for (const match of message.matchAll(/(?:^|[.!?]\s+)([^.!?]+?)\s+(?:makes more sense|is (?:my|the) (?:preferred|better|best) (?:pick|choice|fit)|is preferable)\b/gi)) {
     const subject = match[1].trim();
     const pack = packs.find(row => row.name?.confirmed && row.name.value && subject.toLowerCase().startsWith(String(row.name.value).toLowerCase()));
-    if (!pack && !/^(?:this|that|it)\b/i.test(subject)) violations.push({ type: "unsupported_recommendation_subject" });
+    const nameLike = /^[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*)+/.test(subject) && !/^(?:I|It|This|That|These|Those|Both|Either)\b/.test(subject) && !PLACE.test(subject);
+    if (!pack && nameLike) violations.push({ type: "unsupported_recommendation_subject" });
     if (pack && !permitted(pack)) violations.push({ type: "unselected_recommendation", projectId: pack.projectId, unitId: pack.unitId });
   }
   for (const opportunity of opportunities) {
@@ -528,6 +615,12 @@ function buyerAmountContext(message, claim) {
   const before = text.slice(Math.max(text.lastIndexOf(". ", claim.index), text.lastIndexOf("\n", claim.index), text.lastIndexOf("?", claim.index)) + 1, claim.index);
   const after = text.slice(claim.index + claim.raw.length, claim.index + claim.raw.length + 25);
   if (/(?:your (?:original )?(?:budget|cash)|budget|ceiling|cash available|you have|put down|ميزاني[^.؟\n]*|المتاح|لديك)\s*(?:of|is|around|about|:)?\s*$/i.test(before) || /^\s*(?:budget|ceiling|cash available)\b/i.test(after)) return true;
+  // "With 5M I'd...", "for your 3M": the buyer's own amount, not tied to a
+  // property price or payment word just before it (those stay checked).
+  const sentenceEnd = text.slice(claim.index).search(/[.!?\n]/);
+  const sentence = before + text.slice(claim.index, sentenceEnd < 0 ? undefined : claim.index + sentenceEnd);
+  if (!/(?:from|starts?|starting|priced|costs?|price|initial|booking|down\s*payment|deposit|handover|instal\w*|pay(?:ment)?s?)\s*(?:at|of|is|:)?\s*(?:around|about|roughly)?\s*(?:aed|dhs)?\s*$/i.test(before) &&
+      /\b(?:budget|your|you|with|works?|goal|enough|plenty|room)\b/i.test(sentence)) return true;
   // Natural acknowledgements can omit the word "budget". Limit this exemption
   // to a buyer's known amount in an investment-budget sentence; it cannot
   // excuse a property's quoted price or payment amount.

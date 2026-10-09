@@ -8,6 +8,7 @@ import { comparisonReply } from "./comparison-reply.js";
 import { exitQuestion } from "./investment-guidance.js";
 import { isFlexiblePreference } from "./preference-state.js";
 import { areaPitchSentence, findAreaEntry, loadAreaGuide } from "../facts/area-guide.js";
+import { packPaymentStages } from "../facts/payment-stages.js";
 import { isAdvisorLedDiscovery } from "./investment-strategy.js";
 
 /** Pure greeting with no other request in the same message. */
@@ -528,7 +529,7 @@ function objectionLead(category, message) {
 const MORE_SPACE = /\b(?:bigger|larger|more space|extra bedroom|more bedrooms)\b/i;
 const WHY_QUESTION = /^(?:why|how come)\b|\bwhy (?:that|this|it|not)\b|\bwhat makes (?:it|that|this)\b|\bwhy do you (?:prefer|recommend|like)\b/i;
 
-export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turnObjections = [], lastAskedField = null, askedFields = new Set() }) {
+export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turnObjections = [], lastAskedField = null, askedFields = new Set(), activePack = null }) {
   if (strategy.type === "resolve_objection") {
     const labels = {
       initial_payment_too_high: "a lower documented initial payment", too_expensive: "a lower entry price",
@@ -566,6 +567,15 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
     return advisorDraft(text, advisor, "payment_details", "Want me to break down the payment commitments?");
   }
   if (strategy.type === "answer_action") {
+    // A "yes" answers about the listing the buyer was actually shown last.
+    const shown = activePack && activePack.unitId !== primaryPack.unitId ? activePack : null;
+    if (shown && strategy.nextAction !== "compare") {
+      const exposure = { projectIds: [shown.projectId], primaryProjectId: shown.projectId, primaryUnitId: shown.unitId, upgradeProjectId: null };
+      const result = strategy.nextAction === "availability"
+        ? advisorDraft(answerFactQuestion("availability", [shown]).text, advisor, null, null, [shown])
+        : advisorDraft(paymentBreakdown(shown), advisor, "availability", "Want me to check current availability?", [shown]);
+      return { ...result, advisoryExposure: exposure };
+    }
     if (strategy.nextAction === "compare") {
       return advisorDraft(comparisonReply(advisor.comparison, { preferredName: name }) || `For your priorities, I'd start with ${name}.`, advisor, "availability", "Want me to check current availability?");
     }
@@ -659,10 +669,13 @@ function paymentBreakdown(pack) {
     ["cashBeforeHandoverAed", "Total before handover"], ["cashAtHandoverAed", "On handover"], ["cashAfterHandoverAed", "After handover"]]
     .filter(([key]) => value(key) != null);
   for (const [key, label] of timed) rows.push(`• ${label}: ${aed(value(key))}`);
+  // Without a confirmed schedule, show the plan's stages on the starting price.
+  const stages = timed.length ? [] : packPaymentStages(pack);
+  for (const stage of stages) rows.push(`• ${stage.label} (${stage.percent}%): ${aed(stage.amountAed)}`);
   if (value("handover")) rows.push(`• Handover: ${value("handover")}`);
   if (!rows.length) return `${pack.name.value}: the payment terms are not published yet.`;
-  const lines = [`Here's the payment picture for ${pack.name.value}:`, ...rows];
-  if (!timed.length) lines.push("The developer hasn't published exact instalment dates yet, so get the official schedule before committing.");
+  const lines = [`Here's the payment picture for ${pack.name.value}${stages.length ? `, on the ${aed(value("startingPriceAed"))} starting price` : ""}:`, ...rows];
+  if (!timed.length) lines.push("Exact instalment dates come from the developer's payment schedule, so confirm those before committing.");
   return lines.join("\n");
 }
 
@@ -691,13 +704,15 @@ function primaryReason(codes = [], buyer, pack) {
   if (codes.includes("lower_initial_commitment_priority")) return "the documented initial payment better fits your cash priority";
   if (codes.includes("ready_income_route")) return "it is ready, which suits your preference for a rental-income route; rental figures still need checking";
   if (codes.includes("ready_move_in_route")) return "its ready status suits your move-in priority";
-  if (codes.includes("more_space_priority")) return "the supported size better suits your need for space";
-  if (codes.includes("off_plan_growth_route")) return "its off-plan status and documented payment structure suit the route you want to compare; this is a fit recommendation, not a growth forecast";
+  if (codes.includes("more_space_priority")) return "it gives your family more space";
+  if (codes.includes("off_plan_growth_route")) return "it is off-plan with a developer payment plan, so you buy at today's entry and spread payments to handover";
   if (codes.includes("lower_entry_price_priority")) return "it keeps the entry price lower";
-  const price = pack.startingPriceAed?.confirmed ? Number(pack.startingPriceAed.value) : null;
-  const wellUnder = price && buyer.budgetAed && price <= Number(buyer.budgetAed) * 0.6;
-  if (buyer.preferredAreas?.includes(pack.area?.value)) return wellUnder ? "it fits your preferred area and comes in well under your budget" : "it fits your preferred area and price range";
-  return wellUnder ? "it comes in well under your budget" : "it fits your price range";
+  // Lead with what the buyer gets: the home, where it is, and how it is paid.
+  const unit = pack.bedrooms?.value === 0 ? "a studio" : pack.bedrooms?.confirmed ? `a ${pack.bedrooms.value} bedroom ${pack.propertyType?.value || "home"}` : "a home";
+  const area = pack.area?.confirmed ? `${/\bisland$/i.test(pack.area.value) ? "on" : "in"} ${pack.area.value}` : "";
+  const split = pack.paymentPlanSummary?.confirmed ? String(pack.paymentPlanSummary.value).match(/\b\d{1,2}\s*\/\s*\d{1,2}\b/)?.[0] : null;
+  const preferred = buyer.preferredAreas?.includes(pack.area?.value) ? " in the area you want" : "";
+  return `it gives you ${unit} ${area}${preferred}${split ? ` on a ${split.replace(/\s/g, "")} payment plan` : ""}`.replace(/\s+/g, " ").trim();
 }
 
 function opportunityBenefit(opportunity) {
