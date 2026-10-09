@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { setupConversation } from "./helpers.js";
 
-const PRIORITIES = /What matters most to you in the property\?|What should I optimise for/;
+const PRIORITIES = /What matters most to you in the property\?|What should I optimise for|Should I start with a balanced shortlist/;
 
 async function chat(engine, userId, messages) {
   const replies = [];

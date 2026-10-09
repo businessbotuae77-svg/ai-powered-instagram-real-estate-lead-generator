@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setupConversation } from "./helpers.js";
-import { brokerPayload, buildBrokerContext, brokerEligible, repairBrokerReply, validateBrokerReply } from "../src/conversation/broker-mode.js";
+import { brokerPayload, buildBrokerContext, brokerEligible, composeBrokerReply, repairBrokerReply, validateBrokerReply } from "../src/conversation/broker-mode.js";
 import { loadAreaGuide } from "../src/facts/area-guide.js";
 
 // A fake Claude for broker mode: `reply(payload)` returns the JSON it should send.
-function brokerClient(reply, seen = []) {
+function brokerClient(reply, seen = [], requests = []) {
   return {
     apiKey: "test-only", model: "test-model", baseUrl: "https://example.test",
     fetchImpl: async (_url, request) => {
       const body = JSON.parse(request.body);
+      requests.push(body.system);
       if (!/senior property advisor/.test(body.system)) return { ok: false, status: 503, json: async () => ({}) };
       const payload = JSON.parse(body.messages[0].content);
       seen.push(payload);
@@ -43,13 +44,15 @@ test("true broker sentences pass; invented figures, amenities and projects do no
   const { buyer, catalog } = await contextFor(setup, "val", ["Invest", "3M", "Yas"]);
   const context = buildBrokerContext({ catalog, buyer, message: "What would you pick?", areaGuide: loadAreaGuide() });
   const check = text => validateBrokerReply(text, context, { buyer, buyerMessage: "What would you pick?" });
-  const good = "For a 3M budget on Yas, I'd go with Yas Park Views. The 2 bedroom apartment starts from AED 1,900,000 with an 80/20 plan and handover in Q4 2027. Yas is Abu Dhabi's entertainment island, so it rents well to young professionals. Want me to break down the payment terms?";
+  const good = "For a 3M budget on Yas, I'd go with Yas Park Views. The 2 bedroom apartment starts from AED 1,900,000 with an 80/20 plan and handover in Q4 2027. Yas is Abu Dhabi's entertainment island. Want me to break down the payment terms?";
   const result = check(good);
   assert.equal(result.ok, true, JSON.stringify(result.violations));
+  assert.equal(check("Does Yas Park Views rent well to tenants?").ok, true, "an open question is not a market claim");
   for (const bad of [
     "Yas Park Views 2 bedroom starts from AED 1,400,000.",
     "Yas Park Views has a private marina.",
     "Yas Park Views will appreciate 20% by handover.",
+    "Yas Park Views rents well to young professionals.",
     "I'd go with Falcon Heights instead.",
     "Yas Park Views hands over in Q2 2026.",
     "I've reserved a unit for you at Yas Park Views."
@@ -105,11 +108,25 @@ test("engine sends the broker reply, remembers its pick and lets 'yes' accept it
 
 test("a broker reply that fails every check falls back to the deterministic reply, never a raw error", async () => {
   const setup = await setupConversation();
-  setup.engine.llm = brokerClient(() => ({ message: "Yas Park Views starts from AED 999,999 and will double in value.", recommended: [], questionField: null, offer: null }));
+  const requests = [];
+  setup.engine.llm = brokerClient(() => ({ message: "Yas Park Views starts from AED 999,999 and will double in value.", recommended: [], questionField: null, offer: null }), [], requests);
   const result = await setup.engine.handleMessage("fall", "2M Yas 2 bedroom");
   assert.equal(result.check.ok, true);
   assert.doesNotMatch(result.reply, /999,999|double in value/);
   assert.equal(result.polished, false);
+  assert.equal(requests.filter(system => /senior property advisor/.test(system)).length, 1);
+  assert.equal(requests.length, 2, "the failed broker draft must not trigger a second composition request after understanding");
+});
+
+test("a composed direct fact answer must preserve every source figure", async () => {
+  const setup = await setupConversation();
+  const { buyer, catalog } = await contextFor(setup, "all-facts", ["Invest", "5M"]);
+  const draft = { stage: "fact_answer", text: "The plan is 80/20: 10% on booking, 70% during construction and 20% at handover." };
+  const context = buildBrokerContext({ catalog, buyer, message: "What is the plan for Hudayriyat Shores?", draft, areaGuide: loadAreaGuide() });
+  assert.ok(context.requiredClaims.length >= 4, JSON.stringify(context.requiredClaims));
+  const client = brokerClient(() => ({ message: "Hudayriyat Shores has an 80/20 plan with 10% on booking.", recommended: [], questionField: null, offer: null }));
+  const reply = await composeBrokerReply(client, { buyer, message: "What is the plan for Hudayriyat Shores?", context });
+  assert.equal(reply, null, "a partial answer cannot pass because it contains only some of the percentages");
 });
 
 test("broker mode can be switched off", async () => {

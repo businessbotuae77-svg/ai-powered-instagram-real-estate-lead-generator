@@ -6,6 +6,7 @@ import { inferQuestionField, knownField, questionRequests, sanitizeBuyerLanguage
 import { isFlexiblePreference } from "./preference-state.js";
 import { formatStages, packPaymentStages, stagePercentsFor } from "../facts/payment-stages.js";
 import { recordModelException, recordModelHttpError, recordModelOutcome } from "./model-runtime.js";
+import { extractFirstJsonObject } from "./llm.js";
 
 // Broker mode: Claude answers the buyer directly from a compact, relevant slice
 // of the catalogue, the area guide and the buyer's memory. The application
@@ -352,27 +353,6 @@ export function repairBrokerReply(text, check) {
   return { text: repaired, result, removed };
 }
 
-function parseJson(raw) {
-  if (!raw || typeof raw !== "string") return null;
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const source = fenced ? fenced[1] : raw;
-  const start = source.indexOf("{");
-  if (start < 0) return null;
-  let depth = 0, inString = false, escape = false;
-  for (let i = start; i < source.length; i++) {
-    const char = source[i];
-    if (escape) { escape = false; continue; }
-    if (char === "\\") { escape = true; continue; }
-    if (char === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (char === "{") depth++;
-    else if (char === "}" && --depth === 0) {
-      try { return JSON.parse(source.slice(start, i + 1)); } catch { return null; }
-    }
-  }
-  return null;
-}
-
 /**
  * Ask Claude for the broker reply and check it. Returns null when the model is
  * unavailable or nothing valid survives, so the caller keeps its own reply.
@@ -401,7 +381,11 @@ export async function composeBrokerReply(client, { buyer, message, recentTurns =
   let data;
   try { data = await response.json(); } catch (error) { recordModelException(client, "composition", error); return null; }
   const raw = (data.content || []).filter(block => block.type === "text").map(block => block.text).join("\n").trim();
-  const output = parseJson(raw);
+  let output = null;
+  const json = extractFirstJsonObject(raw);
+  if (json) {
+    try { output = JSON.parse(json); } catch { output = null; }
+  }
   if (!output || typeof output.message !== "string" || !output.message.trim()) {
     recordModelOutcome(client, "composition", { category: "invalid_response_shape" });
     console.warn("[broker] reply discarded: not a JSON message");
@@ -418,9 +402,9 @@ export async function composeBrokerReply(client, { buyer, message, recentTurns =
     return null;
   }
   const stated = extractCommercialClaims(repaired.text);
-  // At least one of the figures the buyer asked about must be in the reply.
+  // Every material figure in the deterministic answer must survive composition.
   const required = context.requiredClaims || [];
-  const answered = required.some(claim => stated.some(row => row.type === claim.type && row.value === claim.value));
+  const answered = required.every(claim => stated.some(row => row.type === claim.type && row.value === claim.value));
   if (required.length && !answered) {
     recordModelOutcome(client, "composition", { category: "validation_rejected" });
     console.warn("[broker] reply rejected: missing_answer");

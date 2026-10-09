@@ -19,11 +19,30 @@ test("step 14b Start fresh clears criteria then opens purpose and exploration", 
   await engine.handleMessage("ig_m2_hi2", "Budget AED 2M and Yas Island");
   const fresh = await engine.handleMessage("ig_m2_hi2", "Start fresh");
   assert.equal(fresh.stage, "exploring");
-  assert.match(fresh.reply, /buying.*home.*investing.*exploring/i);
-  assert.equal(fresh.nextQuestion.field, "useType");
+  assert.match(fresh.reply, /area.*project.*budget/i);
+  assert.equal(fresh.nextQuestion.field, "explorationTopic");
   const buyer = await buyers.getOrCreate("ig_m2_hi2");
   assert.equal(buyer.budgetAed, null);
   assert.deepEqual(buyer.preferredAreas, []);
+});
+
+test("a first hello offers useful property hooks instead of a buyer-type form", async () => {
+  const { engine } = await setupConversation();
+  const hi = await engine.handleMessage("opening-hook", "Hi");
+  assert.equal(hi.stage, "exploring");
+  assert.equal(hi.nextQuestion?.field, "explorationTopic");
+  assert.match(hi.reply, /explore Abu Dhabi areas.*compare current projects.*payment plans/i);
+  assert.doesNotMatch(hi.reply, /are you buying a home, investing, or just exploring/i);
+});
+
+test("the areas hook answers with Abu Dhabi area guidance before asking for a preference", async () => {
+  const { engine } = await setupConversation();
+  await engine.handleMessage("area-hook", "Hi");
+  const areas = await engine.handleMessage("area-hook", "Areas");
+  assert.equal(areas.stage, "area_guide");
+  assert.equal(areas.check.ok, true, JSON.stringify(areas.check.violations));
+  assert.match(areas.reply, /Hudayriyat[\s\S]*family-friendly[\s\S]*Yas[\s\S]*entertainment[\s\S]*Masdar City/i);
+  assert.equal(areas.nextQuestion?.field, "areaInterest");
 });
 
 test("step 14c Continue after Hi resumes with confirmed options", async () => {

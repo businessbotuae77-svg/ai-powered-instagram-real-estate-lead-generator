@@ -340,7 +340,8 @@ function validateResearchPredicates(message, citations) {
   const violations = [];
   const categories = [
     ["catalyst", /\b(?:new|planned|announced|upcoming|future|scheduled|approved|under construction|opening)\s+(?:(?:major|nearby)\s+)?(?:metro|rail|airport|bridge|road|school|university|museum|hospital|mall|retail|hotel|resort|theme park|beach)\b|\b(?:metro station|rail link|museum|airport|mall|school|university|hotel|resort)[^.!?\n]{0,55}\b(?:announced|approved|planned|opening|scheduled|under construction)\b/gi],
-    ["liquidity", /\b(?:strong|high|deep|proven|active|growing|guaranteed|exceptional|limited|thin|weak|low)\s+(?:resale demand|resale market|resale liquidity|resale prospects|resale potential|exit liquidity|liquidity|transaction activity|rental demand|tenant demand|transaction depth)\b|\b(?:resale demand|resale liquidity|transaction activity|transaction depth)\s+(?:is|remains|will be)\s+(?:strong|high|deep|active|weak|low)\b/gi],
+    ["liquidity", /\b(?:strong|high|deep|proven|active|growing|guaranteed|exceptional|limited|thin|weak|low)\s+(?:resale demand|resale market|resale liquidity|resale prospects|resale potential|exit liquidity|liquidity|transaction activity|transaction depth)\b|\b(?:resale demand|resale liquidity|transaction activity|transaction depth)\s+(?:is|remains|will be)\s+(?:strong|high|deep|active|weak|low)\b/gi],
+    ["rental_performance", /\b(?:rents?|leases?)\s+(?:especially\s+|particularly\s+|very\s+)?(?:well|easily|quickly|consistently)\b|\b(?:easy|easier|quick|strong|high|good|reliable|solid)\s+(?:to\s+)?(?:rent|lease)\b|\b(?:high|strong|good|attractive|excellent)\s+(?:gross\s+|net\s+)?rental\s+(?:yield|return|income)\b|\b(?:rental|tenant|leasing)\s+demand\s+(?:is|remains|looks|seems|will be)\s+(?:strong|high|growing|robust|healthy|solid|active)\b|\b(?:strong|high|growing|robust|healthy|solid|active)\s+(?:rental|tenant|leasing)\s+demand\b|\b(?:popular|in demand|sought after)\s+with\s+(?:renters|tenants)\b|\b(?:strong\s+)?demand\s+from\s+(?:renters|tenants)\b|\b(?:attracts?|draws?|appeals? to)\s+(?:many\s+|more\s+)?(?:renters|tenants)\b|\b(?:low|high)\s+(?:vacancy|occupancy)\b/gi],
     ["supply", /\b(?:high|low|heavy|limited|concentrated|significant|substantial)\s+(?:competing supply|competing stock|handover supply|new supply)\b|\b(?:there (?:is|are)|has|faces)\s+(?:several|many|multiple|no)\s+competing\s+(?:projects|launches|units)\b/gi],
     ["proximity", /\b\d+\s*(?:minutes?|km|kilomet(?:er|re)s?|met(?:er|re)s?)\s*(?:away|from|to|walk|drive)\b/gi],
     ["price_history", /\b(?:launch price|original launch price|later releases|later phases)[^.!?\n]{0,65}\b(?:AED|higher|lower|rose|increased|growth|appreciated)\b/gi],
@@ -351,7 +352,10 @@ function validateResearchPredicates(message, citations) {
       // A generic diligence question/check is not an assertion of market facts.
       const before = message.slice(Math.max(message.lastIndexOf(". ", match.index), message.lastIndexOf("\n", match.index)) + 1, match.index);
       if (/\b(?:check|assess|investigate|need evidence (?:of|for)|look for|cannot confirm|don't have evidence (?:of|for))\b/i.test(before)) continue;
-      const fields = category === "scarcity" ? ["availabilityNotes", "urgency", "offerValidity"] : category === "price_history" ? ["priceHistory", "launchPriceAed", "historicalPriceAed", "observedPriceAed"] : null;
+      const sentenceEnd = [message.indexOf(".", match.index), message.indexOf("?", match.index), message.indexOf("!", match.index), message.indexOf("\n", match.index)]
+        .filter(index => index >= 0).sort((a, b) => a - b)[0] ?? message.length;
+      if (category === "rental_performance" && message.slice(match.index, sentenceEnd + 1).includes("?")) continue;
+      const fields = category === "scarcity" ? ["availabilityNotes", "urgency", "offerValidity"] : category === "price_history" ? ["priceHistory", "launchPriceAed", "historicalPriceAed", "observedPriceAed"] : category === "rental_performance" ? ["investmentEvidence"] : null;
       const supported = citations.some(row => {
         if ((fields && !fields.includes(row.field)) || !row.text.toLowerCase().includes(match[0].toLowerCase())) return false;
         if (category === "price_history" && row.field === "launchPriceAed" && typeof row.value === "number") return containsNumber(row.text, row.value);

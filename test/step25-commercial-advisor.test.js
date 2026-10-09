@@ -335,6 +335,7 @@ test("duplicate webhook executes one advisory turn and one requested handoff", a
 });
 
 function mockModel(t, engine, compose) {
+  engine.brokerMode = false;
   const calls = [];
   const transport = async (_url, request) => {
     const payload = JSON.parse(JSON.parse(request.body).messages[0].content);
