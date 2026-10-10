@@ -58,7 +58,11 @@ const OFFERS = {
   tailored: ["can look at your situation in detail and shortlist with you", "يمكنه دراسة وضعك بالتفصيل وإعداد قائمة مناسبة معك"],
   visa: ["can point you to the right specialist to confirm eligibility for your case", "يمكنه توجيهك إلى المختص المناسب لتأكيد الأهلية في حالتك"],
   mortgage: ["can introduce you to the right person to confirm what you could borrow", "يمكنه تعريفك بالشخص المناسب لتأكيد قدرتك على التمويل"],
-  legal: ["can point you to a qualified professional for your case", "يمكنه توجيهك إلى مختص مؤهل لحالتك"]
+  legal: ["can point you to a qualified professional for your case", "يمكنه توجيهك إلى مختص مؤهل لحالتك"],
+  verify: ["can check this with the developer and come back to you with the confirmed answer", "يمكنه التحقق من ذلك مع المطور والعودة إليك بالإجابة المؤكدة"],
+  research: ["can pull project-specific evidence for you, such as recent sales and upcoming supply", "يمكنه جمع أدلة خاصة بالمشروع لك، مثل المبيعات الأخيرة والمعروض القادم"],
+  match: ["can look beyond what I have listed here and come back with options that fit", "يمكنه البحث خارج ما هو مدرج هنا والعودة إليك بخيارات مناسبة"],
+  system: ["can take your requirements now and come back to you with options", "يمكنه أخذ متطلباتك الآن والعودة إليك بخيارات مناسبة"]
 };
 
 /**

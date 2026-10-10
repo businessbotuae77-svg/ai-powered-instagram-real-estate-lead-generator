@@ -26,6 +26,8 @@ import { isAreaComparison, isAreaInformationQuestion } from "./area-answers.js";
 import { areaGuideClaims, areaGuideFromCatalog, findAreaEntry } from "../facts/area-guide.js";
 import { isFlexiblePreference, PREFERENCE_FACT_FIELDS } from "./preference-state.js";
 import { understandMessageLocally, mergeUnderstanding } from "./understand.js";
+import { classifyTurn, nextConversationState } from "./outcomes.js";
+import { nextStepFor, offeredRecently } from "./next-step.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
 import { brokerProfile, directContactLine, permittedContactDetails } from "./broker-profile.js";
@@ -34,6 +36,7 @@ import { configuredServiceTerms, declinedServiceIds, loadServices, suggestServic
 import {
   buildCallRequestSummary,
   hasBuyingInterest,
+  intentAlertFor,
   refineTurnIntent,
   wantsCallRequest
 } from "./intent-policy.js";
@@ -476,7 +479,7 @@ export class ConversationEngine {
       const answer = unitPacks.length ? answerFactQuestion(offered.action === "availability" ? "availability" : "payment plan", unitPacks) : null;
       if (answer?.handled) {
         const next = offered.action === "payment_details" ? "Want me to check current availability?" : null;
-        draft = { text: [answer.text, next].filter(Boolean).join("\n"), stage: "fact_answer", factTopic: answer.topic, factPacks: unitPacks,
+        draft = { text: [answer.text, next].filter(Boolean).join("\n"), stage: "fact_answer", factTopic: answer.topic, factMissing: answer.missing || [], factPacks: unitPacks,
           nextQuestion: next ? { field: "advisoryNextAction", prompt: next } : null,
           pendingOffer: next ? { type: "advisory_next_action", action: "availability", projectId: project.id } : null, callRequest: null };
         packs = unitPacks;
@@ -591,6 +594,14 @@ export class ConversationEngine {
       serviceSuggestion = suggestService({ buyer, topic: draft.serviceTopic || null, pack: primaryPack || null, services: this.services });
       if (serviceSuggestion) draft = { ...draft, text: insertBeforeQuestion(draft.text, serviceSuggestion.line, draft.nextQuestion?.prompt) };
     }
+    // Arabic first, so a next step added below is never mixed into an English answer.
+    draft = localizeDraft(draft, buyer, packs);
+    // Answer first, then at most one useful next step instead of a dead end.
+    if (!contact) {
+      const step = nextStepFor(draft, { buyer, recentTurns: this.memory.getTurns(instagramUserId) });
+      if (step?.question) draft = { ...draft, text: `${draft.text}\n${step.question.prompt}`, nextQuestion: step.question };
+      else if (step) draft = { ...draft, handoffReason: step.handoffReason, handoffTopic: draft.handoffTopic || step.handoffTopic };
+    }
     if (draft.handoffReason) {
       const offer = handoffOffer({ buyer, broker: this.broker, reason: draft.handoffReason, lastAskedField });
       if (offer) draft = { ...draft, text: `${draft.text}\n${offer.line}`, nextQuestion: offer.nextQuestion, pendingOffer: offer.pendingOffer };
@@ -600,7 +611,6 @@ export class ConversationEngine {
         if (direct) draft = { ...draft, text: `${draft.text}\n${direct}` };
       }
     }
-    draft = localizeDraft(draft, buyer, packs);
     if (draft.pendingOffer) {
       this.memory.setPendingOffer(instagramUserId, draft.pendingOffer);
     } else if (["matched", "soft_match", "transaction_next_step", "identity", "professional_topic", "handoff_declined", "suggestion_declined", "acknowledged"].includes(draft.stage)) {
@@ -699,6 +709,15 @@ export class ConversationEngine {
       });
       draft = { ...draft, text: replyText, stage: "fact_check_fallback", polished: false, nextQuestion: null, pendingOffer: null };
       this.memory.setPendingOffer(instagramUserId, null);
+      // The confirmed facts stay; what could not be verified goes to the broker, if the buyer wants.
+      const verify = fallbackPacks.length && !/[?؟]\s*$/.test(replyText) && !offeredRecently(this.memory.getTurns(instagramUserId))
+        ? handoffOffer({ buyer, broker: this.broker, reason: "verify", lastAskedField }) : null;
+      if (verify) {
+        replyText = `${replyText}\n${verify.line}`;
+        draft = { ...draft, text: replyText, nextQuestion: verify.nextQuestion, pendingOffer: verify.pendingOffer,
+          handoffTopic: "Verify the details the buyer asked about" };
+        this.memory.setPendingOffer(instagramUserId, verify.pendingOffer);
+      }
     }
     this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
     if (check.ok && draft.advisoryExposure && strategy?.type === "budget_permission" && draft.stage !== "fact_check_fallback") {
@@ -749,7 +768,7 @@ export class ConversationEngine {
     buyer = await this.buyers.remember(instagramUserId, {
       intentSignals: durableSignals,
       contactDeclined:
-        intents.includes("decline_contact") || intents.includes("decline_call") ? true : undefined,
+        intents.includes("decline_contact") || (intents.includes("decline_call") && !signals.includes("calls_only")) ? true : undefined,
       preferredContactChannel: facts.preferredContactChannel,
       noCalls: facts.noCalls,
       salesPathStopped: buyer.salesPathStopped,
@@ -768,6 +787,25 @@ export class ConversationEngine {
       salesPathStopped: buyer.salesPathStopped
     });
 
+    // How the conversation stands after this turn: outcome, handoff progress and
+    // anything the buyer asked that the data could not confirm.
+    const shortlistShown = check.ok && ["matched", "soft_match"].includes(draft.stage) && Boolean(draft.advisoryExposure || matchResult.matchCount);
+    const turnOutcome = classifyTurn({ stage: draft.stage, buyer, followUpSubmitted, callRequestSubmitted, shortlistShown,
+      factMissing: check.ok ? draft.factMissing || [] : [] });
+    const missingFact = draft.stage === "fact_check_fallback" ? { topic: "unverified_reply" } : check.ok ? (draft.factMissing || [])[0] : null;
+    const unresolved = turnOutcome === "info_missing" && missingFact
+      ? { ...missingFact, question: String(text).slice(0, 200) } : null;
+    const handoffStatus = followUpSubmitted ? "requested"
+      : ["follow_up_channel", "follow_up_phone", "call_offer"].includes(draft.stage) ? "awaiting_details"
+        : draft.pendingOffer?.type === "handoff_offer" ? "offered"
+          : draft.stage === "handoff_declined" || (intents.includes("decline_call") && !facts.noCalls) ? "declined"
+            : buyer.handoff?.status || "none";
+    buyer = await this.buyers.patchBuyer(instagramUserId, {
+      conversation: nextConversationState(buyer.conversation, { outcome: turnOutcome, buyer, unresolved }),
+      handoff: { ...(buyer.handoff || {}), status: handoffStatus, channel: contact?.channel || buyer.preferredContactChannel || null,
+        ...(followUpSubmitted ? { requestedAt: new Date().toISOString(), deliveredAt: null, failedAt: null } : {}) }
+    });
+
     const activeProject = catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId);
     const activeUnit = catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === activeProject?.id);
     const handoffMatches = activeProject && activeUnit ? [{ project: activeProject, unit: activeUnit,
@@ -778,6 +816,16 @@ export class ConversationEngine {
           reason: options.callReason || (callRequestSubmitted ? "Buyer submitted Request a Call" : "Buyer requested follow-up")
         })
       : null;
+    // Explicit human, call or purchase intent tells the broker about the lead,
+    // once per session, without treating it as permission to contact the buyer.
+    let intentAlert = intentAlertFor({ message: text, intents, moment, buyer, followUpSubmitted,
+      sessionId: buyer.conversation?.sessionId || null });
+    if (intentAlert) {
+      buyer = await this.buyers.patchBuyer(instagramUserId, { intentAlert: { kind: intentAlert.kind, sessionId: buyer.conversation?.sessionId || null,
+        at: new Date().toISOString(), status: "pending" } });
+      intentAlert = { ...intentAlert, summary: buildCallRequestSummary(buyer, { matches: handoffMatches,
+        reason: `Buyer showed ${intentAlert.kind} intent`, intent: intentAlert }) };
+    }
 
     this.memory.addTurn(instagramUserId, {
       role: "assistant",
@@ -802,6 +850,8 @@ export class ConversationEngine {
     return {
       reply: replyText,
       stage: draft.stage,
+      outcome: buyer.conversation?.outcome || null,
+      turnOutcome,
       polished: Boolean(draft.polished),
       understood: Boolean(understanding?.source && understanding.source !== "none"),
       understandingSource: understanding?.source || null,
@@ -816,6 +866,7 @@ export class ConversationEngine {
       followUpSubmitted,
       catalogError,
       callSummary,
+      intentAlert,
       criteria: matchResult.criteria,
       matchCount: matchResult.matchCount,
       matchMode: matchResult.mode,

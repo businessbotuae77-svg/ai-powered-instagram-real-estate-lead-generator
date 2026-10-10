@@ -20,6 +20,8 @@ import { getInstagramAccountIdentity, subscribeInstagramMessaging } from "../src
 import { webhookResponse } from "../src/integrations/webhook-response.js";
 import { brokerProfileStatus } from "../src/conversation/broker-profile.js";
 import { loadServices } from "../src/conversation/services.js";
+import { buildDailyReport, formatDailyReport, reportDeliveryConfig, yesterdayInDubai, dubaiDay } from "../src/reporting/outcome-report.js";
+import { sendWhatsAppReport } from "../src/integrations/whatsapp.js";
 
 loadEnv();
 
@@ -172,6 +174,15 @@ const server = http.createServer(async (req, res) => {
     }
     const rows = await integrationLog.list(100);
     return sendJson(res, 200, { errors: rows });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/reports/daily") {
+    if (IS_PRODUCTION && process.env.ALLOW_INTEGRATION_ERROR_READ !== "true") {
+      return sendJson(res, 404, { error: "Not found" });
+    }
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("date") || "") ? url.searchParams.get("date") : dubaiDay(new Date().toISOString());
+    const report = buildDailyReport({ buyers: store.snapshot().buyers, callRequests: await orchestrator.callRequests.list(500), day });
+    return sendJson(res, 200, { report, text: formatDailyReport(report), delivery: reportDeliveryConfig() });
   }
 
   if (req.method === "GET" && url.pathname === "/api/call-requests") {
@@ -375,6 +386,21 @@ server.listen(PORT, HOST, () => {
   const retryTimer = setInterval(() => orchestrator.retryPending().catch(error => console.warn(`Integration retry failed: ${error.message}`)), 30000);
   retryTimer.unref();
   orchestrator.retryPending().catch(error => console.warn(`Integration recovery failed: ${error.message}`));
+  // Yesterday's report goes out once a day at the configured Dubai hour; off by default.
+  const delivery = reportDeliveryConfig();
+  if (delivery.enabled) {
+    const reportTimer = setInterval(async () => {
+      if (new Date(Date.now() + 4 * 3600000).getUTCHours() !== delivery.hour) return;
+      const day = yesterdayInDubai();
+      try {
+        const report = buildDailyReport({ buyers: store.snapshot().buyers, callRequests: await orchestrator.callRequests.list(500), day });
+        await sendWhatsAppReport({ text: formatDailyReport(report), day, to: delivery.recipient, ledger: orchestrator.alerts });
+      } catch (error) {
+        console.warn(`Daily report delivery failed: ${error.message}`);
+      }
+    }, 600000);
+    reportTimer.unref();
+  }
   instagramPoller.start();
   console.log(
     String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() === "false"

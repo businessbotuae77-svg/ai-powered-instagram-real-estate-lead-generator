@@ -22,9 +22,11 @@ export function localizeDraft(draft, buyer, packs) {
   else if (draft.stage === "fact_answer" && packs.length) {
     const fields = { availability: "availability", price: "startingPriceText", initial: "downPaymentText", paymentPlan: "paymentPlanSummary", handover: "handover" };
     const labels = { availability: "التوفر", price: "السعر يبدأ من", initial: "الدفعة الأولى", paymentPlan: "خطة السداد", handover: "التسليم" };
+    const unknown = { availability: "التوفر غير مؤكد بعد", price: "سعر البداية غير مؤكد بعد", initial: "الدفعة الأولى غير مؤكدة بعد",
+      paymentPlan: "خطة السداد غير مؤكدة بعد", handover: "موعد التسليم غير مؤكد بعد" };
     const field = fields[draft.factTopic];
     text = [...new Map(packs.map(p => [p.projectId, p])).values()]
-      .map(p => `${p.name.value}: ${p[field]?.confirmed ? `${labels[draft.factTopic] || ""} ${p[field].value}`.trim() : "هذه المعلومة غير مؤكدة بعد"}`).join("\n");
+      .map(p => `${p.name.value}: ${p[field]?.confirmed ? `${labels[draft.factTopic] || ""} ${p[field].value}`.trim() : unknown[draft.factTopic] || "هذه المعلومة غير مؤكدة بعد"}`).join("\n");
   }
   else if (draft.stage === "fact_answer" || draft.stage === "comparison" || draft.stage === "matched" || draft.stage === "soft_match") {
     text = packs.map(p => [`${p.name.value} — ${p.area.value}`,

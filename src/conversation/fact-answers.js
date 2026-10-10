@@ -18,17 +18,32 @@ export function answerFactQuestion(message, packs = []) {
   // Project-wide answers (plan, handover) once per project; unit answers per unit.
   const seen = new Set();
   const lines = [];
+  const missing = [];
   for (const pack of packs) {
     if (seen.has(pack.projectId)) continue;
     seen.add(pack.projectId);
     const units = packs.filter(row => row.projectId === pack.projectId);
     lines.push(["paymentPlan", "handover", "rent"].includes(topic) || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
+    if (!units.some(unit => topicConfirmed(unit, topic))) missing.push({ projectId: pack.projectId, project: pack.name?.value || null, topic });
   }
   return {
     handled: true,
     topic,
-    text: lines.join("\n\n")
+    text: lines.join("\n\n"),
+    // Facts the buyer asked for that the data cannot confirm; the broker can verify them.
+    missing
   };
+}
+
+/** Whether a confirmed value answers this topic for one listing. */
+export function topicConfirmed(pack, topic) {
+  if (topic === "rent") return false;
+  if (topic === "paymentPlan") return Boolean(pack.paymentPlanSummary?.confirmed);
+  if (topic === "handover") return Boolean(pack.handover?.confirmed);
+  if (topic === "price") return Boolean(pack.startingPriceText?.confirmed);
+  if (topic === "initial") return Boolean(pack.downPaymentText?.confirmed || packPaymentStages(pack).some(stage => stage.key === "booking"));
+  if (topic === "availability") return Boolean(pack.availability?.confirmed);
+  return true;
 }
 
 export function detectFactTopic(message) {

@@ -134,7 +134,7 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   if (!statesPlan && detectFactTopic(text) && (intents.includes("ask_facts") || /is it available|متاح/i.test(text))) {
     const answer = answerFactQuestion(text, packs);
     const prompt = say("Which project would you like me to check?", "أي مشروع تريد أن أتحقق منه؟");
-    return { ...response(answer.handled ? answer.text : prompt, "fact_answer", answer.handled ? null : "factProject", answer.handled ? null : prompt), factTopic: answer.topic };
+    return { ...response(answer.handled ? answer.text : prompt, "fact_answer", answer.handled ? null : "factProject", answer.handled ? null : prompt), factTopic: answer.topic, factMissing: answer.missing || [] };
   }
   if (/^(hi|hello|hey|salam|مرحبا|السلام عليكم)[.!?]*$/i.test(text.trim())) {
     // A returning buyer who already told us something is never asked it again.
@@ -177,6 +177,6 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     }
     return response(say("No problem. We can start with what matters most: a home to live in, investment potential, a lower entry price, or an easier payment plan?", "لا مشكلة. ما الذي يهمك أكثر: منزل للسكن أم الاستثمار أم سعر دخول أقل أم خطة سداد أسهل؟"), "exploring", "useType", "What matters most?");
   }
-  if (catalogError) return response(say("The property catalogue check failed. I've kept your requirements and can retry; I won't guess prices or availability.", "تعذر التحقق من كتالوج العقارات. احتفظت بمتطلباتك ويمكنني إعادة المحاولة؛ لن أخمن الأسعار أو التوفر."), "catalog_unavailable");
+  if (catalogError) return response(say("I couldn't load the current listings just now. I've kept your requirements, and I won't guess prices or availability.", "تعذر تحميل القوائم الحالية الآن. احتفظت بمتطلباتك، ولن أخمّن الأسعار أو التوفر."), "catalog_unavailable");
   return null;
 }

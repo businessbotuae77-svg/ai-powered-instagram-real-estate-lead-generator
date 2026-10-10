@@ -15,7 +15,7 @@ export function contactDecision({ message, buyer, pending, explicitCall = false,
   const follow = /follow[ -]?up|contact me|whatsapp me|message me on whatsapp|متابعة|واتساب/i.test(text);
   const human = wantsHuman(text);
   const acceptedOffer = pending?.type === "handoff_offer" && isAffirmation(text);
-  const channelReply = pending?.type === "contact_channel" && /\b(instagram|here|dm|whatsapp|phone|call)\b/i.test(text);
+  const channelReply = pending?.type === "contact_channel" && /\b(instagram|here|dm|whatsapp|phone|call)\b|إنستغرام|انستغرام|انستقرام|هنا|واتساب|اتصال/i.test(text);
   const pendingPhone = pending?.type === "follow_up_phone" && Boolean(buyer.phone);
   // The buyer's own explicit words override an earlier decline or pause.
   const explicit = follow || human || explicitCall || acceptedOffer || phoneSubmitted || channelReply || pendingPhone;
@@ -25,8 +25,8 @@ export function contactDecision({ message, buyer, pending, explicitCall = false,
   const label = brokerLabel(broker, buyer.language);
   const who = brokerShortName(broker, buyer.language);
   const channel = explicitCall || phoneSubmitted ? "phone"
-    : /whatsapp/i.test(text) ? "whatsapp"
-    : /\b(here|instagram|dm)\b/i.test(text) ? "instagram"
+    : /whatsapp|واتساب/i.test(text) ? "whatsapp"
+    : /\b(here|instagram|dm)\b|إنستغرام|انستغرام|انستقرام|هنا/i.test(text) ? "instagram"
     : pending?.channel || buyer.preferredContactChannel;
   if (!channel) {
     const direct = directContactLine(broker, buyer.language);

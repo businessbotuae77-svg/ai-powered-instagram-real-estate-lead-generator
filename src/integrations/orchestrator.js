@@ -18,9 +18,9 @@ export function messageEventAgeMs(event, now = Date.now()) {
 /** The parts of an engine result a retry or a duplicate lookup reads. */
 export function retryResult(result) {
   const { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
-    followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired } = result;
+    followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, intentAlert, outcome } = result;
   return { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
-    followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, compact: true,
+    followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, intentAlert: intentAlert || null, outcome: outcome || null, compact: true,
     // Quick-reply buttons are re-sent on a retry, so keep the question.
     nextQuestion: result.nextQuestion ? { field: result.nextQuestion.field, prompt: result.nextQuestion.prompt, choices: result.nextQuestion.choices || null } : null,
     matches: (result.matches || []).map(m => ({ project: { id: m.project?.id, name: m.project?.name }, unit: { id: m.unit?.id } })) };
@@ -210,6 +210,10 @@ export class IntegrationOrchestrator {
       const revoked = alert.reason === "permission_revoked";
       const alertOk = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert" || revoked);
       if (alertOk || !needsAlert) await this.events.save(mid, { alert });
+      if (needsAlert) await this.#recordHandoff(result, alertOk && !revoked ? "delivered" : revoked ? "cancelled" : "failed");
+      // The internal lead alert is retried like any delivery; it never changes the buyer's reply.
+      const intentAlert = previous.intentAlert?.ok ? previous.intentAlert : await this.#safeIntentAlert(result, event);
+      if (intentAlert.ok) await this.events.save(mid, { intentAlert });
       let send = previous.send;
       // Never leave the buyer in silence: if the alert failed, say so once and
       // keep retrying. A confirmation is sent only after delivery succeeds.
@@ -231,7 +235,7 @@ export class IntegrationOrchestrator {
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
         if (needsAlert && alertOk) result.reply = reply;
       }
-      const failed = (needsAlert && !alertOk) || !send || send.error || send.skipped;
+      const failed = (needsAlert && !alertOk) || Boolean(intentAlert.error) || !send || send.error || send.skipped;
       if (failed) {
         await this.events.save(mid, { status: "failed", nextAttemptAt: Date.now() + Math.min(3600000, 30000 * 2 ** (previous.attempts || 0)) });
       } else {
@@ -239,7 +243,7 @@ export class IntegrationOrchestrator {
       }
       await this.log.record({ correlationId: mid, integration: "conversation", operation: "decision", status: failed ? "pending" : "ok",
         meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, handoffRequired: result.handoffRequired, catalogError: result.catalogError, buyerState: { budget: result.buyer?.budgetAed, areas: result.buyer?.preferredAreas, bedrooms: result.buyer?.bedrooms, channel: result.buyer?.preferredContactChannel, noCalls: result.buyer?.noCalls }, projectIds: result.matches?.map(m => m.project.id), reply: result.reply } });
-      return { duplicate: false, mid, result, send, alert, pending: Boolean(failed) };
+      return { duplicate: false, mid, result, send, alert, intentAlert, pending: Boolean(failed) };
     } catch (error) {
       await this.events.fail(mid, { message: error.message });
       await this.events.save(mid, { nextAttemptAt: Date.now() + 30000 });
@@ -310,6 +314,43 @@ export class IntegrationOrchestrator {
         meta: { recipientId }
       });
       return { skipped: true, error: error.message };
+    }
+  }
+
+  /** Handoff delivery status on the buyer record, for reporting. */
+  async #recordHandoff(result, status) {
+    if (!this.buyers?.patchBuyer || !result.buyer?.instagramUserId) return;
+    const latest = await this.buyers.getOrCreate?.(result.buyer.instagramUserId);
+    const at = new Date().toISOString();
+    await this.buyers.patchBuyer(result.buyer.instagramUserId, { handoff: { ...(latest?.handoff || result.buyer.handoff || {}), status,
+      ...(status === "delivered" ? { deliveredAt: at } : { failedAt: at }) } });
+  }
+
+  /**
+   * Internal lead alert for explicit human, call or purchase intent. The lead is
+   * recorded before sending, so a failed send is retried, never lost.
+   */
+  async #safeIntentAlert(result, event) {
+    if (!result.intentAlert) return { skipped: true, reason: "no_intent_alert" };
+    const buyerId = result.buyer?.instagramUserId;
+    try {
+      const latest = await this.buyers?.getOrCreate?.(buyerId);
+      if (latest?.salesPathStopped) return { skipped: true, reason: "opted_out" };
+      await this.callRequests.record({ requestKey: `${event.mid}:intent`, kind: "intent", intent: result.intentAlert.kind,
+        instagramUserId: buyerId, summary: result.intentAlert.summary, match: result.matches?.[0]?.project?.name || null });
+      const alert = await sendWhatsAppAlert({
+        buyer: result.buyer, reason: `intent_${result.intentAlert.kind}`, matchName: result.matches?.[0]?.project?.name || "",
+        messageId: event.mid, summaryText: result.intentAlert.summary, env: this.env, fetchImpl: this.fetchImpl, ledger: this.alerts
+      });
+      const ok = !alert.skipped || alert.reason === "duplicate_alert";
+      await this.buyers?.patchBuyer?.(buyerId, { intentAlert: { ...(latest?.intentAlert || {}), status: ok ? "delivered" : "not_sent",
+        reason: ok ? null : alert.reason || null } });
+      return { ...alert, ok, recorded: true };
+    } catch (error) {
+      await this.log.record({ correlationId: event.mid, integration: "whatsapp", operation: "intent_alert", status: "error",
+        message: error.message, retryable: Boolean(error.retryable), meta: { senderId: buyerId } });
+      await this.buyers?.patchBuyer?.(buyerId, { intentAlert: { ...(result.buyer?.intentAlert || {}), status: "failed" } });
+      return { skipped: true, error: error.message, recorded: true };
     }
   }
 

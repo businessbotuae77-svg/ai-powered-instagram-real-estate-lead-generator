@@ -31,8 +31,7 @@ export {
 } from "./conversation/understand.js";
 export {
   refineTurnIntent,
-  shouldSendAdvisorAlert,
-  alertReasonFromTurn
+  intentAlertFor
 } from "./conversation/intent-policy.js";
 export { buildConversationReply } from "./conversation/replies.js";
 export {
