@@ -2,20 +2,15 @@ const thread = document.getElementById("thread");
 const form = document.getElementById("form");
 const messageInput = document.getElementById("message");
 const userIdInput = document.getElementById("userId");
-const apiKeyInput = document.getElementById("apiKey");
-const claudeStatus = document.getElementById("claudeStatus");
 const choicesEl = document.getElementById("choices");
 const callRequestEl = document.getElementById("callRequest");
 const callPhoneInput = document.getElementById("callPhone");
 const callSubmitBtn = document.getElementById("callSubmit");
 const buyerBtn = document.getElementById("buyerBtn");
 const newChatBtn = document.getElementById("newChatBtn");
-const saveKeyBtn = document.getElementById("saveKeyBtn");
-const clearKeyBtn = document.getElementById("clearKeyBtn");
 const buyerPanel = document.getElementById("buyerPanel");
 const settings = document.getElementById("settings");
 const settingsToggle = document.getElementById("settingsToggle");
-const runtimeKeyControls = document.querySelectorAll(".runtime-key-control");
 
 const SESSION_KEY = "harbour_desk_test_user";
 
@@ -99,45 +94,6 @@ function renderChoices(nextQuestion) {
   }
 }
 
-function renderClaudeStatus(data) {
-  if (!claudeStatus) return;
-  for (const control of runtimeKeyControls) {
-    control.hidden = !data?.runtimeKeyAllowed;
-  }
-  if (data?.claudeEnabled) {
-    claudeStatus.textContent = "Natural conversation is enabled.";
-  } else if (!data?.runtimeKeyAllowed) {
-    claudeStatus.textContent = "Natural conversation is not configured on this deployment.";
-  } else {
-    claudeStatus.textContent = "Add the Anthropic key here to test natural conversation locally.";
-  }
-}
-
-async function refreshClaudeStatus() {
-  try {
-    const response = await fetch("/api/llm");
-    const data = await response.json();
-    renderClaudeStatus(data);
-  } catch {
-    renderClaudeStatus({ claudeEnabled: false });
-  }
-}
-
-async function saveApiKey(apiKey) {
-  const response = await fetch("/api/llm", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ apiKey })
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Could not save key");
-  }
-  if (apiKeyInput) apiKeyInput.value = "";
-  renderClaudeStatus(data);
-  return data;
-}
-
 async function sendMessage(text) {
   const userId = userIdInput.value.trim() || ensureSessionId();
   localStorage.setItem(SESSION_KEY, userId);
@@ -203,7 +159,6 @@ settingsToggle.addEventListener("click", () => {
   if (open) {
     settings.removeAttribute("hidden");
     settingsToggle.setAttribute("aria-expanded", "true");
-    refreshClaudeStatus();
   } else {
     settings.setAttribute("hidden", "");
     settingsToggle.setAttribute("aria-expanded", "false");
@@ -235,29 +190,7 @@ if (newChatBtn) {
   newChatBtn.addEventListener("click", () => startFreshUi());
 }
 
-if (saveKeyBtn) {
-  saveKeyBtn.addEventListener("click", () => {
-    const apiKey = (apiKeyInput?.value || "").trim();
-    if (!apiKey) {
-      claudeStatus.textContent = "Paste a key first, then tap Save key.";
-      return;
-    }
-    saveApiKey(apiKey).catch((error) => {
-      claudeStatus.textContent = error.message || String(error);
-    });
-  });
-}
-
-if (clearKeyBtn) {
-  clearKeyBtn.addEventListener("click", () => {
-    saveApiKey("").catch((error) => {
-      claudeStatus.textContent = error.message || String(error);
-    });
-  });
-}
-
 ensureSessionId();
-refreshClaudeStatus();
 addBubble(
   "bot",
   "Hi, happy to help. Tell me what you’re looking for in Abu Dhabi, or share your budget and I’ll suggest a few options."

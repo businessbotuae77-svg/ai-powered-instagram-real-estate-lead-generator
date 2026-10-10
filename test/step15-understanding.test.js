@@ -3,7 +3,6 @@ import test from "node:test";
 import { setupConversation } from "./helpers.js";
 import { understandMessageLocally, mergeUnderstanding } from "../src/conversation/understand.js";
 import { extractFactsFromMessage } from "../src/conversation/extract.js";
-import { polishReplyWithModel } from "../src/conversation/llm.js";
 
 test("step 15a uncertainty after the opening hook offers an area guide, not another buyer-type question", async () => {
   const { engine } = await setupConversation();
@@ -98,44 +97,6 @@ test("step 15h local typo I dknt know maps to the last asked field", () => {
   assert.ok(local.unsure.includes("area"));
   assert.equal(local.facts.openToOtherAreas, true);
   assert.ok(local.signals.includes("area_flexible"));
-});
-
-test("step 15i Claude composes one paraphrased code-owned question without appending", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({
-    ok: true,
-    async json() {
-      return { content: [{ type: "text", text: JSON.stringify({
-        message: "Your AED 2M budget gives us a useful starting point. Which area would you prefer?",
-        askedQuestion: true, questionField: "preferredAreas", claims: [], proposedActions: []
-      }) }] };
-    }
-  });
-  try {
-    const question = "Which area are you leaning toward?";
-    const reply = await polishReplyWithModel(
-      { apiKey: "test", model: "claude-sonnet-5", baseUrl: "https://example.test" },
-      {
-        buyer: {
-          budgetAed: 2_000_000,
-          cashAvailableAed: null,
-          preferredAreas: [],
-          bedrooms: [],
-          financing: "unknown"
-        },
-        packs: [],
-        draftText: `Got it, your budget is around AED 2,000,000.\n\n${question}`,
-        intents: ["provide_facts"],
-        requiredQuestion: question
-      }
-    );
-    assert.match(reply, /useful starting point/);
-    assert.ok(reply.endsWith("Which area would you prefer?"));
-    assert.equal((reply.match(/\?/g) || []).length, 1);
-    assert.doesNotMatch(reply, /Which area are you leaning toward/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
 });
 
 test("step 15j natural unknown-area sentence keeps the search flexible", async () => {

@@ -11,7 +11,6 @@ import { advisoryReady } from "../src/conversation/advisor-strategy.js";
 import { canPitchBuyer } from "../src/conversation/match-resolve.js";
 import { canonicalQuestionField } from "../src/conversation/preference-state.js";
 import { inferQuestionField, validateBuyerResponse } from "../src/conversation/response-validation.js";
-import { composeReplyWithModel } from "../src/conversation/llm.js";
 
 // Every property and commercial record below is fictional. These regressions
 // exercise the production controller without contacting Airtable or an LLM.
@@ -255,60 +254,6 @@ test("regression 10: advisor delegation cannot activate draft, disabled, expired
   safe(unavailable);
 });
 
-function model(response, inspect = () => {}) {
-  return { apiKey: "synthetic", model: "synthetic", baseUrl: "https://synthetic.test", fetchImpl: async (_url, request) => {
-    const body = JSON.parse(request.body);
-    const payload = JSON.parse(body.messages[0].content);
-    inspect(payload);
-    const value = typeof response === "function" ? response(payload) : response;
-    return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(value) }] }) };
-  } };
-}
-const output = (message, patch = {}) => ({ message, askedQuestion: false, questionField: null, claims: [], proposedActions: [], ...patch });
-
-test("regression 11: uncited investment facts remain rejected during advisor-led discovery", async () => {
-  const buyer = { ...emptyBuyer("safe-investor"), useType: "investment", budgetAed: 3_000_000, advisorLed: true, investmentPreferenceState: "flexible",
-    preferenceStates: { investmentObjective: "flexible" } };
-  for (const message of ["The area has a new metro station.", "There is limited competing supply at handover.", "This project has strong resale demand.", "Rental yield is 8%."]) {
-    assert.equal(await composeReplyWithModel(model(output(message)), { buyer, investmentProfile: buildInvestmentStrategy(buyer) }), null, message);
-  }
-});
-
-test("valid natural advisor analysis accepts a known buyer budget and one action choice", async () => {
-  const buyer = { ...emptyBuyer("natural-advisor"), useType: "investment", budgetAed: 3_000_000, advisorLed: true,
-    investmentPreferenceState: "flexible", preferenceStates: { investmentObjective: "flexible" } };
-  const message = "That's fine — you're open, so I'll do the filtering for you. With around AED 3,000,000 for investment, I'll compare entry price, area development, payment cash exposure, competing supply, resale evidence and rental fallback where supported. Want me to compare the top two, or focus on how much cash each needs before handover?";
-  const result = await composeReplyWithModel(model(output(message, { askedQuestion: true, questionField: "advisoryNextAction" })), {
-    buyer, message: "I don't know", investmentProfile: buildInvestmentStrategy(buyer),
-    requiredQuestion: { field: "advisoryNextAction", prompt: "Want me to compare the top two?" }, allowedActions: ["compare", "payment_details"]
-  });
-  assert.ok(result, message);
-  assert.equal(result.askedQuestion, true);
-});
-
-test("unsupported recommendation subjects remain rejected after investment preferences become flexible", async () => {
-  const buyer = { ...emptyBuyer("unknown-recommendation"), useType: "investment", budgetAed: 3_000_000, advisorLed: true,
-    investmentPreferenceState: "flexible", preferenceStates: { investmentObjective: "flexible" } };
-  for (const message of ["I recommend Fictional Heights because it fits your budget.", "I would choose Unlisted Villas for you."]) {
-    assert.equal(await composeReplyWithModel(model(output(message)), { buyer }), null, message);
-  }
-});
-
-test("regression 12: advisor-led discovery cannot fabricate appreciation forecasts or marketing scores", async () => {
-  const services = await setup();
-  const id = await askPriority(services, "no-appreciation-forecast");
-  const discovery = await services.engine.handleMessage(id, "you choose", OFFLINE);
-  for (const row of discovery.advisor.candidates) {
-    assert.equal(row.investmentThesis.forecastAllowed, false);
-    assert.deepEqual(row.investmentThesis.forecasts, []);
-  }
-  const answer = await services.engine.handleMessage(id, "Will this appreciate 20%?", OFFLINE);
-  assert.match(answer.reply, /can't|cannot|forecast|promise|historical|assumption/i);
-  safe(answer);
-  for (const message of ["This will appreciate 20%.", "Expected appreciation is 20%.", "Projected IRR is 20%.", "The investment score is 95/100."]) {
-    assert.equal(await composeReplyWithModel(model(output(message)), { buyer: discovery.buyer }), null, message);
-  }
-});
 
 test("regression 13: candidate value precedes at most one useful action question", async () => {
   const services = await setup();
@@ -330,35 +275,4 @@ test("acceptance B: insufficient commercial evidence allows one different useful
   assert.doesNotMatch(result.reply, /2,400,000|2,750,000|240,000|150,000/);
   assert.ok(result.nextQuestion, result.reply);
   assert.ok(!["investmentObjective", "advisoryPriority"].includes(result.nextQuestion.field));
-});
-
-test("regression 14: rejected model question loops fall back to advisor discovery across the exact flow", async t => {
-  const services = await setup();
-  services.engine.brokerMode = false;
-  const payloads = [];
-  services.engine.llm = model(payload => "currentMessage" in payload
-    ? output("What matters most to you? What's your priority?", { askedQuestion: true, questionField: "investmentObjective" })
-    : { facts: {}, intents: [], signals: [], unsure: false, ack: false }, payload => payloads.push(payload));
-  t.mock.method(globalThis, "fetch", services.engine.llm.fetchImpl);
-  const result = await acceptance(services, "rejected-model-flow", {});
-  assert.equal(result.polished, false);
-  assert.ok(result.advisor.primary, result.reply);
-  const composed = payloads.filter(payload => "currentMessage" in payload);
-  const finalPayload = composed.at(-1);
-  assert.equal(finalPayload.currentMessage, "I don't know");
-  assert.equal(finalPayload.buyer.investmentPreferenceState, "flexible");
-  assert.notEqual(canonicalQuestionField(finalPayload.requiredQuestion?.field), "investmentObjective");
-  assert.equal(finalPayload.investmentProfile.strategy, "UNDECIDED");
-  for (const message of ["idk", "not sure", "you choose"]) {
-    delegated(await services.engine.handleMessage("rejected-model-flow", message, {}));
-  }
-});
-
-test("regression 14: an unavailable model cannot erase uncertainty or repeat its qualification slot", async t => {
-  const services = await setup();
-  services.engine.llm = { apiKey: "synthetic", baseUrl: "https://synthetic.test", fetchImpl: async () => { throw new Error("Synthetic transport unavailable"); } };
-  t.mock.method(globalThis, "fetch", services.engine.llm.fetchImpl);
-  const result = await acceptance(services, "unavailable-model-flow", {});
-  assert.equal(result.polished, false);
-  assert.ok(result.advisor.primary, result.reply);
 });

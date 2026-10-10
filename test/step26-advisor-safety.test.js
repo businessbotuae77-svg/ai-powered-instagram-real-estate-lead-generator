@@ -5,7 +5,6 @@ import { buildFactPack } from "../src/facts/retrieval.js";
 import { validateBuyerResponse } from "../src/conversation/response-validation.js";
 import { advisorBudgetPolicy } from "../src/conversation/advisor-opportunities.js";
 import { parseAdvisoryFacts } from "../src/conversation/advisory-memory.js";
-import { systemText } from "../src/conversation/model-request.js";
 
 const offline = { useLlm: false };
 
@@ -43,19 +42,6 @@ function modelCheck(message, fields = ["name"], pack = packFor()) {
     metadata: { askedQuestion: false, questionField: null, proposedActions: [], claims } });
 }
 
-async function withModelUnderstanding(services, understanding, run) {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
-    const payload = JSON.parse(options.body);
-    const result = systemText(payload.system).includes("extract structured buyer requirements")
-      ? understanding : { message: "I can help with that.", askedQuestion: false,
-        questionField: null, claims: [], proposedActions: [] };
-    return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(result) }] }) };
-  };
-  services.engine.llm = { apiKey: "synthetic-test-key", baseUrl: "https://synthetic.test" };
-  try { return await run(); } finally { globalThis.fetch = originalFetch; }
-}
-
 test("negated follow-up never authorizes an advisor handoff through a saved channel", async () => {
   for (const message of ["Do not follow up", "I don't want follow-up", "Don't contact me on WhatsApp"]) {
     const { engine, buyers } = await fixture();
@@ -79,19 +65,6 @@ test("negated viewing does not become qualification or contact permission", asyn
   }
 });
 
-test("model interpretation cannot revoke no-call permission on an unrelated greeting", async () => {
-  const services = await fixture();
-  await services.buyers.patchBuyer("forged-call", { noCalls: true,
-    preferredContactChannel: "instagram", phone: "+971501234567" });
-  const result = await withModelUnderstanding(services,
-    { facts: {}, intents: ["request_call"], signals: ["request_call", "callback_request"] },
-    () => services.engine.handleMessage("forged-call", "Hi"));
-  assert.equal(result.buyer.noCalls, true);
-  assert.equal(result.buyer.preferredContactChannel, "instagram");
-  assert.equal(result.callRequestSubmitted, false);
-  assert.equal(result.alertRecommended, false);
-});
-
 test("a negated call request never revokes an existing no-call boundary", async () => {
   for (const message of ["Never call me", "Do not phone me", "Do not ring me", "I don't want a call"]) {
     const { engine, buyers } = await fixture();
@@ -103,19 +76,6 @@ test("a negated call request never revokes an existing no-call boundary", async 
     assert.equal(result.callRequestSubmitted, false);
     assert.equal(result.nextQuestion, null, result.reply);
   }
-});
-
-test("model interpretation cannot increase a firm budget without a buyer-supplied amount", async () => {
-  const services = await fixture();
-  await services.buyers.patchBuyer("forged-budget", { budgetAed: 2_000_000,
-    budgetHardCap: true, budgetFirm: true, useType: "investment" });
-  const result = await withModelUnderstanding(services,
-    { facts: { budget: 3_000_000, cash: 1_000_000 }, intents: [] },
-    () => services.engine.handleMessage("forged-budget", "Growth"));
-  assert.equal(result.buyer.budgetAed, 2_000_000);
-  assert.equal(result.buyer.budgetFirm, true);
-  assert.equal(result.buyer.budgetHardCap, true);
-  assert.equal(result.buyer.cashAvailableAed, null);
 });
 
 test("explicit zero permitted stretch remains a ceiling of the original budget", () => {

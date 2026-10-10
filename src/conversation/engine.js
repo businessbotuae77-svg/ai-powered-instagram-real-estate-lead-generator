@@ -10,7 +10,6 @@ import { ConversationMemory } from "./memory.js";
 import { canPitchBuyer, resolveMatches } from "./match-resolve.js";
 import { summarizeBuyer, isCoreQualified } from "./qualify.js";
 import { buildConversationReply, buildAdvisorReply, fallbackSafeText } from "./replies.js";
-import { composeReplyWithModel } from "./llm.js";
 import { buildAdvisorOpportunities, commercialEvidenceState, commercialEvidenceFingerprint } from "./advisor-opportunities.js";
 import { advisoryReady, determineAdvisorStrategy } from "./advisor-strategy.js";
 import { knownField, sanitizeBuyerLanguage, validateBuyerResponse } from "./response-validation.js";
@@ -22,15 +21,14 @@ import { buildInvestmentStrategy, INVESTMENT_PROFILE_FIELDS } from "./investment
 import { conversationState } from "./conversation-state.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
 import { researchReply } from "./research-reply.js";
-import { applyBrokerReply, brokerEligible, buildBrokerContext, composeBrokerReply, validateBrokerReply } from "./broker-mode.js";
 import { stageAmountsFor, stagePercentsFor } from "../facts/payment-stages.js";
 import { isAreaComparison, isAreaInformationQuestion } from "./area-answers.js";
-import { areaGuideClaims, areaGuideForModel, areaGuideFromCatalog, findAreaEntry } from "../facts/area-guide.js";
+import { areaGuideClaims, areaGuideFromCatalog, findAreaEntry } from "../facts/area-guide.js";
 import { isFlexiblePreference, PREFERENCE_FACT_FIELDS } from "./preference-state.js";
-import { understandMessageWithModel, understandMessageLocally, mergeUnderstanding } from "./understand.js";
+import { understandMessageLocally, mergeUnderstanding } from "./understand.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
-import { brokerLabel, brokerProfile, directContactLine, permittedContactDetails } from "./broker-profile.js";
+import { brokerProfile, directContactLine, permittedContactDetails } from "./broker-profile.js";
 import { declinesOffer, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
 import {
@@ -59,14 +57,12 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
-  constructor({ buyers, properties, memory, llm = null, advisorOptions = {}, logger = null, broker = null, services = null, brokerMode = null } = {}) {
+  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null } = {}) {
     if (!buyers || !properties) throw new Error("ConversationEngine requires buyers and properties");
     this.buyers = buyers;
     this.properties = properties;
     this.memory = memory || new ConversationMemory();
-    this.llm = llm;
     // Claude composes replies directly from the catalogue unless BROKER_MODE=off.
-    this.brokerMode = brokerMode ?? process.env.BROKER_MODE !== "off";
     this.advisorOptions = advisorOptions;
     // The human the bot hands off to, and the owner-approved complementary services.
     this.broker = broker || brokerProfile();
@@ -93,19 +89,7 @@ export class ConversationEngine {
       buyer: existingBuyer,
       lastAskedField
     });
-    let understanding = localUnderstanding;
-
-    if (this.llm && options.useLlm !== false && !base.intents.includes("start_fresh") && !scope) {
-      const claudeUnderstanding = await understandMessageWithModel(this.llm, {
-        message: text,
-        buyer: existingBuyer,
-        lastAskedField,
-        recentTurns
-      });
-      if (claudeUnderstanding) {
-        understanding = mergeUnderstanding(localUnderstanding, claudeUnderstanding);
-      }
-    }
+    const understanding = localUnderstanding;
 
     const merged = mergeUnderstanding(base, understanding);
     let { facts, signals, intents, unsure, ack } = merged;
@@ -627,7 +611,6 @@ export class ConversationEngine {
     const allowedActions = allowedResponseActions(buyer, draft);
     const forbiddenActions = ["execute_reservation", "collect_payment", "claim_action_completed",
       ...(buyer.noCalls ? ["call"] : []), ...(buyer.salesPathStopped ? ["capture", "follow_up"] : [])];
-    const responseStrategy = draft.advisoryExposure ? strategy : { type: draft.stage };
     const investmentProfile = buildInvestmentStrategy(buyer);
     const state = conversationState({ buyer, message: text, intents, recentTurns, advisor });
     const investmentTheses = draft.investmentTheses || (draft.advisoryExposure || draft.stage === "fact_answer" || draft.stage === "investment_risk" ? advisor.investmentTheses || [] : []);
@@ -650,61 +633,8 @@ export class ConversationEngine {
       permittedRecommendations: ["matched", "soft_match"].includes(draft.stage)
         ? matchResult.matches.map(m => ({ projectId: m.project.id, unitId: m.unit.id })) : [],
       requiredAdvisory: draft.advisoryExposure && strategy?.type !== "answer_action" ? advisor.opportunities : [] };
-    // Broker mode: on stages no deterministic flow owns, Claude answers from the
-    // relevant catalogue slice. A rejected reply leaves the deterministic draft.
-    let brokerContext = null;
-    let brokerAttempted = false;
-    let brokerValidationResult = null;
-    let brokerValidatedText = null;
-    const brokerValidation = { forbiddenActions, permittedContacts, configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents };
-    if (this.llm && options.useLlm !== false && this.brokerMode && brokerEligible({ draft, contact, buyer, intents, scope, catalogError })) {
-      brokerAttempted = true;
-      const conversation = this.memory.recentContext(instagramUserId, 11);
-      if (conversation.at(-1)?.role === "user") conversation.pop();
-      const context = buildBrokerContext({ catalog, buyer, message: text, advisor, draft, recentTurns: conversation, areaGuide: advisor.areaGuide });
-      const reply = await composeBrokerReply(this.llm, { buyer, message: text, recentTurns: conversation, context,
-        permissions: { noCalls: Boolean(buyer.noCalls), contactDeclined: Boolean(buyer.contactDeclined), humanContact: brokerLabel(this.broker, buyer.language) },
-        ownerLine: serviceSuggestion?.line || null, validation: brokerValidation, alreadyAsked: [...askedFields] });
-      if (reply) {
-        if (serviceSuggestion && !reply.message.includes(serviceSuggestion.line)) serviceSuggestion = null;
-        draft = applyBrokerReply(draft, reply);
-        packs = context.packs;
-        brokerContext = context;
-        brokerValidationResult = reply.validation;
-        brokerValidatedText = reply.message;
-        this.memory.setPendingOffer(instagramUserId, draft.pendingOffer);
-      }
-    }
-    // Every deterministic stage can be expressed naturally. The model composes
-    // one complete message; rejected output leaves the safe strategy unchanged.
-    if (!draft.broker && !brokerAttempted && this.llm && options.useLlm !== false) {
-      const composed = await composeReplyWithModel(this.llm, {
-        buyer,
-        packs,
-        draftText: draft.text,
-        message: text,
-        recentTurns,
-        intents,
-        investmentProfile, conversationState: state, investmentTheses, discoveryAnalysis: advisor.discoveryAnalysis || null,
-        handoffContact: { label: brokerLabel(this.broker, buyer.language), directContact: directContactLine(this.broker, buyer.language) },
-        comparisonFacts, objectionState: buyer.objections || [], allowedClaims,
-        requiredQuestion: draft.nextQuestion || null,
-        opportunities: responseOpportunities,
-        strategy: responseStrategy,
-        allowedActions,
-        forbiddenActions,
-        validationOptions,
-        language: buyer.language,
-        areaGuide: areaGuideForModel(areaEntries)
-      });
-      if (composed) draft = { ...draft, text: composed.message, polished: true };
-    }
 
     const validateCurrentReply = currentText => {
-      if (draft.broker) {
-        if (brokerValidationResult && currentText === brokerValidatedText) return brokerValidationResult;
-        return validateBrokerReply(currentText, brokerContext, { buyer, buyerMessage: text, ...brokerValidation });
-      }
       const facts = validateMessage(currentText, packs, {
         allowedBuyerAmounts,
         educationalSplit: draft.educationalSplit,
@@ -755,15 +685,6 @@ export class ConversationEngine {
       }
     }
     if (replyText !== checkedReplyText && check.ok) check = validateCurrentReply(replyText);
-    if (!check.ok && draft.broker && draft.template) {
-      // Defensive: a broker reply that fails here gives way to the template reply.
-      this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type), broker: true });
-      draft = draft.template;
-      packs = draft.factPacks || brokerContext?.packs || packs;
-      replyText = draft.text;
-      this.memory.setPendingOffer(instagramUserId, draft.pendingOffer || null);
-      check = validateCurrentReply(draft.text);
-    }
     if (!check.ok) {
       this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type) });
       const fallbackPacks = draft.advisoryExposure ? packs.filter(p => matchResult.matches.some(m => m.project.id === p.projectId && m.unit.id === p.unitId)).slice(0, 2) : packs.slice(0, 2);
@@ -874,7 +795,7 @@ export class ConversationEngine {
       primaryRecommendation: draft.advisoryExposure ? draft.advisoryExposure.primaryProjectId || advisor.primary?.projectId || null : null,
       challenger: draft.advisoryExposure ? advisor.challenger?.projectId || null : null,
       opportunityType: draft.advisoryExposure ? advisor.opportunities.map(o => o.type) : [],
-      objectionCategory: strategy?.objection || null, llm: draft.broker ? "broker" : draft.polished ? "used" : this.llm ? "fallback" : "disabled",
+      objectionCategory: strategy?.objection || null,
       factSourceCategory: [...new Set(packs.map(p => p.knowledgeOnly ? "project_knowledge" : p.offerId ? "commercial_offer" : "legacy_unit"))],
       commercialGateRejection: [...new Set((catalog.intelligence?.offers || []).flatMap(o => commercialOfferGate(o).reasons))],
       nextAction: strategy?.nextAction || draft.pendingOffer?.action || null });
@@ -951,11 +872,9 @@ export function createConversationEngine(services, options = {}) {
     buyers: services.buyers,
     properties: services.properties,
     memory: options.memory,
-    llm: options.llm || null,
     advisorOptions: options.advisorOptions || {},
     broker: options.broker || null,
-    services: options.services || null,
-    brokerMode: options.brokerMode ?? null
+    services: options.services || null
   });
 }
 

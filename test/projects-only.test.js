@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { bedroomBounds, projectListing, projectListings } from "../src/facts/project-listings.js";
 import { PropertyService } from "../src/services/property-service.js";
-import { buildBrokerContext } from "../src/conversation/broker-mode.js";
 import { createSeededAirtableStore } from "../src/store/create-store.js";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -52,15 +51,4 @@ test("a buyer's cash figure does not exclude a project whose booking amount the 
   const { properties } = await projectsOnly([project()]);
   const result = properties.match({ emirate: "Abu Dhabi", bedrooms: 2, budgetAed: 2_500_000, cashAvailableAed: 100_000 });
   assert.equal(result.matchCount, 1);
-});
-
-test("broker mode shows a from-price with its basis and sends unit and availability questions to the team", async () => {
-  const { properties } = await projectsOnly([project()]);
-  const context = buildBrokerContext({ catalog: properties.catalog(), buyer: { budgetAed: 2_500_000 }, message: "Tell me about Nawayef Park Views" });
-  const [listing] = context.listings;
-  assert.equal(listing.unit, "1–4BR apartments");
-  assert.equal(listing.priceBasis, "Starting price - 1BR");
-  assert.equal(listing.availability, undefined);
-  assert.match(listing.quote, /not a unit quote/);
-  assert.match(listing.quote, /availability come from the team/);
 });

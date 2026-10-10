@@ -11,8 +11,6 @@ import { BuyerService } from "../src/services/buyer-service.js";
 import { PropertyService } from "../src/services/property-service.js";
 import { ConversationEngine } from "../src/conversation/engine.js";
 import { listChoiceGroups } from "../src/conversation/choices.js";
-import { createAnthropicClient } from "../src/conversation/llm.js";
-import { modelRuntimeStatus } from "../src/conversation/model-runtime.js";
 import { DurableConversationMemory } from "../src/integrations/durable-memory.js";
 import { IntegrationOrchestrator } from "../src/integrations/orchestrator.js";
 import { IntegrationLog } from "../src/integrations/integration-log.js";
@@ -31,7 +29,6 @@ const PORT = Number(process.env.PORT || process.env.CHAT_PORT || 8787);
 const HOST = process.env.HOST || "0.0.0.0";
 const IS_PRODUCTION = String(process.env.NODE_ENV || "").toLowerCase() === "production";
 const ALLOW_TEST_CHAT = process.env.ALLOW_TEST_CHAT === "true" || !IS_PRODUCTION;
-const ALLOW_RUNTIME_LLM_KEY = process.env.ALLOW_RUNTIME_LLM_KEY === "true" && !IS_PRODUCTION;
 
 const store = await createCatalogStore();
 const buyers = new BuyerService(store);
@@ -39,9 +36,7 @@ const properties = new PropertyService(store);
 const memory = new DurableConversationMemory({ rootDir: runtimeRoot() });
 await memory.ensureReady();
 
-/** Runtime Claude client. Env key only in production. */
-let llm = process.env.ANTHROPIC_API_KEY ? createAnthropicClient() : null;
-const engine = new ConversationEngine({ buyers, properties, memory, llm });
+const engine = new ConversationEngine({ buyers, properties, memory });
 const integrationLog = new IntegrationLog({ rootDir: runtimeRoot() });
 const orchestrator = new IntegrationOrchestrator({
   engine,
@@ -56,24 +51,9 @@ const instagramPoller = new InstagramConversationPoller({
   log: integrationLog
 });
 
-function applyLlmClient(client) {
-  llm = client;
-  engine.llm = client;
-}
-
-function llmStatus() {
-  const enabled = Boolean(llm?.apiKey);
-  const key = llm?.apiKey || "";
-  return {
-    policyVersion: POLICY_VERSION,
-    promptSource: "prompts/conversation-policy.md",
-    claudeEnabled: enabled,
-    claudeRuntime: modelRuntimeStatus(llm),
-    model: enabled ? llm.model : null,
-    understandingModel: enabled ? llm.understandingModel || llm.model : null,
-    keyHint: enabled && key.length >= 4 ? `…${key.slice(-4)}` : null,
-    runtimeKeyAllowed: ALLOW_RUNTIME_LLM_KEY
-  };
+// Replies come from the deterministic templates; no model is called.
+function conversationStatus() {
+  return { policyVersion: POLICY_VERSION, replies: "templates" };
 }
 
 // In MB. The V8 limit comes from --max-old-space-size in the start script and
@@ -146,7 +126,6 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/api/health") {
-    const { keyHint, ...publicLlmStatus } = llmStatus();
     return sendJson(res, 200, {
       ok: true,
       deploymentCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
@@ -167,7 +146,7 @@ const server = http.createServer(async (req, res) => {
         broker: brokerProfileStatus(),
         servicesEnabled: loadServices().length
       },
-      ...publicLlmStatus
+      ...conversationStatus()
     });
   }
 
@@ -249,34 +228,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (req.method === "GET" && url.pathname === "/api/llm") {
-    return sendJson(res, 200, llmStatus());
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/llm") {
-    if (!ALLOW_RUNTIME_LLM_KEY) {
-      return sendJson(res, 403, { error: "Runtime LLM key entry is disabled in this environment." });
-    }
-    try {
-      const body = await readJsonBody(req);
-      const apiKey = String(body.apiKey || "").trim();
-      if (!apiKey) {
-        applyLlmClient(null);
-        return sendJson(res, 200, { ok: true, ...llmStatus() });
-      }
-      if (!apiKey.startsWith("sk-ant-")) {
-        return sendJson(res, 400, {
-          error: "That does not look like an Anthropic key. It should start with sk-ant-."
-        });
-      }
-      const model = String(body.model || process.env.ANTHROPIC_MODEL || "").trim() || undefined;
-      applyLlmClient(createAnthropicClient({ apiKey, model }));
-      return sendJson(res, 200, { ok: true, ...llmStatus() });
-    } catch (error) {
-      return sendJson(res, 500, { error: error.message || String(error) });
-    }
-  }
-
   if (req.method === "GET" && url.pathname === "/api/choices") {
     if (!ALLOW_TEST_CHAT) return sendJson(res, 404, { error: "Not found" });
     return sendJson(res, 200, listChoiceGroups());
@@ -295,8 +246,7 @@ const server = http.createServer(async (req, res) => {
       const userId = String(body.userId || "ig_web_demo").trim() || "ig_web_demo";
       const message = String(body.message || "").trim();
       if (!message) return sendJson(res, 400, { error: "message is required" });
-      const useLlm = body.useLlm === undefined ? true : Boolean(body.useLlm);
-      const result = await engine.handleMessage(userId, message, { useLlm });
+      const result = await engine.handleMessage(userId, message);
       // A submitted follow-up goes through the same advisor alert as Instagram,
       // and the reply reports the real outcome.
       const handoff = result.followUpSubmitted
@@ -318,8 +268,6 @@ const server = http.createServer(async (req, res) => {
         followUpSubmitted: Boolean(result.followUpSubmitted),
         callSummary: result.callSummary || null,
         nextQuestion: result.nextQuestion,
-        claudeUsed: Boolean(result.polished),
-        claudeEnabled: Boolean(engine.llm?.apiKey),
         understandingSource: result.understandingSource || null,
         buyer: {
           budgetAed: result.buyer.budgetAed,

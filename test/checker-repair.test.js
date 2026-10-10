@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { composeReplyWithModel } from "../src/conversation/llm.js";
 import { validateBuyerResponse } from "../src/conversation/response-validation.js";
 import { validateMessage } from "../src/facts/checker.js";
 import { buildFactPack, buildProjectKnowledgePack } from "../src/facts/retrieval.js";
@@ -27,11 +26,6 @@ function check(message) {
   return { ok: response.ok && facts.ok, violations: [...response.violations, ...facts.violations].map(v => v.type) };
 }
 
-function client(output) {
-  return { apiKey: "test-only", model: "test-model", baseUrl: "https://example.test",
-    fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(output) }] }) }) };
-}
-
 test("true facts pass without the model labelling every source", () => {
   for (const message of [
     "My best overall pick for you is Nawayef Park Views by Modon. It's a 1 bedroom apartment on Hudayriyat Island, from AED 2,000,000. Hudayriyat is the family-friendly, fitness-first island. The plan is 60/40: 10% on booking, 50% during construction and 40% on handover, with handover in Q1 2028.\nWant me to break down the payment terms?",
@@ -50,24 +44,6 @@ test("false prices, invented amenities and unknown projects are still rejected",
     "Nawayef Park Views has a 20% booking payment. Want me to break down the payment terms?",
     "Nawayef Park Views hands over in Q3 2027. Want me to break down the payment terms?"
   ]) assert.equal(check(message).ok, false, message);
-});
-
-test("a reply with one bad sentence keeps the good ones instead of falling back", async () => {
-  const output = { message: "My best overall pick for you is Nawayef Park Views on Hudayriyat Island, from AED 2,000,000. It also has a private marina. Handover is Q1 2028. Shall I compare it with something on Yas? Want me to break down the payment terms?",
-    askedQuestion: true, questionField: "advisoryNextAction", claims: [], proposedActions: [] };
-  const composed = await composeReplyWithModel(client(output), { ...context, validationOptions: {} });
-  assert.ok(composed, "the reply is repaired, not rejected");
-  assert.doesNotMatch(composed.message, /private marina|compare it with something on Yas/);
-  assert.match(composed.message, /Nawayef Park Views on Hudayriyat Island, from AED 2,000,000/);
-  assert.match(composed.message, /Handover is Q1 2028/);
-  assert.equal((composed.message.match(/\?/g) || []).length, 1);
-  assert.match(composed.message, /Want me to break down the payment terms\?$/);
-});
-
-test("a reply that only invents things is not salvaged into an empty shell", async () => {
-  const output = { message: "Nawayef Park Views has a private marina and a rooftop cinema. Want me to break down the payment terms?",
-    askedQuestion: true, questionField: "advisoryNextAction", claims: [], proposedActions: [] };
-  assert.equal(await composeReplyWithModel(client(output), { ...context, validationOptions: {} }), null);
 });
 
 test("the listing card and last-resort fallback read as sentences, not data rows", () => {
