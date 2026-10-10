@@ -75,6 +75,6 @@ export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
   }
   rows.push(ar ? "لا أملك وحدة بشروط تجارية حالية لهذا المشروع. يمكننا مناقشة توجهه ومخاطر الاستثمار دون تخمين سعر أو توفر."
     : "Pricing for this project isn't released yet, so I won't guess a number, but I can walk you through how it fits your plans.");
-  return { text: rows.join(" "), stage: "knowledge_answer", nextQuestion: null, pendingOffer: null, callRequest: null,
+  return { text: rows.join(" "), stage: "knowledge_answer", nextQuestion: null, pendingOffer: null, callRequest: null, unpriced: true,
     factPacks: packs, investmentTheses: theses };
 }

@@ -1,4 +1,6 @@
 import { normalizeBuyerText } from "./text.js";
+import { wantsHuman } from "./contact.js";
+import { OUTCOME_LABELS, contactPermissions, permittedNextAction } from "./outcomes.js";
 /**
  * Buyer intent and call-request policy for Milestone 3.
  * Buying interest is distinct from call permission.
@@ -74,7 +76,9 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextSignals = without(nextSignals, ["request_call", "callback_request", "agent_request", "high_intent"]);
     if (!nextIntents.includes("decline_call")) nextIntents.push("decline_call");
     nextSignals.push("decline_call");
-    nextFacts.contactDeclined = true;
+    // "No calls" restricts one channel; it is not a refusal of all follow-up.
+    if (rejectsCallsOnly(text)) nextSignals.push("calls_only");
+    else nextFacts.contactDeclined = true;
   }
 
   const contactPrefs = extractContactPreferences(text);
@@ -159,21 +163,17 @@ export function isProcessQuestionOnly(text) {
 }
 
 /**
- * Alert / human lead only after Request a Call is submitted with a phone number.
+ * An internal alert for explicit human, call or purchase intent, at most once
+ * per conversation session. It tells the broker about the lead; it never grants
+ * permission to contact the buyer (that comes only from a confirmed request).
+ * Budget, a shortlist or missing information alone never trigger it.
  */
-export function shouldSendAdvisorAlert({ callRequestSubmitted = false, buyer = null } = {}) {
-  if (!callRequestSubmitted) return false;
-  if (!buyer?.phone) return false;
-  if (buyer.salesPathStopped || buyer.noCalls || buyer.preferredContactChannel === "whatsapp") return false;
-  return true;
-}
-
-export function alertReasonFromTurn(intents = [], signals = []) {
-  if (intents.includes("request_call") || signals.includes("request_call")) return "call_request";
-  if (intents.includes("agent") || signals.includes("agent_request")) return "call_request";
-  if (intents.includes("callback") || signals.includes("callback_request")) return "call_request";
-  if (intents.includes("reserve") || signals.includes("reserve_interest")) return "call_request";
-  return "call_request";
+export function intentAlertFor({ message = "", intents = [], moment = null, buyer = {}, followUpSubmitted = false, sessionId = null } = {}) {
+  if (followUpSubmitted || buyer.salesPathStopped) return null;
+  const kind = intents.includes("request_call") ? "call" : wantsHuman(message) ? "human" : moment === "buying" ? "purchase" : null;
+  if (!kind) return null;
+  if (sessionId && buyer.intentAlert?.sessionId === sessionId) return null;
+  return { kind, evidence: String(message).trim().slice(0, 160) };
 }
 
 export function isInformationalEoi(text) {
@@ -230,14 +230,29 @@ export function extractContactPreferences(text) {
   return prefs;
 }
 
+/** A call refusal with no wider decline ("no calls please", "don't call me"). */
+export function rejectsCallsOnly(text) {
+  const value = normalizeBuyerText(text).trim();
+  const callWords = explicitlyRejectsCalls(value) || /\b(no calls?|no phone calls?|don'?t call|do not call)\b/i.test(value);
+  const wider = /\b(no thanks|no thank you|just browsing|i'?ll let you know|i'?m good|im good|i am good|all good|that'?s all|just tell me here|just send|keep it here|send (it|the info|the information) here)\b/i.test(value);
+  return callWords && !wider;
+}
+
 function explicitlyRejectsCalls(text) {
   return /\b(?:never|do not|don'?t|stop)\s+(?:(?:want|need)\s+(?:a\s+|any\s+)?|(?:ever |please |to )?)(?:call(?:ing|s)?|phone|ring|telephone)\b|\b(?:no|without)\s+(?:phone\s+|telephone\s+)?calls?\b|\b(?:do not|don'?t)\s+want\s+(?:you\s+)?to\s+(?:call|phone|ring)\b/i.test(normalizeBuyerText(text));
 }
 
-export function buildCallRequestSummary(buyer, { matches = [], reason = "Requested a call" } = {}) {
-  const lines = [buyer.preferredContactChannel && buyer.preferredContactChannel !== "phone" ? "FOLLOW-UP REQUEST" : "CALL REQUEST"];
+export function buildCallRequestSummary(buyer, { matches = [], reason = "Requested a call", intent = null } = {}) {
+  const permissions = contactPermissions(buyer);
+  const lines = [intent ? `LEAD ALERT: ${intent.kind} intent, contact not requested yet`
+    : buyer.preferredContactChannel && buyer.preferredContactChannel !== "phone" ? "FOLLOW-UP REQUEST" : "CALL REQUEST"];
   lines.push(`Instagram ID: ${buyer.instagramUserId || "unknown"}`);
-  lines.push(`Channel: ${buyer.preferredContactChannel || "phone"}; No calls: ${buyer.noCalls ? "yes" : "no"}`);
+  // What the broker may do first: requested contact and restrictions come from the buyer's own words.
+  lines.push(`Contact requested: ${permissions.contactRequested ? "yes" : "no"}`);
+  lines.push(`Permitted next action: ${permittedNextAction(buyer)}`);
+  if (permissions.restrictions.length) lines.push(`Restrictions: ${permissions.restrictions.join(", ")}`);
+  if (intent?.evidence) lines.push(`Buyer said: "${intent.evidence}"`);
+  lines.push(`Channel: ${buyer.preferredContactChannel || (intent ? "not chosen" : "phone")}; No calls: ${buyer.noCalls ? "yes" : "no"}`);
   if (buyer.phone) lines.push(`Phone: ${buyer.phone}`);
   if (buyer.name) lines.push(`Name: ${buyer.name}`);
   if (buyer.budgetAed) lines.push(`Budget: AED ${Number(buyer.budgetAed).toLocaleString("en-US")}`);
@@ -262,6 +277,9 @@ export function buildCallRequestSummary(buyer, { matches = [], reason = "Request
   if (concerns.length) lines.push(`Concerns: ${[...new Set(concerns)].join(", ")}`);
   // What the human should answer, and what not to offer again.
   if (buyer.handoffTopics?.length) lines.push(`Open questions: ${buyer.handoffTopics.slice(-4).join("; ")}`);
+  const unresolved = (buyer.conversation?.unresolved || []).map(row => [row.project, readable(row.topic)].filter(Boolean).join(": "));
+  if (unresolved.length) lines.push(`Unconfirmed in our data: ${[...new Set(unresolved)].slice(-4).join("; ")}`);
+  if (buyer.conversation?.outcome) lines.push(`Conversation so far: ${OUTCOME_LABELS[buyer.conversation.outcome] || buyer.conversation.outcome}`);
   const declined = (buyer.declinedSuggestions || []).filter(item => item.startsWith("service:")).map(item => readable(item.slice(8)));
   if (buyer.upgradeDeclined) declined.push("upgrade above budget");
   if (declined.length) lines.push(`Declined: ${declined.join(", ")}`);

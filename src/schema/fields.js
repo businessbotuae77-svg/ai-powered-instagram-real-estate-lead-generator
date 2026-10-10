@@ -113,6 +113,9 @@ export const BUYER_FIELDS = [
   "salesPathStopped",
   "lastAlertKey",
   "lastAlertAt",
+  "conversation",
+  "handoff",
+  "intentAlert",
   "createdAt",
   "updatedAt",
   "lastSeenAt"
@@ -186,6 +189,12 @@ export function emptyBuyer(instagramUserId) {
     salesPathStopped: false,
     lastAlertKey: null,
     lastAlertAt: null,
+    // Outcome of the current and past sessions (src/conversation/outcomes.js).
+    conversation: null,
+    // Handoff progress: none | offered | awaiting_details | requested | delivered | failed | declined.
+    handoff: null,
+    // The last internal high-intent alert, so the same intent is not alerted twice.
+    intentAlert: null,
     createdAt: null,
     updatedAt: null,
     lastSeenAt: null

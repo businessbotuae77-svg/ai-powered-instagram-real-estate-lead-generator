@@ -284,10 +284,17 @@ async function handoffThroughInstagram({ env = ENV, whatsappFails = false } = {}
 test("step 32t a successful handoff is confirmed only after the alert is delivered", async () => {
   const { outcome, calls, instagram } = await handoffThroughInstagram();
   assert.equal(outcome.pending, false);
-  assert.equal(calls.filter(call => call.service === "whatsapp").length, 1);
+  // "I want to buy this" alerts the broker about the lead (no contact permission yet);
+  // the confirmed Instagram follow-up is the second, actionable alert.
+  const alerts = calls.filter(call => call.service === "whatsapp").map(call => call.body.template.components[0].parameters.at(-1).text);
+  assert.equal(alerts.length, 2);
+  assert.match(alerts[0], /^LEAD ALERT: purchase intent, contact not requested yet/);
+  assert.match(alerts[0], /Contact requested: no/);
   assert.match(instagram.at(-1), /^Your request has reached Sam\. Sam will follow up here on Instagram\.$/);
-  const summary = calls.find(call => call.service === "whatsapp").body.template.components[0].parameters.at(-1).text;
-  assert.match(summary, /Open questions: Next steps to buy Reem Gate/);
+  assert.match(alerts[1], /^FOLLOW-UP REQUEST/);
+  assert.match(alerts[1], /Contact requested: yes/);
+  assert.match(alerts[1], /Permitted next action: Reply on Instagram/);
+  assert.match(alerts[1], /Open questions: Next steps to buy Reem Gate/);
 });
 
 test("step 32u a failed handoff is reported honestly with direct details, never as sent", async () => {

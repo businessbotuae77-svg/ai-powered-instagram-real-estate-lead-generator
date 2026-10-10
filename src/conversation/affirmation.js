@@ -1,7 +1,7 @@
 export function isAffirmation(message) {
   const text = String(message || "").trim().toLowerCase();
   if (!text) return false;
-  return /^(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|sounds good|that works|both|either|any|show me|yes please|ok please)([.!]?)$/i.test(
+  return /^(yes|yeah|yep|yup|sure|ok|okay|please|go ahead|sounds good|that works|both|either|any|show me|yes please|ok please|نعم|أيوه|ايوه|اكيد|أكيد|تمام|حسنا|حسناً|موافق|نعم من فضلك)([.!]?)$/i.test(
     text
   );
 }

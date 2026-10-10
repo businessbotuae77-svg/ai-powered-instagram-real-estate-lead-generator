@@ -164,3 +164,38 @@ export async function sendWhatsAppAlert({
     summary: summaryText || buildCallRequestSummary(buyer, { reason })
   };
 }
+
+/**
+ * Daily report through the same approved template, to the configured report
+ * recipient. Sent at most once per day (ledger key report:<day>).
+ */
+export async function sendWhatsAppReport({ text, day, to, env = process.env, fetchImpl = fetch, ledger = null } = {}) {
+  if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID || !env.WHATSAPP_TEMPLATE_NAME || !to) {
+    return { skipped: true, reason: "report delivery env incomplete" };
+  }
+  const key = `report:${day}`;
+  const alertLedger = ledger || new AlertLedger({ rootDir: runtimeRoot(env) });
+  if (await alertLedger.has(key)) return { skipped: true, reason: "already_sent", key };
+  const graphVersion = env.META_GRAPH_VERSION || DEFAULT_GRAPH_VERSION;
+  const url = `${env.META_GRAPH_BASE_URL || "https://graph.facebook.com"}/${graphVersion}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const response = await fetchImpl(url, {
+    method: "POST",
+    signal: AbortSignal.timeout(15000),
+    headers: { "content-type": "application/json", authorization: `Bearer ${env.WHATSAPP_ACCESS_TOKEN}` },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: String(to).replace(/\D/g, ""),
+      type: "template",
+      template: { name: env.WHATSAPP_TEMPLATE_NAME, language: { code: env.WHATSAPP_TEMPLATE_LANGUAGE || "en" },
+        components: buildAlertTemplateComponents({ buyer: { instagramUserId: "daily-report" }, reason: "daily_report", summaryText: text }) }
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.messages?.[0]?.id) {
+    const error = new Error(body?.error?.message || response.statusText || "WhatsApp report failed");
+    error.retryable = response.status >= 500 || response.status === 429;
+    throw error;
+  }
+  await alertLedger.mark(key, { reason: "daily_report", wamid: body.messages[0].id });
+  return { skipped: false, key, wamid: body.messages[0].id };
+}

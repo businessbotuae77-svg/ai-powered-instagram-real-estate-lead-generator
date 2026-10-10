@@ -7,7 +7,7 @@ import { mkdtemp } from "node:fs/promises";
 import { setupConversation } from "./helpers.js";
 import { extractFactsFromMessage } from "../src/conversation/extract.js";
 import {
-  shouldSendAdvisorAlert,
+  intentAlertFor,
   wantsCallRequest,
   buildCallRequestSummary
 } from "../src/conversation/intent-policy.js";
@@ -257,16 +257,14 @@ test("step 19n interest-only DM does not send WhatsApp alert", async () => {
   assert.equal(outcome.alert.skipped, true);
 });
 
-test("step 19o alert gate requires submitted phone", () => {
-  assert.equal(shouldSendAdvisorAlert({ callRequestSubmitted: true, buyer: { phone: null } }), false);
-  assert.equal(
-    shouldSendAdvisorAlert({ callRequestSubmitted: true, buyer: { phone: "+971501234567" } }),
-    true
-  );
-  assert.equal(
-    shouldSendAdvisorAlert({ callRequestSubmitted: false, buyer: { phone: "+971501234567" } }),
-    false
-  );
+test("step 19o internal alerts follow explicit human, call or purchase intent only", () => {
+  assert.equal(intentAlertFor({ message: "Can I talk to a human?" })?.kind, "human");
+  assert.equal(intentAlertFor({ message: "Call me", intents: ["request_call"] })?.kind, "call");
+  assert.equal(intentAlertFor({ message: "I want to buy it", moment: "buying" })?.kind, "purchase");
+  assert.equal(intentAlertFor({ message: "Budget 3M in Yas" }), null);
+  assert.equal(intentAlertFor({ message: "Talk to a human", buyer: { salesPathStopped: true } }), null);
+  assert.equal(intentAlertFor({ message: "Talk to a human", followUpSubmitted: true }), null);
+  assert.equal(intentAlertFor({ message: "Talk to a human", sessionId: "s1", buyer: { intentAlert: { sessionId: "s1" } } }), null);
   assert.match(
     buildCallRequestSummary(
       {
