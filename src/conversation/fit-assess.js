@@ -28,7 +28,21 @@ function initialPayment(project, unit) {
   return null;
 }
 
+// A project-level listing fits any count inside its published range ("1–3BR").
+function bedroomsFit(unit, wanted) {
+  if (unit.projectLevel) return unit.bedroomsMax !== null && wanted.some(n => n >= unit.bedrooms && n <= unit.bedroomsMax);
+  return wanted.includes(Number(unit.bedrooms));
+}
+
+function typeFits(unit, type) {
+  const wanted = normalizePropertyType(type);
+  if (wanted === "studio") return unit.bedrooms === 0;
+  if (unit.projectLevel) return unit.propertyTypes.includes(wanted);
+  return sameText(normalizePropertyType(unit.propertyType), wanted);
+}
+
 function bedroomPhrase(value) {
+  if (typeof value === "string") return value;
   if (value === 0) return "studio";
   if (value === 1) return "1 bedroom";
   return `${value} bedrooms`;
@@ -79,11 +93,11 @@ function assessDimensions(candidate, buyer) {
   }
 
   if (wantedBeds.length) {
-    const matched = wantedBeds.includes(Number(unit.bedrooms));
+    const matched = bedroomsFit(unit, wantedBeds);
     dimensions.push(
       dimension("bedrooms", matched ? "matched" : "mismatch", WEIGHTS.bedrooms, {
         requested: wantedBeds,
-        offered: unit.bedrooms,
+        offered: unit.projectLevel ? unit.bedroomRange || "a bedroom mix still to confirm" : unit.bedrooms,
         core: true
       })
     );
@@ -95,10 +109,7 @@ function assessDimensions(candidate, buyer) {
     normalizePropertyType(wantedType) === "studio" && wantedBeds.includes(0);
   if (wantedType && !studioAlreadyRepresented) {
     const normalized = normalizePropertyType(wantedType);
-    const matched = buyer.propertyTypes.some(type =>
-      normalizePropertyType(type) === "studio"
-        ? unit.bedrooms === 0
-        : sameText(normalizePropertyType(unit.propertyType), normalizePropertyType(type)));
+    const matched = buyer.propertyTypes.some(type => typeFits(unit, type));
     dimensions.push(
       dimension("property_type", matched ? "matched" : "mismatch", WEIGHTS.property_type, {
         requested: normalized,
@@ -159,12 +170,17 @@ function assessDimensions(candidate, buyer) {
 
 function matchedReason(candidate, dimension) {
   if (dimension.key === "area") return `your ${dimension.offered} area`;
+  if (dimension.key === "bedrooms" && candidate.unit.projectLevel) {
+    // The project spans a range; name what the buyer asked for, not the range.
+    const asked = dimension.requested.filter(n => n >= candidate.unit.bedrooms && n <= candidate.unit.bedroomsMax);
+    return asked.length === 1 ? (asked[0] === 0 ? "your studio requirement" : `your ${asked[0]}-bedroom requirement`) : "your bedroom requirement";
+  }
   if (dimension.key === "bedrooms") {
     return dimension.offered === 0
       ? "your studio requirement"
       : `your ${dimension.offered}-bedroom requirement`;
   }
-  if (dimension.key === "property_type") return `your ${dimension.offered} preference`;
+  if (dimension.key === "property_type") return `your ${candidate.unit.projectLevel ? dimension.requested : dimension.offered} preference`;
   if (dimension.key === "budget") return `your ${formatAed(dimension.requested)} budget`;
   if (dimension.key === "cash") return `your ${formatAed(dimension.requested)} initial cash`;
   if (dimension.key === "payment_plan") return "your payment-plan preference";
@@ -290,10 +306,11 @@ export function candidateConstraintFailures(candidate, buyer) {
   if (!Number.isFinite(price) || price <= 0) failures.push("price_unknown");
   else if (Number.isFinite(budget) && price > budget + stretch) failures.push("over_budget_ceiling");
   if (buyer.preferredAreas?.length && ["fixed", false].includes(buyer.areaFlexibility) && !buyer.preferredAreas.some(area => sameText(normalizeArea(project.area), normalizeArea(area)))) failures.push("fixed_area");
-  if (buyer.propertyTypes?.length && ["fixed", false].includes(buyer.propertyTypeFlexibility) && !buyer.propertyTypes.some(type => normalizePropertyType(type) === "studio" ? unit.bedrooms === 0 : sameText(normalizePropertyType(unit.propertyType), normalizePropertyType(type)))) failures.push("fixed_property_type");
-  if (buyer.bedrooms?.length && buyer.bedroomsRequired === true && !buyer.bedrooms.map(Number).includes(unit.bedrooms)) failures.push("required_bedrooms");
+  if (buyer.propertyTypes?.length && ["fixed", false].includes(buyer.propertyTypeFlexibility) && !buyer.propertyTypes.some(type => typeFits(unit, type))) failures.push("fixed_property_type");
+  if (buyer.bedrooms?.length && buyer.bedroomsRequired === true && !bedroomsFit(unit, buyer.bedrooms.map(Number))) failures.push("required_bedrooms");
   if (Number.isFinite(buyer.cashAvailableAed) && buyer.cashAvailableAed >= 0 && buyer.cashFlexible !== true) {
-    if (!Number.isFinite(cash) || cash < 0) failures.push("initial_payment_unknown");
+    // Project level: the booking amount is for the broker to confirm, not a failed fit.
+    if (!Number.isFinite(cash) || cash < 0) { if (!unit.projectLevel) failures.push("initial_payment_unknown"); }
     else if (cash > buyer.cashAvailableAed) failures.push("initial_payment_over_cash");
   }
   if (buyer.financing === "payment_plan" && buyer.financingOptional !== true && (project.paymentPlanAvailable !== true || !project.paymentPlanSummary)) failures.push("payment_plan_unconfirmed");

@@ -1,4 +1,4 @@
-import { OWNER_EMAIL, BASE_NAME, developerTableFields, projectTableFields, unitTableFields } from "../src/store/airtable-schema.js";
+import { OWNER_EMAIL, BASE_NAME, developerTableFields, projectTableFields } from "../src/store/airtable-schema.js";
 import { AirtableStore } from "../src/store/airtable-store.js";
 import { loadSeed } from "../src/store/create-store.js";
 
@@ -51,8 +51,7 @@ export async function provisionAirtableBase(env = process.env) {
 
   const baseId = created.id;
   const developersTable = created.tables.find((table) => table.name === "Developers");
-  const projectsTable = await createTable(apiKey, baseId, "Projects", projectTableFields(developersTable.id));
-  await createTable(apiKey, baseId, "Units", unitTableFields(projectsTable.id));
+  await createTable(apiKey, baseId, "Projects", projectTableFields(developersTable.id));
 
   const store = new AirtableStore({ ...env, AIRTABLE_BASE_ID: baseId });
   const seed = await loadSeed();
@@ -63,8 +62,7 @@ export async function provisionAirtableBase(env = process.env) {
     baseUrl: `https://airtable.com/${baseId}`,
     ownerEmail: env.AIRTABLE_OWNER_EMAIL || OWNER_EMAIL,
     developers: store.developers.length,
-    projects: store.projects.length,
-    units: store.units.length
+    projects: store.projects.length
   };
 }
 

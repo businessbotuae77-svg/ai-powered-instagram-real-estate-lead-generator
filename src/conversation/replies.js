@@ -769,7 +769,7 @@ function buildArabicAdvisorReply({ buyer, advisor, strategy, message }) {
   if (strategy.type === "no_push") return { text: "خذ وقتك. يمكننا المتابعة عندما تكون مستعداً.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null };
   if (!advisor.primary) return null;
   const pack = advisor.packs.find(p => p.projectId === advisor.primary.projectId && p.unitId === advisor.primary.unitId);
-  const card = p => `${p.name.value} — ${p.area.value}؛ ${p.bedrooms.value} غرف نوم؛ السعر يبدأ من ${p.startingPriceText.value}؛ الدفعة الأولى ${p.downPaymentText.value || "تحتاج تحققاً"}؛ خطة السداد ${p.paymentPlanSummary.value || "تحتاج تحققاً"}؛ التسليم ${p.handover.value || "يحتاج تحققاً"}.`;
+  const card = p => `${p.name.value} — ${p.area.value}؛ ${p.projectLevel ? p.bedroomLabel.value || "" : `${p.bedrooms.value} غرف نوم`}؛ السعر يبدأ من ${p.startingPriceText.value}؛ الدفعة الأولى ${p.downPaymentText.value || "تحتاج تحققاً"}؛ خطة السداد ${p.paymentPlanSummary.value || "تحتاج تحققاً"}؛ التسليم ${p.handover.value || "يحتاج تحققاً"}.`;
   if (strategy.type === "answer_action") {
     const text = strategy.nextAction === "compare" ? advisor.matches.map(m => card(m.factPack)).join("\n")
       : strategy.nextAction === "availability" ? `${pack.name.value}: التوفر ${pack.availability.value || "يحتاج تحققاً حديثاً"}.`

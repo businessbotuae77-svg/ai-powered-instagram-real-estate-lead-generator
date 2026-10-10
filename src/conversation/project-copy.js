@@ -15,6 +15,7 @@ function sizeLine(pack) {
 }
 
 function unitLabel(pack) {
+  if (pack.projectLevel) return pack.bedroomLabel?.value || "";
   if (pack.bedrooms?.value === 0) return "studio";
   if (pack.bedrooms?.confirmed) {
     return `${pack.bedrooms.value} bedroom ${pack.propertyType?.value || ""}`.trim();

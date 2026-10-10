@@ -16,12 +16,11 @@ export async function runAirtableMilestoneChecks(store) {
 
   const tables = {
     developers: store.developers.map((row) => row.name),
-    projects: store.projects.map((row) => `${row.name} (active=${row.active})`),
-    units: store.units.map((row) => row.name || `${row.projectId} ${row.bedrooms}BR`)
+    projects: store.projects.map((row) => `${row.name} (active=${row.active})`)
   };
   log.push({
-    check: "tables and sample records",
-    ok: store.developers.length >= 2 && store.projects.length >= 8 && store.units.length >= 13,
+    check: "tables and sample records (projects only, no units)",
+    ok: store.developers.length >= 2 && store.projects.length >= 8 && store.units.length === 0,
     source: store.source,
     tables
   });
@@ -29,7 +28,8 @@ export async function runAirtableMilestoneChecks(store) {
   const first = properties.answer(YAS_MATCH_CRITERIA);
   log.push({
     check: "AED 3M / 500k / Yas / 3BR / payment plan",
-    ok: first.matchCount === 1 && first.matches[0].project.name === "Yas Park Views" && first.matches[0].unit.startingPriceAed === 2600000,
+    ok: first.matchCount >= 1 && first.matches[0].project.name === "Yas Park Views" && first.matches[0].unit.startingPriceAed === 1400000 &&
+      first.packs.every((pack) => !pack.availability.confirmed),
     matchCount: first.matchCount,
     matches: first.matches.map((row) => ({
       project: row.project.name,
@@ -39,24 +39,24 @@ export async function runAirtableMilestoneChecks(store) {
     reply: first.reply.text
   });
 
-  const originalPrice = 2600000;
-  await store.updateUnitPrice("Yas Park Views", 3, 3_500_000);
+  const originalPrice = store.findProject("Yas Park Views").startingPriceAed;
+  await store.updateProjectPrice("Yas Park Views", 3_500_000);
   const afterRaise = properties.answer(YAS_MATCH_CRITERIA);
-  const raisedUnit = store.findUnit({ projectName: "Yas Park Views", bedrooms: 3 });
+  const raised = store.findProject("Yas Park Views");
   log.push({
     check: "price change in Airtable changes matching",
-    ok: raisedUnit.startingPriceAed === 3_500_000 && afterRaise.matchCount === 0 && !names(afterRaise).includes("Yas Park Views"),
-    priceInAirtable: raisedUnit.startingPriceAed,
+    ok: raised.startingPriceAed === 3_500_000 && !names(afterRaise).includes("Yas Park Views"),
+    priceInAirtable: raised.startingPriceAed,
     matchCount: afterRaise.matchCount,
     matches: names(afterRaise)
   });
 
-  await store.updateUnitPrice("Yas Park Views", 3, originalPrice);
+  await store.updateProjectPrice("Yas Park Views", originalPrice);
   const restored = properties.answer(YAS_MATCH_CRITERIA);
   log.push({
     check: "restored price returns Yas Park Views",
-    ok: restored.matchCount === 1 && restored.matches[0].unit.startingPriceAed === originalPrice,
-    priceInAirtable: store.findUnit({ projectName: "Yas Park Views", bedrooms: 3 }).startingPriceAed,
+    ok: restored.matches[0]?.project.name === "Yas Park Views" && restored.matches[0].unit.startingPriceAed === originalPrice,
+    priceInAirtable: store.findProject("Yas Park Views").startingPriceAed,
     matchCount: restored.matchCount
   });
 
@@ -76,14 +76,10 @@ export async function runAirtableMilestoneChecks(store) {
     developer: "Aldar"
   });
   const missing = missingMatch.matches.find((row) => row.project.name === "Yas Waterfront Residences");
-  const packs = missing ? properties.factsFor({ matches: [missing] }) : [];
-  const { renderSafeReply } = await import("../src/facts/safe-reply.js");
-  const reply = missing ? renderSafeReply(packs) : { text: "" };
   log.push({
-    check: "missing price is not invented",
-    ok: Boolean(missing) && packs[0]?.startingPriceAed.confirmed === false && packs[0]?.startingPriceAed.value === null && reply.text.includes("not confirmed yet") && !reply.text.includes("AED 2,600,000"),
-    startingPrice: packs[0]?.startingPriceAed || null,
-    reply: reply.text
+    check: "a project without a published price is never quoted",
+    ok: !missing,
+    matches: names(missingMatch)
   });
 
   return log;

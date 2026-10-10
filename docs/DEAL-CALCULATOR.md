@@ -10,6 +10,8 @@ The off-plan evaluation maths from [The Ultimate Real Estate Calculator](https:/
 | `Deal calculator` | One row per `Unit types` row, keyed by Type ID in column A. Pulls price, size, plan and handover from `Unit types` and comparables from `Market Snapshot`, then computes costs, rent and yield, resale at handover, cushion, what-ifs, a verdict and a status. Yellow columns are research inputs (rent, service charge, premiums, admin fee). |
 | `Calculator coverage` | One row per project: how many unit types are in the calculator, how many have a resale estimate or a yield, and the research step that would unlock more. |
 
+The calculator works on the sheet's `Unit types` tab: published layouts and from-prices for research, not inventory. The bot itself is projects only and never reads units or availability (see `AGENTS.md`).
+
 To add a unit type, add it to `Unit types`, then type its Type ID in the next empty row of `Deal calculator` column A. Formulas are filled down to row 202.
 
 ## Changes from the Dubai calculator

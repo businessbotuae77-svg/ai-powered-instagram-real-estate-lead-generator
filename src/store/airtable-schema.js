@@ -1,5 +1,4 @@
 import {
-  AVAILABILITY_VALUES,
   EMIRATES,
   PROJECT_STATUSES,
   PROPERTY_TYPES
@@ -78,34 +77,17 @@ export function projectTableFields(developerTableId) {
     checkbox("Payment plan available"),
     { name: "Payment plan summary", type: "multilineText" },
     number("Required initial payment AED"),
+    number("Starting price AED"),
+    { name: "Starting price basis", type: "singleLineText" },
+    { name: "Bedrooms", type: "singleLineText" },
     { name: "Description", type: "multilineText" },
     { name: "Features", type: "multilineText" },
-    { name: "Availability notes", type: "multilineText" },
     { name: "Source", type: "singleLineText" },
     dateField("Last verified"),
     checkbox("Active")
   ];
 }
 
-export function unitTableFields(projectTableId) {
-  return [
-    { name: "Name", type: "singleLineText" },
-    link("Project", projectTableId),
-    select("Property type", PROPERTY_TYPES),
-    number("Bedrooms"),
-    number("Starting price AED"),
-    number("Size sqft from"),
-    number("Size sqft to"),
-    number("Initial payment AED"),
-    select("Availability", AVAILABILITY_VALUES),
-    checkbox("Active")
-  ];
-}
-
-export function unitLabel(projectName, unit) {
-  const bed = unit.bedrooms === 0 ? "Studio" : `${unit.bedrooms}BR`;
-  return `${projectName} ${bed}`;
-}
 
 export const YAS_MATCH_CRITERIA = {
   emirate: "Abu Dhabi",
