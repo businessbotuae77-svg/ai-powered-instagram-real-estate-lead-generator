@@ -18,7 +18,9 @@ export class ProcessedEventStore {
 
   async get(eventId) {
     const data = await this.store.read({ events: {} });
-    return data.events?.[String(eventId)] || null;
+    // A copy: the stored rows are shared and callers adjust what they get.
+    const row = data.events?.[String(eventId)];
+    return row ? structuredClone(row) : null;
   }
 
   async enqueue(event) {
@@ -42,7 +44,7 @@ export class ProcessedEventStore {
   async pending() {
     const data = await this.store.read({ events: {} });
     return Object.values(data.events || {}).filter(row => row.event && row.status !== "completed" &&
-      (row.attempts || 0) < 8 && (row.nextAttemptAt || 0) <= Date.now());
+      (row.attempts || 0) < 8 && (row.nextAttemptAt || 0) <= Date.now()).map(row => structuredClone(row));
   }
 
   async claim(eventId, meta = {}) {
@@ -96,9 +98,11 @@ export class ProcessedEventStore {
   }
 }
 
-function prune(data, max = 2000) {
-  const entries = Object.entries(data.events || {});
-  if (entries.length <= max) return data;
+// Trimmed in batches: once the log was full, sorting every event on each save
+// was a large share of the memory a message allocated.
+function prune(data, max = 2000, slack = 200) {
+  if (Object.keys(data.events || {}).length <= max + slack) return data;
+  const entries = Object.entries(data.events);
   entries.sort((a, b) => String(a[1]?.at || "").localeCompare(String(b[1]?.at || "")));
   // Outstanding work must survive history pruning.
   const pending = entries.filter(([, row]) => row.status !== "completed");

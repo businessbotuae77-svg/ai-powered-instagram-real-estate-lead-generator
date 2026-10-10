@@ -16,7 +16,7 @@
     "match": "node scripts/match-cli.js",
     "chat": "node scripts/chat-cli.js",
     "chat:web": "node scripts/chat-web.js",
-    "start": "node scripts/chat-web.js",
+    "start": "node --max-old-space-size=512 scripts/chat-web.js",
     "import-seed": "node scripts/import-seed.js",
     "airtable:demo": "node scripts/airtable-demo.js",
     "airtable:provision": "node scripts/provision-airtable.js",
