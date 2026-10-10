@@ -73,8 +73,20 @@ and the buyer is told it was passed on only after delivery.
 - `npm run report [YYYY-MM-DD]` from the runtime files.
 
 It shows the outcome counts, the handoff and lead-alert delivery, restrictions, and the unanswered questions
-still open. Automatic WhatsApp delivery is **off** until `REPORT_DELIVERY_ENABLED=true`, `REPORT_RECIPIENT`
-and `REPORT_HOUR_DUBAI` are all set; it sends yesterday's report once a day using the alert template.
+still open. Automatic delivery is **off** until `REPORT_DELIVERY_ENABLED=true` and `REPORT_HOUR_DUBAI` are set;
+it sends yesterday's report once a day by email (`REPORT_EMAIL_TO`, else `ALERT_EMAIL_TO`) when Resend is
+configured, otherwise by WhatsApp to `REPORT_RECIPIENT`.
+
+## Alert delivery
+
+Alerts go to every configured channel; one accepted channel counts as delivered.
+
+| Channel | Settings |
+|---|---|
+| Email (Resend, over HTTPS) | `RESEND_API_KEY`, `ALERT_EMAIL_TO` (comma-separated), optional `EMAIL_FROM` (default `onboarding@resend.dev`, which only delivers to the Resend account's own address until a domain is verified) |
+| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ALERT_TO`, `WHATSAPP_TEMPLATE_NAME` (5 body variables) |
+
+`/api/health` shows `alertChannels` and the `dailyReport` setting.
 
 ## Where facts come from
 

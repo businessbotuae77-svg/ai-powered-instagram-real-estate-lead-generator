@@ -2,7 +2,8 @@ import { POLICY_VERSION } from "../conversation/policy.js";
 import { createHash, randomUUID } from "node:crypto";
 import { IntegrationLog } from "./integration-log.js";
 import { ProcessedEventStore } from "./processed-events.js";
-import { AlertLedger, CallRequestStore, sendWhatsAppAlert } from "./whatsapp.js";
+import { AlertLedger, CallRequestStore } from "./whatsapp.js";
+import { sendAdvisorAlert } from "./alerts.js";
 import { parseInstagramMessages, sendInstagramText, verifySignature, verifyWebhookChallenge } from "./meta.js";
 import { runtimeRoot } from "./json-store.js";
 import { KeyedQueue } from "../conversation/keyed-queue.js";
@@ -338,7 +339,7 @@ export class IntegrationOrchestrator {
       if (latest?.salesPathStopped) return { skipped: true, reason: "opted_out" };
       await this.callRequests.record({ requestKey: `${event.mid}:intent`, kind: "intent", intent: result.intentAlert.kind,
         instagramUserId: buyerId, summary: result.intentAlert.summary, match: result.matches?.[0]?.project?.name || null });
-      const alert = await sendWhatsAppAlert({
+      const alert = await sendAdvisorAlert({
         buyer: result.buyer, reason: `intent_${result.intentAlert.kind}`, matchName: result.matches?.[0]?.project?.name || "",
         messageId: event.mid, summaryText: result.intentAlert.summary, env: this.env, fetchImpl: this.fetchImpl, ledger: this.alerts
       });
@@ -347,7 +348,7 @@ export class IntegrationOrchestrator {
         reason: ok ? null : alert.reason || null } });
       return { ...alert, ok, recorded: true };
     } catch (error) {
-      await this.log.record({ correlationId: event.mid, integration: "whatsapp", operation: "intent_alert", status: "error",
+      await this.log.record({ correlationId: event.mid, integration: "alerts", operation: "intent_alert", status: "error",
         message: error.message, retryable: Boolean(error.retryable), meta: { senderId: buyerId } });
       await this.buyers?.patchBuyer?.(buyerId, { intentAlert: { ...(result.buyer?.intentAlert || {}), status: "failed" } });
       return { skipped: true, error: error.message, recorded: true };
@@ -370,7 +371,7 @@ export class IntegrationOrchestrator {
         match: result.matches?.[0]?.project?.name || null
       });
 
-      const alert = await sendWhatsAppAlert({
+      const alert = await sendAdvisorAlert({
         buyer: result.buyer,
         reason: result.alertReason || "call_request",
         matchName: result.matches?.[0]?.project?.name || "",
@@ -390,7 +391,7 @@ export class IntegrationOrchestrator {
     } catch (error) {
       await this.log.record({
         correlationId: event.mid,
-        integration: "whatsapp",
+        integration: "alerts",
         operation: "call_request_alert",
         status: "error",
         message: error.message,
