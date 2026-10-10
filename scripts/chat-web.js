@@ -1,5 +1,6 @@
 import { POLICY_VERSION } from "../src/conversation/policy.js";
 import http from "node:http";
+import v8 from "node:v8";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -75,6 +76,14 @@ function llmStatus() {
   };
 }
 
+// In MB. The V8 limit comes from --max-old-space-size in the start script and
+// must stay below the container limit, or the kernel kills the process.
+function memoryStatus() {
+  const mb = bytes => Math.round(bytes / 1048576);
+  const usage = process.memoryUsage();
+  return { node: process.version, rssMb: mb(usage.rss), heapUsedMb: mb(usage.heapUsed), heapLimitMb: mb(v8.getHeapStatistics().heap_size_limit) };
+}
+
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -141,6 +150,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       deploymentCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+      memory: memoryStatus(),
       source: store.source || "local",
       milestone: 3,
       integrations: {

@@ -59,13 +59,14 @@ export class DurableConversationMemory extends ConversationMemory {
   }
 
   #persist() {
-    const payload = {
+    // Built when the change applies, not copied now: a turn makes several
+    // changes, and those made while a write is in flight share the next one.
+    this.pendingWrite = this.store.update(() => ({
       turns: Object.fromEntries(this.turns),
       pending: Object.fromEntries(this.pending),
       lastAsked: Object.fromEntries(this.lastAsked || []),
       semanticQuestions: Object.fromEntries(this.semanticQuestions || [])
-    };
-    this.pendingWrite = this.store.write(structuredClone(payload));
+    }));
     // Keep synchronous memory methods safe until the engine awaits flush().
     this.pendingWrite.catch(() => {});
   }
