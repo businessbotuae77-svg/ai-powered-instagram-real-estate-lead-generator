@@ -54,7 +54,11 @@ export function matchCriteria(project, unit, criteria = {}) {
     }
   }
 
-  if (criteria.propertyType) {
+  if (criteria.propertyType && unit.projectLevel) {
+    const wanted = normalizePropertyType(criteria.propertyType);
+    const fits = wanted === "studio" ? unit.bedrooms === 0 : unit.propertyTypes.includes(wanted);
+    if (!fits) return reject(unit, project, "property_type");
+  } else if (criteria.propertyType) {
     const wanted = normalizePropertyType(criteria.propertyType);
     if (wanted === "studio") {
       if (unit.bedrooms !== 0) return reject(unit, project, "property_type");
@@ -67,7 +71,11 @@ export function matchCriteria(project, unit, criteria = {}) {
     const wantedList = Array.isArray(criteria.bedrooms)
       ? criteria.bedrooms.map(Number)
       : [Number(criteria.bedrooms)];
-    if (!wantedList.includes(unit.bedrooms)) return reject(unit, project, "bedrooms");
+    if (unit.projectLevel) {
+      // A published range such as "1–3BR" fits any count inside it; no range, no fit.
+      if (unit.bedroomsMax === null) return reject(unit, project, "bedrooms_unconfirmed");
+      if (!wantedList.some(n => n >= unit.bedrooms && n <= unit.bedroomsMax)) return reject(unit, project, "bedrooms");
+    } else if (!wantedList.includes(unit.bedrooms)) return reject(unit, project, "bedrooms");
   }
 
   if (criteria.budgetAed !== null && criteria.budgetAed !== undefined) {
@@ -79,8 +87,9 @@ export function matchCriteria(project, unit, criteria = {}) {
 
   if (criteria.cashAvailableAed !== null && criteria.cashAvailableAed !== undefined) {
     const initial = downPayment(project, unit);
-    if (initial === null) return reject(unit, project, "initial_payment_unconfirmed");
-    if (initial > criteria.cashAvailableAed) return reject(unit, project, "initial_payment");
+    // Project level: the booking amount is the broker's to confirm, so unknown is not a mismatch.
+    if (initial === null && !unit.projectLevel) return reject(unit, project, "initial_payment_unconfirmed");
+    if (initial !== null && initial > criteria.cashAvailableAed) return reject(unit, project, "initial_payment");
   }
 
   if (criteria.paymentPlanRequired) {
@@ -114,7 +123,7 @@ export function matchInventory(catalog, criteria = {}) {
       project,
       unit,
       downPaymentAed: downPayment(project, unit),
-      bedroomLabel: bedroomLabel(unit.bedrooms)
+      bedroomLabel: unit.projectLevel ? unit.bedroomRange : bedroomLabel(unit.bedrooms)
     });
   }
 

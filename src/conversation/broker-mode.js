@@ -55,7 +55,8 @@ function compact(object) {
 }
 
 function unitPack(project, unit) {
-  return buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) });
+  return buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed,
+    bedroomLabel: unit.projectLevel ? unit.bedroomRange : String(unit.bedrooms) });
 }
 
 /** What Claude sees for one listing: confirmed fields only, written as the buyer would read them. */
@@ -71,7 +72,9 @@ function modelListing(pack, ceiling) {
     developer: confirmed(pack, "developer"),
     area: confirmed(pack, "area"),
     status: confirmed(pack, "status"),
-    unit: pack.unitId ? (bedrooms === 0 ? "studio" : `${bedrooms ?? ""} bedroom ${confirmed(pack, "propertyType") || ""}`.replace(/\s+/g, " ").trim()) : undefined,
+    unit: pack.projectLevel ? confirmed(pack, "bedroomLabel") || (pack.propertyTypes || []).join(", ") || undefined
+      : pack.unitId ? (bedrooms === 0 ? "studio" : `${bedrooms ?? ""} bedroom ${confirmed(pack, "propertyType") || ""}`.replace(/\s+/g, " ").trim()) : undefined,
+    priceBasis: confirmed(pack, "startingPriceBasis"),
     startingPrice: confirmed(pack, "startingPriceText"),
     size: from && to ? `${from} to ${to} sqft` : from ? `from ${from} sqft` : undefined,
     initialPayment: confirmed(pack, "downPaymentText"),
@@ -81,7 +84,9 @@ function modelListing(pack, ceiling) {
     availability: confirmed(pack, "availability"),
     features: confirmed(pack, "features"),
     description: confirmed(pack, "description"),
-    quote: pack.unitId ? (price === undefined ? "price not confirmed: do not quote one" : undefined) : "no released price: describe the project, do not quote",
+    quote: pack.projectLevel ? (price === undefined ? "price not confirmed: do not quote one"
+      : "published project starting price, not a unit quote; exact units, unit prices and availability come from the team")
+      : pack.unitId ? (price === undefined ? "price not confirmed: do not quote one" : undefined) : "no released price: describe the project, do not quote",
     withinBudget: ceiling && price !== undefined ? price <= ceiling : undefined
   });
 }
@@ -122,10 +127,12 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
     if (recent.has(project.id)) score += 30;
     if (mentionedAreas.has(project.area)) score += 20;
     if (ceiling && price !== undefined) score += price <= ceiling ? 15 + Math.round(10 * price / ceiling) : -40;
-    if (types.size && types.has(String(unit.propertyType || "").toLowerCase())) score += 10;
-    if (beds.size && beds.has(unit.bedrooms)) score += 10;
+    const unitTypes = unit.projectLevel ? unit.propertyTypes : [String(unit.propertyType || "").toLowerCase()];
+    const maxBeds = unit.projectLevel ? unit.bedroomsMax : unit.bedrooms;
+    if (types.size && unitTypes.some(type => types.has(type))) score += 10;
+    if (beds.size && [...beds].some(n => unit.projectLevel ? maxBeds !== null && n >= unit.bedrooms && n <= maxBeds : n === unit.bedrooms)) score += 10;
     if (rejected.has(project.id) && !named.has(project.id)) score -= 60;
-    if (family) score += unit.bedrooms >= 2 ? 15 + (/villa|townhouse/i.test(unit.propertyType || "") ? 10 : 0) : -30;
+    if (family) score += maxBeds >= 2 ? 15 + (unitTypes.some(type => /villa|townhouse/i.test(type)) ? 10 : 0) : -30;
     if (price === undefined && !named.has(project.id)) score -= 10;
     scored.push({ pack, score, price });
   }
@@ -146,7 +153,9 @@ export function buildBrokerContext({ catalog, buyer, message, advisor = {}, draf
     if (!pack.unitId) return true;
     const price = confirmed(pack, "startingPriceAed");
     if (ceiling && price !== undefined && price > ceiling) return false;
-    if (typeRequired && !types.has(String(confirmed(pack, "propertyType") || "").toLowerCase())) return false;
+    const packTypes = pack.projectLevel ? pack.propertyTypes : [String(confirmed(pack, "propertyType") || "").toLowerCase()];
+    if (typeRequired && !packTypes.some(type => types.has(type))) return false;
+    if (pack.projectLevel && minBeds !== null && typeof confirmed(pack, "bedroomsTo") === "number" && confirmed(pack, "bedroomsTo") < minBeds) return false;
     if (minBeds !== null && typeof confirmed(pack, "bedrooms") === "number" && confirmed(pack, "bedrooms") < minBeds) return false;
     if (family && typeof confirmed(pack, "bedrooms") === "number" && confirmed(pack, "bedrooms") < 2) return false;
     return true;
@@ -228,6 +237,7 @@ FACT RULES (checked automatically; a sentence that breaks one is removed)
 - Every price, amount, percentage, payment split, date, handover, size, bedroom count and availability you state must appear in listings exactly as written (copy "AED 2,000,000" as written), or be the buyer's own budget, a difference between two listing prices, or the combined price of listings you propose together.
 - Never calculate other amounts yourself. Never state rent, yield, ROI, appreciation, resale prices, fees, service charges, distances, travel times, launch dates or amenities that are not in listings or areaGuide.
 - Listings marked "do not quote" have no released price: describe them and say pricing is not released yet.
+- You recommend projects, not units. A "published project starting price" is a from-price ("from AED 2,000,000 for 1 bedroom"), stated with its priceBasis; it is not a unit quote. You never know which units are available or their exact prices: when asked, say the team confirms current units, prices and availability, and offer to connect them.
 - Never name a project that is not in listings.
 - No guarantees about returns, growth or resale; explain what drives value (area stage, developer, payment plan, handover timing) qualitatively.
 - Never say a booking, reservation, EOI, viewing, call or message to the team has been arranged, sent or confirmed. Do not ask for phone numbers or offer calls; if the buyer wants a person, say you can connect them with the team.

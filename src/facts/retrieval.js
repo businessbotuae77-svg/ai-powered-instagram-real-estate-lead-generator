@@ -23,9 +23,12 @@ export function buildFactPack(match, options = {}) {
   const quoteFresh = offer ? gate.ok : fresh;
   const projectEvidence = { source: project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.lastVerified || null };
   Object.assign(projectEvidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
-  const unitEvidence = { ...projectEvidence, recordId: unit.inventoryUnitId || unit.id, scope: "unit_type" };
+  const level = unit.projectLevel === true;
+  const unitEvidence = level ? { ...projectEvidence, scope: "project_published_range" }
+    : { ...projectEvidence, recordId: unit.inventoryUnitId || unit.id, scope: "unit_type" };
   const commercialEvidence = offer
     ? { source: offer.commercialSource, recordId: offer.sourceRecordId || offer.id, scope: offer.priceBasis, verifiedAt: offer.checkedOn, offerId: offer.offerId }
+    : level ? { ...projectEvidence, scope: "project_starting_price" }
     : { ...projectEvidence, recordId: unit.id, scope: "unit_type_starting_price" };
   const commercial = value => field(quoteFresh ? value : null, commercialEvidence);
   const initial = offer ? offer.initialPaymentAed : downPaymentAed;
@@ -37,19 +40,24 @@ export function buildFactPack(match, options = {}) {
     fit,
     projectId: project.id,
     unitId: unit.id,
+    projectLevel: level,
+    propertyTypes: level ? [...unit.propertyTypes] : undefined,
     name: field(project.name),
     developer: field(project.developerName),
     emirate: field(project.emirate),
     area: field(project.area),
     propertyType: field(unit.propertyType),
-    bedrooms: field(unit.bedrooms),
-    bedroomLabel: field(bedroomLabel),
+    bedrooms: field(level ? null : unit.bedrooms),
+    bedroomsFrom: field(level ? unit.bedrooms : null),
+    bedroomsTo: field(level ? unit.bedroomsMax : null),
+    bedroomLabel: field(level ? unit.bedroomRange : bedroomLabel),
     offerId: offer?.offerId || null,
     planId: field(offer?.planId || unit.planId, commercialEvidence),
     commercialGate: gate,
     paymentAnalysis: payment,
     startingPriceAed: commercial(offer ? offer.price : unit.startingPriceAed),
     startingPriceText: commercial(formatAed(offer ? offer.price : unit.startingPriceAed)),
+    startingPriceBasis: commercial(level ? unit.startingPriceBasis : null),
     sizeSqftFrom: field(unit.sizeSqftFrom),
     sizeSqftTo: field(unit.sizeSqftTo),
     downPaymentAed: commercial(initial),
@@ -58,7 +66,7 @@ export function buildFactPack(match, options = {}) {
     paymentPlanSummary: commercial(offer ? scheduleSummary : project.paymentPlanSummary),
     handover: commercial(offer ? offer.handover : project.handover),
     status: field(project.status),
-    availability: field((offer ? gate.ok : available) && unit.availability !== "Unknown" ? unit.availability : null, commercialEvidence),
+    availability: field(!level && (offer ? gate.ok : available) && unit.availability !== "Unknown" ? unit.availability : null, commercialEvidence),
     availabilityNotes: field(!offer && available ? project.availabilityNotes : null, commercialEvidence),
     description: field(project.description),
     features: field(project.features),
@@ -67,7 +75,7 @@ export function buildFactPack(match, options = {}) {
   };
   for (const [key, fact] of Object.entries(pack)) {
     if (!fact || typeof fact !== "object" || !("confirmed" in fact) || fact.source) continue;
-    Object.assign(fact, ["propertyType", "bedrooms", "bedroomLabel", "sizeSqftFrom", "sizeSqftTo"].includes(key) ? unitEvidence : projectEvidence);
+    Object.assign(fact, ["propertyType", "bedrooms", "bedroomsFrom", "bedroomsTo", "bedroomLabel", "sizeSqftFrom", "sizeSqftTo"].includes(key) ? unitEvidence : projectEvidence);
   }
   if (payment?.status === "COMPLETE") {
     const row = payment.evidence[0];
@@ -112,7 +120,7 @@ export function collectAllowedClaims(packs, evidenceClaims = []) {
     for (const key of ["bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed"]) {
       if (pack[key]?.confirmed) amounts.add(Number(pack[key].value));
     }
-    for (const key of ["startingPriceAed", "downPaymentAed", "sizeSqftFrom", "sizeSqftTo", "bedrooms"]) {
+    for (const key of ["startingPriceAed", "downPaymentAed", "sizeSqftFrom", "sizeSqftTo", "bedrooms", "bedroomsFrom", "bedroomsTo"]) {
       if (pack[key]?.confirmed) amounts.add(Number(pack[key].value));
     }
     if (pack.paymentPlanSummary.confirmed) {

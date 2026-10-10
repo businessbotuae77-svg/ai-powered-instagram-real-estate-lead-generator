@@ -16,10 +16,19 @@ Base: `appbIG0pZvueaTp07`. Master research lives in the Google Sheet "Abu Dhabi 
 | Table | Fields |
 |---|---|
 | Developers | Name, Active |
-| Projects | Name, Developer, Emirate, Area, Property types, Status, Handover, Payment plan available, Payment plan summary, Required initial payment AED, Description, Features, Availability notes, Source, Last verified, Active |
-| Units | Name, Project, Property type, Bedrooms, Starting price AED, Size sqft from, Size sqft to, Initial payment AED, Availability, Active |
+| Projects | Name, Developer, Emirate, Area, Property types, Status, Handover, Payment plan available, Payment plan summary, Required initial payment AED, Starting price AED, Starting price basis, Bedrooms, Description, Features, Source, Last verified, Active |
 
-Field names must match exactly. Table names can be overridden with `AIRTABLE_DEVELOPERS_TABLE`, `AIRTABLE_PROJECTS_TABLE` and `AIRTABLE_UNITS_TABLE`.
+Field names must match exactly. Table names can be overridden with `AIRTABLE_DEVELOPERS_TABLE` and `AIRTABLE_PROJECTS_TABLE`.
+
+**Projects only (10 October 2026).** The bot no longer reads the Units table or the Projects `Availability notes` field. Units, unit prices and availability change too often to keep current, so they stay with the broker. To let the bot recommend a project by budget and bedrooms, add three fields to Projects:
+
+| Field | Type | Example |
+|---|---|---|
+| Starting price AED | Number | 2000000 |
+| Starting price basis | Single line text | Starting price - 1BR |
+| Bedrooms | Single line text | 1–4BR apartments |
+
+A project with a starting price becomes one project-level listing: it matches a buyer when the price is within budget and the requested bedroom count is inside the published range. Freshness still applies: the price is used only while `Last verified` is within `FACT_MAX_AGE_DAYS`. A project without a price is still described, but never priced.
 
 ## Inclusion gates
 

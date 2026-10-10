@@ -18,7 +18,8 @@ export function renderSafeReply(packs) {
     const rows = [
       `${pack.name.value} by ${pack.developer.value}`,
       `Area: ${pack.area.value}`,
-      pack.bedrooms.value === 0
+      pack.projectLevel ? `Homes: ${pack.bedroomLabel.value || "bedroom mix to confirm"}`
+        : pack.bedrooms.value === 0
         ? "Type: studio"
         : `Type: ${pack.bedroomLabel.value} ${pack.propertyType.value}`,
       line("Starting price", pack.startingPriceText, "not confirmed yet"),

@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { unitLabel } from "./airtable-schema.js";
 import { RUNTIME_DIR } from "./local-store.js";
 import { emptyIntelligence, normalizeAreaIntelligence, normalizeInvestmentEvidence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory, normalizeProjectRelationship } from "../facts/intelligence.js";
 import { normalizeCommercialOffer } from "../facts/commercial-offers.js";
@@ -41,11 +40,12 @@ export class AirtableStore {
     this.runtimeDir = env.runtimeDir || env.RUNTIME_DATA_DIR || RUNTIME_DIR;
     this.tables = {
       developers: env.AIRTABLE_DEVELOPERS_TABLE || "Developers",
-      projects: env.AIRTABLE_PROJECTS_TABLE || "Projects",
-      units: env.AIRTABLE_UNITS_TABLE || "Units"
+      projects: env.AIRTABLE_PROJECTS_TABLE || "Projects"
     };
     this.developers = [];
     this.projects = [];
+    // The bot works from projects only. Units and availability change too often
+    // to keep current, so they stay with the broker and are never loaded.
     this.units = [];
     // Research names come from the inspected base. They are optional reads;
     // commercial offers/schedules are explicit opt-ins for future schemas.
@@ -158,28 +158,15 @@ export class AirtableStore {
       paymentPlanAvailable: Boolean(f["Payment plan available"]),
       paymentPlanSummary: f["Payment plan summary"] || null,
       initialPaymentAed: f["Required initial payment AED"] ?? null,
+      startingPriceAed: typeof f["Starting price AED"] === "number" ? f["Starting price AED"] : null,
+      startingPriceBasis: f["Starting price basis"] || null,
+      bedroomRange: f.Bedrooms || null,
       description: f.Description || null,
       features: f.Features || null,
-      availabilityNotes: f["Availability notes"] || null,
+      // Availability is the broker's: the bot never reads it from the catalogue.
+      availabilityNotes: null,
       source: f.Source || null,
       lastVerified: f["Last verified"] || null,
-      active: Boolean(f.Active)
-    };
-  }
-
-  mapUnit(record) {
-    const f = record.fields;
-    return {
-      id: record.id,
-      name: f.Name || null,
-      projectId: Array.isArray(f.Project) ? f.Project[0] : null,
-      propertyType: mapSelect(f["Property type"]),
-      bedrooms: f.Bedrooms,
-      startingPriceAed: f["Starting price AED"] ?? null,
-      sizeSqftFrom: f["Size sqft from"] ?? null,
-      sizeSqftTo: f["Size sqft to"] ?? null,
-      initialPaymentAed: f["Initial payment AED"] ?? null,
-      availability: mapSelect(f.Availability),
       active: Boolean(f.Active)
     };
   }
@@ -203,12 +190,11 @@ export class AirtableStore {
     if (!force && age < 60000) return;
     if (this.catalogRefresh) return this.catalogRefresh;
     this.catalogRefresh = (async () => {
-      const [developerRecords, projectRecords, unitRecords] = await Promise.all([
-        this.listTable(this.tables.developers), this.listTable(this.tables.projects), this.listTable(this.tables.units)
+      const [developerRecords, projectRecords] = await Promise.all([
+        this.listTable(this.tables.developers), this.listTable(this.tables.projects)
       ]);
       this.developers = developerRecords.map((row) => this.mapDeveloper(row));
       this.projects = projectRecords.map((row) => this.mapProject(row, this.developers));
-      this.units = unitRecords.map((row) => this.mapUnit(row));
       this.catalogLoadedAt = Date.now();
       await this.refreshIntelligence(force);
     })();
@@ -221,7 +207,7 @@ export class AirtableStore {
     try {
       return { records: await this.listTable(table), status: "available" };
     } catch (error) {
-      // Optional absence and access failures must not take down Projects/Units.
+      // Optional absence and access failures must not take down Projects.
       // Never expose API error bodies or private record contents in telemetry.
       return { records: [], status: [403, 404, 422].includes(error.status) ? "unavailable" : "read_failed" };
     }
@@ -314,18 +300,17 @@ export class AirtableStore {
     return project ? this.hydrateProject(project) : null;
   }
 
-  findUnit({ projectName, bedrooms }) {
+  findProject(projectName) {
     const project = this.projects.find((row) => row.name === projectName);
-    if (!project) return null;
-    return this.units.find((row) => row.projectId === project.id && row.bedrooms === bedrooms) || null;
+    return project ? this.hydrateProject(project) : null;
   }
 
-  async updateUnitPrice(projectName, bedrooms, startingPriceAed) {
-    const unit = this.findUnit({ projectName, bedrooms });
-    if (!unit) throw new Error(`Unit not found ${projectName} ${bedrooms}`);
-    await this.patchRecord(this.tables.units, unit.id, { "Starting price AED": startingPriceAed });
+  async updateProjectPrice(projectName, startingPriceAed) {
+    const project = this.findProject(projectName);
+    if (!project) throw new Error(`Project not found ${projectName}`);
+    await this.patchRecord(this.tables.projects, project.id, { "Starting price AED": startingPriceAed });
     await this.load();
-    return this.findUnit({ projectName, bedrooms });
+    return this.findProject(projectName);
   }
 
   getBuyer(instagramUserId) {
@@ -342,7 +327,7 @@ export class AirtableStore {
     return this.getBuyer(buyer.instagramUserId);
   }
 
-  async importSeed({ developers, projects, units }) {
+  async importSeed({ developers, projects }) {
     const developerRecords = await this.createRecords(
       this.tables.developers,
       developers.map((row) => ({
@@ -354,7 +339,7 @@ export class AirtableStore {
     );
     const developerIds = Object.fromEntries(developers.map((row, index) => [row.id, developerRecords[index].id]));
 
-    const projectRecords = await this.createRecords(
+    await this.createRecords(
       this.tables.projects,
       projects.map((row) => ({
         fields: {
@@ -368,6 +353,9 @@ export class AirtableStore {
           "Payment plan available": row.paymentPlanAvailable,
           "Payment plan summary": row.paymentPlanSummary || undefined,
           "Required initial payment AED": row.initialPaymentAed ?? undefined,
+          "Starting price AED": row.startingPriceAed ?? undefined,
+          "Starting price basis": row.startingPriceBasis || undefined,
+          Bedrooms: row.bedroomRange || undefined,
           Description: row.description || undefined,
           Features: row.features || undefined,
           "Availability notes": row.availabilityNotes || undefined,
@@ -376,28 +364,6 @@ export class AirtableStore {
           Active: row.active
         }
       }))
-    );
-    const projectIds = Object.fromEntries(projects.map((row, index) => [row.id, projectRecords[index].id]));
-
-    await this.createRecords(
-      this.tables.units,
-      units.map((row) => {
-        const project = projects.find((item) => item.id === row.projectId);
-        return {
-          fields: {
-            Name: unitLabel(project.name, row),
-            Project: [projectIds[row.projectId]],
-            "Property type": row.propertyType,
-            Bedrooms: row.bedrooms,
-            "Starting price AED": row.startingPriceAed ?? undefined,
-            "Size sqft from": row.sizeSqftFrom ?? undefined,
-            "Size sqft to": row.sizeSqftTo ?? undefined,
-            "Initial payment AED": row.initialPaymentAed ?? undefined,
-            Availability: row.availability || undefined,
-            Active: row.active
-          }
-        };
-      })
     );
     return this.load();
   }
