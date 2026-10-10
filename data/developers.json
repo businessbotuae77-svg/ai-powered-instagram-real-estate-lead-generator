@@ -1,0 +1,37 @@
+[
+  {
+    "id": "dev_aldar",
+    "name": "Aldar",
+    "active": true
+  },
+  {
+    "id": "dev_modon",
+    "name": "Modon",
+    "active": true
+  },
+  {
+    "id": "dev_burtville",
+    "name": "Burtville",
+    "active": true
+  },
+  {
+    "id": "dev_eagle_hills",
+    "name": "Eagle Hills",
+    "active": true
+  },
+  {
+    "id": "dev_ohana",
+    "name": "Ohana",
+    "active": true
+  },
+  {
+    "id": "dev_reportage",
+    "name": "Reportage",
+    "active": true
+  },
+  {
+    "id": "dev_royal_development_holding",
+    "name": "Royal Development Holding",
+    "active": true
+  }
+]

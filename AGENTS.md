@@ -52,7 +52,7 @@ Without `ANTHROPIC_API_KEY` everything runs on the deterministic path. Tests nev
 5. **No secrets or buyer content in logs.** Log categories and counts, never provider error bodies, keys, phone numbers or message text.
 6. **Production refuses demo data.** `NODE_ENV=production` requires Airtable; don't bypass it.
 7. **One Railway replica.** Conversation state is JSON on the `/data` volume; a second replica would corrupt it.
-8. **Projects only, never units.** The bot recommends projects from their published starting price, bedroom range, payment plan and handover. It never reads the Airtable Units table or availability: exact units, unit prices and availability stay with the broker. Each priced project becomes one project-level listing (`src/facts/project-listings.js`).
+8. **Airtable holds Projects, Units, Price History and Market Snapshot only.** Each project has a few Units rows (one per home type and bedroom count) that the broker keeps current; the bot quotes those unit prices. A priced project with no unit rows becomes one project-level listing (`src/facts/project-listings.js`). Developers live in `data/developers.json` (Projects name their developer) and area guides/research in `data/areas.json` and `data/area-guide.json`.
 9. **Per-buyer ordering.** A buyer's messages are processed in order; different buyers run in parallel (`KeyedQueue`). Anything that writes a shared file must serialise its writes.
 
 ## Model calls and cost

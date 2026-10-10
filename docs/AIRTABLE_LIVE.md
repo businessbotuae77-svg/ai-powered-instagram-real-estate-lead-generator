@@ -15,12 +15,12 @@ Base: `appbIG0pZvueaTp07`. Master research lives in the Google Sheet "Abu Dhabi 
 
 | Table | Fields |
 |---|---|
-| Developers | Name, Active |
+| Units | Name, Project, Property type, Bedrooms, Starting price AED, Size sqft from, Size sqft to, Initial payment AED, Availability, Active |
 | Projects | Name, Developer, Emirate, Area, Property types, Status, Handover, Payment plan available, Payment plan summary, Required initial payment AED, Starting price AED, Starting price basis, Bedrooms, Description, Features, Source, Last verified, Active |
 
 Field names must match exactly. Table names can be overridden with `AIRTABLE_DEVELOPERS_TABLE` and `AIRTABLE_PROJECTS_TABLE`.
 
-**Projects only (10 October 2026).** The bot no longer reads the Units table or the Projects `Availability notes` field. Units, unit prices and availability change too often to keep current, so they stay with the broker. To let the bot recommend a project by budget and bedrooms, add three fields to Projects:
+**Units are back (10 October 2026).** The base is reduced to Projects, Units, Price History and Market Snapshot. Developers moved to `data/developers.json` (Projects `Developer` is a single select holding the name; an old link is still resolved while the Developers table exists) and Areas to `data/areas.json`. The bot reads each project's Units rows for exact home-type prices; a project with no unit rows can still be recommended from three optional Projects fields:
 
 | Field | Type | Example |
 |---|---|---|

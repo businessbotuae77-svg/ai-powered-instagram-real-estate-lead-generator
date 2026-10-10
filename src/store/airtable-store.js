@@ -1,10 +1,16 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { unitLabel } from "./airtable-schema.js";
 import { RUNTIME_DIR } from "./local-store.js";
+import { sameText } from "../matching/normalize.js";
 import { emptyIntelligence, normalizeAreaIntelligence, normalizeInvestmentEvidence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory, normalizeProjectRelationship } from "../facts/intelligence.js";
 import { normalizeCommercialOffer } from "../facts/commercial-offers.js";
 import { normalizeAreaGuideRecord } from "../facts/area-guide.js";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const DEVELOPERS_PATH = path.join(ROOT, "data", "developers.json");
+export const AREAS_PATH = path.join(ROOT, "data", "areas.json");
 
 function headers(apiKey) {
   return {
@@ -39,24 +45,29 @@ export class AirtableStore {
     this.requestTimes = [];
     this.runtimeDir = env.runtimeDir || env.RUNTIME_DATA_DIR || RUNTIME_DIR;
     this.tables = {
-      developers: env.AIRTABLE_DEVELOPERS_TABLE || "Developers",
-      projects: env.AIRTABLE_PROJECTS_TABLE || "Projects"
+      projects: env.AIRTABLE_PROJECTS_TABLE || "Projects",
+      units: env.AIRTABLE_UNITS_TABLE || "Units"
     };
-    this.developers = [];
+    // Developers live in the repo (data/developers.json), not in Airtable.
+    // Projects name their developer; the old linked table is read only to
+    // resolve link IDs while a base still has it.
+    this.developersPath = env.DEVELOPERS_PATH || DEVELOPERS_PATH;
+    this.developers = env.developers ? env.developers.map(row => ({ ...row })) : null;
+    this.legacyDevelopersTable = env.AIRTABLE_DEVELOPERS_TABLE || "Developers";
+    this.areasPath = env.AREAS_PATH || AREAS_PATH;
     this.projects = [];
-    // The bot works from projects only. Units and availability change too often
-    // to keep current, so they stay with the broker and are never loaded.
     this.units = [];
     // Research names come from the inspected base. They are optional reads;
     // commercial offers/schedules are explicit opt-ins for future schemas.
     this.optionalTables = {
       priceHistory: env.AIRTABLE_PRICE_HISTORY_TABLE || "Price History",
       marketSnapshots: env.AIRTABLE_MARKET_SNAPSHOT_TABLE || "Market Snapshot",
-      areas: env.AIRTABLE_AREAS_TABLE || "Areas (research)",
-      areaGuide: env.AIRTABLE_AREA_GUIDE_TABLE || "Area Guide",
-      projectRelations: env.AIRTABLE_PROJECT_RELATIONSHIPS_TABLE || "Project Relationships (research)",
-      investmentEvidence: env.AIRTABLE_INVESTMENT_EVIDENCE_TABLE || "Investment Evidence (research)",
-      researchOffers: env.AIRTABLE_RESEARCH_OFFERS_TABLE || "Offers (research)",
+      // Areas and research live in the repo now; these are opt-in only.
+      areas: env.AIRTABLE_AREAS_TABLE || null,
+      areaGuide: env.AIRTABLE_AREA_GUIDE_TABLE || null,
+      projectRelations: env.AIRTABLE_PROJECT_RELATIONSHIPS_TABLE || null,
+      investmentEvidence: env.AIRTABLE_INVESTMENT_EVIDENCE_TABLE || null,
+      researchOffers: env.AIRTABLE_RESEARCH_OFFERS_TABLE || null,
       commercialOffers: env.AIRTABLE_OFFERS_TABLE || null,
       paymentSchedules: env.AIRTABLE_PAYMENT_SCHEDULES_TABLE || null
     };
@@ -130,24 +141,22 @@ export class AirtableStore {
     });
   }
 
-  mapDeveloper(record) {
-    const f = record.fields;
-    return {
-      id: record.id,
-      name: f.Name,
-      active: Boolean(f.Active)
-    };
+  // Developer may be a single select, plain text, or (old bases) a link whose
+  // record ID is resolved through the legacy Developers table.
+  developerFor(value, legacyNames = new Map()) {
+    const raw = Array.isArray(value) ? value[0] : value;
+    const name = (legacyNames instanceof Map && legacyNames.get(raw)) || mapSelect(raw);
+    return (this.developers || []).find((row) => sameText(row.name, name)) || null;
   }
 
-  mapProject(record, developers) {
+  mapProject(record, legacyNames) {
     const f = record.fields;
-    const developerId = Array.isArray(f.Developer) ? f.Developer[0] : null;
-    const developer = developers.find((row) => row.id === developerId);
+    const developer = this.developerFor(f.Developer, legacyNames);
     return {
       id: record.id,
       sheetProjectId: f["Sheet Project ID"] || null,
       name: f.Name,
-      developerId,
+      developerId: developer ? developer.id : null,
       developerName: developer ? developer.name : null,
       developerActive: developer ? developer.active : false,
       emirate: mapSelect(f.Emirate),
@@ -171,6 +180,46 @@ export class AirtableStore {
     };
   }
 
+  mapUnit(record) {
+    const f = record.fields;
+    return {
+      id: record.id,
+      name: f.Name || null,
+      projectId: Array.isArray(f.Project) ? f.Project[0] : null,
+      propertyType: mapSelect(f["Property type"]),
+      bedrooms: f.Bedrooms,
+      startingPriceAed: f["Starting price AED"] ?? null,
+      sizeSqftFrom: f["Size sqft from"] ?? null,
+      sizeSqftTo: f["Size sqft to"] ?? null,
+      initialPaymentAed: f["Initial payment AED"] ?? null,
+      availability: mapSelect(f.Availability),
+      active: Boolean(f.Active)
+    };
+  }
+
+  async loadRepoData() {
+    if (!this.developers) this.developers = JSON.parse(await readFile(this.developersPath, "utf8"));
+    if (!this.areaRecords) {
+      try {
+        this.areaRecords = JSON.parse(await readFile(this.areasPath, "utf8"));
+      } catch {
+        this.areaRecords = [];
+      }
+    }
+  }
+
+  // Link IDs → developer names, only while a base still has the old table.
+  async legacyDeveloperNames() {
+    if (this.legacyDevelopersGone) return new Map();
+    try {
+      const rows = await this.listTable(this.legacyDevelopersTable);
+      return new Map(rows.map((row) => [row.id, row.fields.Name]));
+    } catch (error) {
+      if ([403, 404, 422].includes(error.status)) this.legacyDevelopersGone = true;
+      return new Map();
+    }
+  }
+
   async load() {
     if (!this.enabled()) {
       throw new Error("Airtable is not configured");
@@ -190,11 +239,14 @@ export class AirtableStore {
     if (!force && age < 60000) return;
     if (this.catalogRefresh) return this.catalogRefresh;
     this.catalogRefresh = (async () => {
-      const [developerRecords, projectRecords] = await Promise.all([
-        this.listTable(this.tables.developers), this.listTable(this.tables.projects)
+      await this.loadRepoData();
+      const [projectRecords, unitRecords] = await Promise.all([
+        this.listTable(this.tables.projects), this.listTable(this.tables.units)
       ]);
-      this.developers = developerRecords.map((row) => this.mapDeveloper(row));
-      this.projects = projectRecords.map((row) => this.mapProject(row, this.developers));
+      const linked = projectRecords.some((row) => Array.isArray(row.fields.Developer) && /^rec/.test(row.fields.Developer[0] || ""));
+      const legacyNames = linked ? await this.legacyDeveloperNames() : new Map();
+      this.projects = projectRecords.map((row) => this.mapProject(row, legacyNames));
+      this.units = unitRecords.map((row) => this.mapUnit(row));
       this.catalogLoadedAt = Date.now();
       await this.refreshIntelligence(force);
     })();
@@ -240,8 +292,8 @@ export class AirtableStore {
     this.intelligence = {
       priceHistory: records("priceHistory").map(row => normalizePriceHistory(row)),
       marketSnapshots: records("marketSnapshots").map(row => normalizeMarketSnapshot(row)),
-      areas: records("areas").map(row => normalizeAreaIntelligence(row)),
-      areaGuide: [...records("areas").filter(row => Object.hasOwn(row.fields || {}, "Guide status")), ...records("areaGuide")]
+      areas: this.areaRows().map(row => normalizeAreaIntelligence(row)),
+      areaGuide: [...this.areaRows().filter(row => Object.hasOwn(row.fields || {}, "Guide status")), ...records("areaGuide")]
         .map(normalizeAreaGuideRecord).filter(Boolean),
       projectRelations: records("projectRelations").map(row => normalizeProjectRelationship(row)),
       investmentEvidence: records("investmentEvidence").map(row => normalizeInvestmentEvidence(row)),
@@ -255,6 +307,11 @@ export class AirtableStore {
     };
   }
 
+  // Area research comes from data/areas.json unless an Airtable table is configured.
+  areaRows() {
+    return this.optionalTables.areas ? this.optionalState.areas?.records || [] : this.areaRecords || [];
+  }
+
   listIntelligence() {
     // Reapply time-sensitive evidence checks at read time as well as refresh.
     this.rebuildIntelligence();
@@ -264,7 +321,7 @@ export class AirtableStore {
   snapshot() {
     return {
       source: this.source,
-      developers: this.developers.map((row) => ({ ...row })),
+      developers: (this.developers || []).map((row) => ({ ...row })),
       projects: this.projects.map((row) => ({ ...row })),
       units: this.units.map((row) => ({ ...row })),
       intelligence: this.listIntelligence(),
@@ -273,7 +330,7 @@ export class AirtableStore {
   }
 
   listDevelopers() {
-    return this.developers.filter((row) => row.active).map((row) => ({ ...row }));
+    return (this.developers || []).filter((row) => row.active).map((row) => ({ ...row }));
   }
 
   listProjects({ includeInactive = false } = {}) {
@@ -287,7 +344,7 @@ export class AirtableStore {
   }
 
   hydrateProject(project) {
-    const developer = this.developers.find((row) => row.id === project.developerId);
+    const developer = (this.developers || []).find((row) => row.id === project.developerId);
     return {
       ...project,
       developerName: developer ? developer.name : project.developerName,
@@ -303,6 +360,20 @@ export class AirtableStore {
   findProject(projectName) {
     const project = this.projects.find((row) => row.name === projectName);
     return project ? this.hydrateProject(project) : null;
+  }
+
+  findUnit({ projectName, bedrooms }) {
+    const project = this.projects.find((row) => row.name === projectName);
+    if (!project) return null;
+    return this.units.find((row) => row.projectId === project.id && row.bedrooms === bedrooms) || null;
+  }
+
+  async updateUnitPrice(projectName, bedrooms, startingPriceAed) {
+    const unit = this.findUnit({ projectName, bedrooms });
+    if (!unit) throw new Error(`Unit not found ${projectName} ${bedrooms}`);
+    await this.patchRecord(this.tables.units, unit.id, { "Starting price AED": startingPriceAed });
+    await this.load();
+    return this.findUnit({ projectName, bedrooms });
   }
 
   async updateProjectPrice(projectName, startingPriceAed) {
@@ -327,24 +398,16 @@ export class AirtableStore {
     return this.getBuyer(buyer.instagramUserId);
   }
 
-  async importSeed({ developers, projects }) {
-    const developerRecords = await this.createRecords(
-      this.tables.developers,
-      developers.map((row) => ({
-        fields: {
-          Name: row.name,
-          Active: row.active
-        }
-      }))
-    );
-    const developerIds = Object.fromEntries(developers.map((row, index) => [row.id, developerRecords[index].id]));
+  async importSeed({ developers, projects, units = [] }) {
+    this.developers = developers.map((row) => ({ ...row }));
+    const developerNames = Object.fromEntries(developers.map((row) => [row.id, row.name]));
 
-    await this.createRecords(
+    const projectRecords = await this.createRecords(
       this.tables.projects,
       projects.map((row) => ({
         fields: {
           Name: row.name,
-          Developer: [developerIds[row.developerId]],
+          Developer: developerNames[row.developerId],
           Emirate: row.emirate,
           Area: row.area,
           "Property types": row.propertyTypes,
@@ -365,6 +428,28 @@ export class AirtableStore {
         }
       }))
     );
+    const projectIds = Object.fromEntries(projects.map((row, index) => [row.id, projectRecords[index].id]));
+
+    await this.createRecords(
+      this.tables.units,
+      units.map((row) => {
+        const project = projects.find((item) => item.id === row.projectId);
+        return {
+          fields: {
+            Name: unitLabel(project.name, row),
+            Project: [projectIds[row.projectId]],
+            "Property type": row.propertyType,
+            Bedrooms: row.bedrooms,
+            "Starting price AED": row.startingPriceAed ?? undefined,
+            "Size sqft from": row.sizeSqftFrom ?? undefined,
+            "Size sqft to": row.sizeSqftTo ?? undefined,
+            "Initial payment AED": row.initialPaymentAed ?? undefined,
+            Availability: row.availability || undefined,
+            Active: row.active
+          }
+        };
+      })
+    );
     return this.load();
   }
 }
@@ -379,5 +464,4 @@ export function airtableConfigured(env = process.env) {
   return Boolean(env.AIRTABLE_API_KEY && env.AIRTABLE_BASE_ID);
 }
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const PROJECT_ROOT = ROOT;

@@ -233,12 +233,13 @@ test("optional research tables load independently and payment schedules remain a
     tables.push(table);
     return { ok: true, json: async () => ({ records: [] }) };
   } });
-  assert.equal(store.optionalTables.projectRelations, "Project Relationships (research)");
-  assert.equal(store.optionalTables.investmentEvidence, "Investment Evidence (research)");
+  // Research tables were removed from the base; they are read only when configured.
+  assert.equal(store.optionalTables.projectRelations, null);
+  assert.equal(store.optionalTables.investmentEvidence, null);
   assert.equal(store.optionalTables.paymentSchedules, null);
   await store.refreshIntelligence(true);
-  assert.ok(tables.includes("Project Relationships (research)"));
-  assert.ok(tables.includes("Investment Evidence (research)"));
+  assert.ok(!tables.includes("Project Relationships (research)"));
+  assert.ok(!tables.includes("Investment Evidence (research)"));
   assert.ok(!tables.includes("Payment Schedules (research)"));
   assert.deepEqual(store.listIntelligence().projectRelations, []);
   assert.deepEqual(store.listIntelligence().investmentEvidence, []);

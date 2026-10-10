@@ -18,7 +18,7 @@ const snapshot = JSON.parse(await readFile(new URL('./fixtures/nawayef-research.
 function fixture() {
   const data = snapshot.tables;
   const store = new AirtableStore({ fetch: () => {} });
-  const projects = data.Projects.map(row => ({ ...store.mapProject(row, []), developerName: 'Modon', developerActive: true }));
+  const projects = data.Projects.map(row => ({ ...store.mapProject(row), developerId: 'dev_modon', developerName: 'Modon', developerActive: true }));
   const project = projects.find(row => row.sheetProjectId === 'AD-004');
   const intelligence = { ...emptyIntelligence(),
     priceHistory: data['Price History'].map(row => normalizePriceHistory(row, { now: NOW })),

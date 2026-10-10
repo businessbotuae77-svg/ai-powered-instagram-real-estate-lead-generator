@@ -11,17 +11,43 @@ async function createSeededAirtableStore() {
 import { AirtableStore } from "../src/store/airtable-store.js";
 import { runAirtableMilestoneChecks } from "../scripts/airtable-demo.js";
 
-test("step 7a matching reads Airtable records not seed JSON ids", async () => {
+test("step 7a matching reads Airtable projects and units; developers come from the repo", async () => {
   const { store, seed, api } = await createSeededAirtableStore();
   assert.equal(store.source, "airtable");
   assert.equal(store.developers.length, seed.developers.length);
   assert.equal(store.projects.length, seed.projects.length);
-  // Projects only: units and availability stay with the broker and are never read.
-  assert.equal(store.units.length, 0);
-  assert.deepEqual(store.listUnits(), []);
-  assert.equal(api.tables.has("Units"), false);
-  assert.ok(store.developers.every((row) => row.id.startsWith("rec")));
-  assert.equal(store.developers.some((row) => row.id === "dev_aldar"), false);
+  assert.equal(store.units.length, seed.units.length);
+  assert.ok(store.units.every((row) => row.id.startsWith("rec") && row.projectId.startsWith("rec")));
+  assert.equal(api.tables.has("Developers"), false);
+  assert.ok(store.listProjects().every((row) => row.developerActive && row.developerName));
+});
+
+test("step 7i a project's developer resolves by select name, text or a legacy link", async () => {
+  const developers = [{ id: "dev_modon", name: "Modon", active: true }, { id: "dev_old", name: "Old Dev", active: false }];
+  const records = {
+    Developers: [{ id: "recDevModon", fields: { Name: "Modon" } }],
+    Projects: [
+      { id: "recA", fields: { Name: "Select", Developer: "Modon", Active: true } },
+      { id: "recB", fields: { Name: "Link", Developer: ["recDevModon"], Active: true } },
+      { id: "recC", fields: { Name: "Inactive", Developer: { name: "Old Dev" }, Active: true } },
+      { id: "recD", fields: { Name: "Unknown", Developer: "Nobody", Active: true } }
+    ],
+    Units: []
+  };
+  const store = new AirtableStore({
+    AIRTABLE_API_KEY: "test", AIRTABLE_BASE_ID: "app-test", developers,
+    fetch: async (url) => {
+      const rows = records[decodeURIComponent(new URL(url).pathname.split("/")[3])];
+      return { ok: Boolean(rows), status: rows ? 200 : 404, json: async () => (rows ? { records: rows } : {}) };
+    }
+  });
+  await store.refreshCatalog(true);
+  const byName = Object.fromEntries(store.listProjects().map((row) => [row.name, row]));
+  assert.equal(byName.Select.developerName, "Modon");
+  assert.equal(byName.Link.developerName, "Modon");
+  assert.equal(byName.Link.developerActive, true);
+  assert.equal(byName.Inactive.developerActive, false);
+  assert.equal(byName.Unknown.developerActive, false);
 });
 
 test("step 7g Airtable buyer memory honors Railway runtime volume", () => {
@@ -34,33 +60,27 @@ test("step 7g Airtable buyer memory honors Railway runtime volume", () => {
   assert.equal(store.runtimeDir, "/data/runtime");
 });
 
-test("step 7b Yas 3M query matches projects on their published starting price and bedroom range", async () => {
+test("step 7b Yas 3M query uses Airtable unit prices", async () => {
   const { store } = await createSeededAirtableStore();
   const result = new PropertyService(store).answer(YAS_MATCH_CRITERIA);
-  assert.deepEqual(result.matches.map(row => row.project.name), ["Yas Park Views", "Yas Grove Residences"]);
-  const [first] = result.matches;
-  assert.equal(first.unit.projectLevel, true);
-  assert.equal(first.unit.startingPriceAed, 1400000);
-  assert.equal(first.unit.id.startsWith("rec"), true);
-  const pack = result.packs[0];
-  assert.equal(pack.startingPriceBasis.value, "Starting price - 1BR");
-  assert.equal(pack.bedroomLabel.value, "1-3BR apartments");
-  assert.equal(pack.availability.confirmed, false);
-  assert.equal(pack.availabilityNotes.confirmed, false);
+  assert.equal(result.matchCount, 1);
+  assert.equal(result.matches[0].project.name, "Yas Park Views");
+  assert.equal(result.matches[0].unit.startingPriceAed, 2600000);
+  assert.equal(result.matches[0].unit.id.startsWith("rec"), true);
 });
 
-test("step 7c changing a project's Starting price AED in Airtable changes the match", async () => {
+test("step 7c changing Starting price AED in Airtable changes the match", async () => {
   const { store } = await createSeededAirtableStore();
   const properties = new PropertyService(store);
-  const named = () => properties.answer(YAS_MATCH_CRITERIA).matches.map(row => row.project.name);
-  assert.ok(named().includes("Yas Park Views"));
+  assert.equal(properties.answer(YAS_MATCH_CRITERIA).matchCount, 1);
 
-  await store.updateProjectPrice("Yas Park Views", 3_500_000);
-  assert.equal(store.findProject("Yas Park Views").startingPriceAed, 3_500_000);
-  assert.equal(named().includes("Yas Park Views"), false);
+  await store.updateUnitPrice("Yas Park Views", 3, 3_500_000);
+  const after = properties.answer(YAS_MATCH_CRITERIA);
+  assert.equal(store.findUnit({ projectName: "Yas Park Views", bedrooms: 3 }).startingPriceAed, 3_500_000);
+  assert.equal(after.matchCount, 0);
 
-  await store.updateProjectPrice("Yas Park Views", 1_400_000);
-  assert.ok(named().includes("Yas Park Views"));
+  await store.updateUnitPrice("Yas Park Views", 3, 2_600_000);
+  assert.equal(properties.answer(YAS_MATCH_CRITERIA).matchCount, 1);
 });
 
 test("step 7d inactive Airtable project stays out of matches", async () => {
@@ -79,7 +99,7 @@ test("step 7d inactive Airtable project stays out of matches", async () => {
   assert.equal(result.matches.some((row) => row.project.name === "Old Yas Towers"), false);
 });
 
-test("step 7e a project without a published price is never priced", async () => {
+test("step 7e missing Airtable price is null and not filled in", async () => {
   const { store } = await createSeededAirtableStore();
   const properties = new PropertyService(store);
   const result = properties.match({
@@ -88,8 +108,10 @@ test("step 7e a project without a published price is never priced", async () => 
     bedrooms: 3,
     developer: "Aldar"
   });
-  assert.equal(result.matches.some((row) => row.project.name === "Yas Waterfront Residences"), false);
-  assert.equal(properties.catalog().units.some((unit) => unit.projectId === store.findProject("Yas Waterfront Residences").id), false);
+  const missing = result.matches.find((row) => row.project.name === "Yas Waterfront Residences");
+  const pack = properties.factsFor({ matches: [missing] })[0];
+  assert.equal(pack.startingPriceAed.value, null);
+  assert.equal(pack.startingPriceAed.confirmed, false);
 });
 
 test("step 7h project listings fit bedroom ranges and property types", async () => {
