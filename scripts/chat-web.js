@@ -21,7 +21,8 @@ import { webhookResponse } from "../src/integrations/webhook-response.js";
 import { brokerProfileStatus } from "../src/conversation/broker-profile.js";
 import { loadServices } from "../src/conversation/services.js";
 import { buildDailyReport, formatDailyReport, reportDeliveryConfig, yesterdayInDubai, dubaiDay } from "../src/reporting/outcome-report.js";
-import { sendWhatsAppReport } from "../src/integrations/whatsapp.js";
+import { alertChannels, sendDailyReport } from "../src/integrations/alerts.js";
+import { emailConfigured } from "../src/integrations/email.js";
 
 loadEnv();
 
@@ -144,6 +145,10 @@ const server = http.createServer(async (req, res) => {
             process.env.WHATSAPP_ALERT_TO &&
             process.env.WHATSAPP_TEMPLATE_NAME
         ),
+        emailConfigured: emailConfigured(),
+        // Where broker alerts go; empty means alerts are recorded but not delivered.
+        alertChannels: alertChannels(),
+        dailyReport: (({ enabled, channel, hour }) => ({ enabled, channel, hour }))(reportDeliveryConfig()),
         // Which handoff details are set (values are not shown) and how many services are enabled.
         broker: brokerProfileStatus(),
         servicesEnabled: loadServices().length
@@ -394,7 +399,7 @@ server.listen(PORT, HOST, () => {
       const day = yesterdayInDubai();
       try {
         const report = buildDailyReport({ buyers: store.snapshot().buyers, callRequests: await orchestrator.callRequests.list(500), day });
-        await sendWhatsAppReport({ text: formatDailyReport(report), day, to: delivery.recipient, ledger: orchestrator.alerts });
+        await sendDailyReport({ text: formatDailyReport(report), day, delivery, ledger: orchestrator.alerts });
       } catch (error) {
         console.warn(`Daily report delivery failed: ${error.message}`);
       }

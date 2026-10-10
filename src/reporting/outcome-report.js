@@ -117,9 +117,15 @@ export async function loadReportInputs(rootDir) {
   return { buyers: await read("buyers.json"), callRequests: await read("call-requests.json") };
 }
 
-/** Automatic delivery stays off until both a recipient and an hour are configured. */
+/**
+ * Automatic delivery stays off until it is switched on and both a recipient and
+ * an hour are set. Email (Resend) is used when configured, else WhatsApp.
+ */
 export function reportDeliveryConfig(env = process.env) {
-  const hour = Number(env.REPORT_HOUR_DUBAI);
-  const enabled = env.REPORT_DELIVERY_ENABLED === "true" && Boolean(env.REPORT_RECIPIENT) && Number.isInteger(hour) && hour >= 0 && hour < 24;
-  return { enabled, recipient: env.REPORT_RECIPIENT || null, hour: Number.isInteger(hour) ? hour : null };
+  const hour = env.REPORT_HOUR_DUBAI === undefined || env.REPORT_HOUR_DUBAI === "" ? NaN : Number(env.REPORT_HOUR_DUBAI);
+  const emailTo = env.REPORT_EMAIL_TO || env.ALERT_EMAIL_TO || null;
+  const channel = env.RESEND_API_KEY && emailTo ? "email" : env.REPORT_RECIPIENT ? "whatsapp" : null;
+  const validHour = Number.isInteger(hour) && hour >= 0 && hour < 24;
+  return { enabled: env.REPORT_DELIVERY_ENABLED === "true" && Boolean(channel) && validHour, channel,
+    recipient: channel === "email" ? emailTo : env.REPORT_RECIPIENT || null, hour: validHour ? hour : null };
 }
