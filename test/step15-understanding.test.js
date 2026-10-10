@@ -20,7 +20,7 @@ test("step 15b around 2M remembers budget and explains the useful comparison ang
   const { engine } = await setupConversation();
   const result = await engine.handleMessage("ig_m2_u2", "around 2M");
   assert.equal(result.buyer.budgetAed, 2_000_000);
-  assert.match(result.reply, /compare current options by entry price, payment timing and handover/i);
+  assert.match(result.reply, /range to work with.*balanced shortlist, lower upfront cash/i);
   assert.equal(result.nextQuestion?.field, "investmentObjective");
   assert.ok(result.nextQuestion.choices.some(choice => choice.id === "you_choose" && choice.value === "UNDECIDED"));
   assert.doesNotMatch(result.reply, /What budget|Which area/i);

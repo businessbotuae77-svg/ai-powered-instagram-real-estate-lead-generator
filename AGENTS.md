@@ -6,6 +6,8 @@ Instructions for coding agents (Claude Code, Codex and others) working in this r
 
 An Instagram DM bot for Abu Dhabi off-plan property. A buyer messages the Instagram account; the bot qualifies them, recommends listings from an approved Airtable catalogue, answers questions, and hands high-intent buyers to the broker by WhatsApp alert. Claude writes the wording; **code owns every fact, number and permission**.
 
+**Production runs without a model (since 10 October 2026, to save credits).** `ANTHROPIC_API_KEY` is empty on Railway, so every reply comes from the deterministic templates (`replies.js`, `fact-answers.js`, `comparison-reply.js`, `localize.js`, `decision.js`). Improve wording there; `test/no-ai-replies.test.js` guards the common follow-ups.
+
 Live: Railway project `instagram-property-bot`, service `instagram-bot`, deploys `main` automatically. Merging a PR to `main` is a production deploy.
 
 ## Commands

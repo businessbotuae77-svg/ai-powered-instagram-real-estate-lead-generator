@@ -22,7 +22,7 @@ export function answerFactQuestion(message, packs = []) {
     if (seen.has(pack.projectId)) continue;
     seen.add(pack.projectId);
     const units = packs.filter(row => row.projectId === pack.projectId);
-    lines.push(["paymentPlan", "handover"].includes(topic) || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
+    lines.push(["paymentPlan", "handover", "rent"].includes(topic) || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
   }
   return {
     handled: true,
@@ -36,7 +36,8 @@ export function detectFactTopic(message) {
   if (/خطة السداد|خطة سداد|payment\s*plan|instal+ments?|80\s*\/\s*20|split/i.test(text)) return "paymentPlan";
   if (/تسليم|handover|completion|ready date/i.test(text)) return "handover";
   if (/سعر|السعر|تكلفة|price|cost|how much|starting/i.test(text)) return "price";
-  if (/دفعة أولى|الدفعة الأولى|initial|down\s*payment|booking\s*amount/i.test(text)) return "initial";
+  if (/دفعة أولى|الدفعة الأولى|initial|down\s*payment|booking\s*amount|deposit|upfront/i.test(text)) return "initial";
+  if (/إيجار|\brent|rental|yield/i.test(text)) return "rent";
   if (/متاح|متوفر|availab|sold out|units left|remaining/i.test(text)) return "availability";
   return null;
 }
@@ -83,8 +84,16 @@ function formatTopicLine(pack, topic) {
     return `${name}: payment plan details are not confirmed yet.`;
   }
   if (topic === "handover") {
-    if (pack.handover?.confirmed) return /ready/i.test(String(pack.handover.value)) ? `${name} is ready now.` : `${name} hands over in ${pack.handover.value}.`;
-    return `${name}: handover is not confirmed yet.`;
+    if (!pack.handover?.confirmed) return `${name}: handover is not confirmed yet.`;
+    if (/ready/i.test(String(pack.handover.value))) return `${name} is ready now.`;
+    // What the buyer pays at handover is the useful part of "what happens at handover".
+    const due = packPaymentStages(pack).find(stage => stage.key === "handover");
+    return due
+      ? `${name} hands over in ${pack.handover.value}. At handover you pay the final ${due.percent}%, AED ${due.amountAed.toLocaleString("en-US")} on the ${pack.startingPriceText.value} starting price, and get the keys.`
+      : `${name} hands over in ${pack.handover.value}.`;
+  }
+  if (topic === "rent") {
+    return `I don't have confirmed rent figures for ${name}, so I won't guess a yield. Our team can pull recent rents for similar homes nearby if that would help.`;
   }
   if (topic === "price") {
     if (pack.startingPriceText?.confirmed) return `${name}${unit ? ` ${unit}` : ""} starts from ${pack.startingPriceText.value}.`;

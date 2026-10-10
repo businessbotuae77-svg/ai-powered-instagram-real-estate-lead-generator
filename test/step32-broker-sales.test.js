@@ -194,7 +194,7 @@ test("step 32n a relevant upgrade states its extra cost and benefit; no upgrade 
   const [, bigger] = await chat(engine, "upgrade", ["I'm buying to live in, budget 2.8M, Yas, 2 bedrooms", "anything bigger?"]);
   assert.match(bigger.reply, /One step up: Hudayriyat Shores/);
   assert.match(bigger.reply, /extra AED 500,000 in starting price moves you from 2 bedrooms to 3 bedrooms/);
-  assert.match(bigger.reply, /trade-off: outside your preferred area/);
+  assert.match(bigger.reply, /Keep in mind .*it's outside your preferred area/);
   const { engine: tight } = await setup({ services: [] });
   const [, none, , again] = await chat(tight, "no_upgrade", ["2 bed apartment in Yas, budget 2M", "Is there something bigger?", "I don't want to stretch", "anything bigger?"]);
   assert.match(none.reply, /don't have a larger option that fits your budget/);
@@ -226,8 +226,8 @@ test("step 32q a reason is explained without repeating the card or the same ques
   const { engine } = await setup({ services: [] });
   const [first, why] = await chat(engine, "why", ["I want to invest, budget 3M, rental income, open on area", "Why that one?"]);
   assert.equal(first.nextQuestion.field, "exitHorizon");
-  assert.match(why.reply, /^I lean towards Reem Gate because it is ready/);
-  assert.match(why.reply, /rental figures still need checking/);
+  assert.match(why.reply, /^I lean towards Reem Gate because it's ready/);
+  assert.match(why.reply, /check current rents/);
   assert.doesNotMatch(why.reply, /sqft|exiting around handover/);
 });
 

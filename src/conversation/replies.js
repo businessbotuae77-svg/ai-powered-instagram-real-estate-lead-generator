@@ -477,7 +477,7 @@ function finish(lines, stage, nextQuestion, pendingOffer, callRequest = null) {
 
 export function fallbackSafeText(packs) {
   if (!packs.length) {
-    return "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
+    return "I'd rather not guess on that one. Tell me a rough budget, an area or a project name, and I'll show you what I can confirm.";
   }
   const commercialProjectIds = new Set(packs.filter(pack => !pack.knowledgeOnly && pack.unitId).map(pack => pack.projectId));
   const seenCommercial = new Set();
@@ -499,11 +499,11 @@ export function fallbackSafeText(packs) {
     const price = pack.startingPriceText?.confirmed ? `, from ${pack.startingPriceText.value}` : "";
     return `${name}${area}${price}.`;
   });
-  const lines = ["Here's what I can confirm from the information available:", ...projectRows, ...listingRows];
+  const lines = [listingRows.length ? "Here's what I can confirm right now:" : "Here's what I can tell you so far:", ...projectRows, ...listingRows];
   if (!commercial.length && projectRows.length) {
-    lines.push("I don't have confirmed unit prices, availability, payment terms or handover dates in this project information; those need a current check.");
+    lines.push("Prices, payment terms and handover for these still need checking with the developer, so I won't quote them yet.");
   } else if (commercial.length) {
-    lines.push("I can check the payment plan, handover or availability for these listings.");
+    lines.push("Want the payment plan, handover or availability for any of these?");
   }
   return lines.join("\n");
 }
@@ -608,7 +608,7 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   const raised = turnObjections.find(category => OBJECTION_LEADS[category]);
   if (raised) lines.push(objectionLead(raised, message));
   const reason = raised === "too_expensive" && primary.priceDifferenceAed < 0 ? "it keeps the entry price lower"
-    : raised === "initial_payment_too_high" && primary.cashDifferenceAed < 0 ? "its documented initial payment is lower"
+    : raised === "initial_payment_too_high" && primary.cashDifferenceAed < 0 ? "it needs less cash upfront"
       : primaryReason(primary.reasonCodes, buyer, primaryPack);
   const challenger = advisor.challenger;
   if (!raised && strategy.type === "recommend" && WHY_QUESTION.test(message)) {
@@ -651,7 +651,7 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   if (advisor.upgradeAssessment?.reasonCodes?.includes("no_material_buyer_benefit_for_extra_price") &&
       (/\b(upgrade|extra|more expensive|worth|better)\b/i.test(message) || !buyer.shownProjects?.includes(primary.projectId))) {
     const assessment = advisor.upgradeAssessment.opportunities?.find(o => o.priceDifferenceAed > 0);
-    lines.push(assessment ? `There is a pricier option at AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} more, but I would not pay the extra without a material benefit for your priorities.` : "I would not pay extra here without a material benefit for your priorities.");
+    lines.push(assessment ? `There's also a pricier option at AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} more, but for what you've told me it doesn't give you enough extra to be worth it.` : "Paying more here wouldn't get you anything that matters for what you've told me.");
   }
   // An unanswered strategy question is not asked again; the buyer can raise it.
   const horizon = buyer.useType === "investment" && lastAskedField !== "exitHorizon" && !askedFields.has("exitHorizon") ? exitQuestion(buyer) : null;
@@ -664,7 +664,7 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
     return { ...result, text: `${result.text}\n${horizon.prompt}`, nextQuestion: horizon, allowsServiceSuggestion };
   }
   const prompt = strategy.lowPressure || isFlexiblePreference(buyer, "advisoryNextAction") ? null
-    : challenger ? "Want me to compare these side by side, or focus on the cash each needs before handover?" : "Want me to break down the payment terms?";
+    : challenger ? "Want me to put these side by side, or show the cash each one needs before handover?" : "Want me to break down the payments for you?";
   return { ...advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt), allowsServiceSuggestion };
 }
 
@@ -715,8 +715,8 @@ function advisorDraft(text, advisor, action, prompt, packs = advisor.packs) {
 }
 
 function primaryReason(codes = [], buyer, pack) {
-  if (codes.includes("lower_initial_commitment_priority")) return "the documented initial payment better fits your cash priority";
-  if (codes.includes("ready_income_route")) return "it is ready, which suits your preference for a rental-income route; rental figures still need checking";
+  if (codes.includes("lower_initial_commitment_priority")) return "it needs the least cash upfront";
+  if (codes.includes("ready_income_route")) return "it's ready now, so it can be rented out straight away (I'd still check current rents before buying)";
   if (codes.includes("ready_move_in_route")) return "its ready status suits your move-in priority";
   if (codes.includes("more_space_priority")) return "it gives your family more space";
   if (codes.includes("off_plan_growth_route")) return "it is off-plan with a developer payment plan, so you buy at today's entry and spread payments to handover";
@@ -736,7 +736,7 @@ function opportunityBenefit(opportunity) {
   const size = benefits.find(b => b.code === "larger_supported_size_range");
   const price = opportunity.priceDifferenceAed;
   const material = beds ? `moves you from ${beds.from} bedroom${beds.from === 1 ? "" : "s"} to ${beds.to} bedrooms`
-    : cash ? `reduces the documented initial commitment by AED ${Math.abs(opportunity.cashDifferenceAed).toLocaleString("en-US")}`
+    : cash ? `needs AED ${Math.abs(opportunity.cashDifferenceAed).toLocaleString("en-US")} less upfront`
       : size ? `gives you a larger documented size range` : benefits.some(b => b.code === "documented_developer_plan") ? "adds a documented developer payment plan"
         : benefits.some(b => b.code === "earlier_handover") ? "brings the documented handover earlier"
           : benefits.some(b => b.code === "later_handover") ? "moves the documented handover later to suit your timing"
@@ -745,31 +745,53 @@ function opportunityBenefit(opportunity) {
                 : benefits.some(b => b.code === "fewer_bedrooms_as_requested" || b.code === "smaller_supported_size_range") ? "offers a smaller home to address your size concern"
                   : benefits.some(b => b.code === "different_developer_as_requested") ? "offers a different developer to address your concern" : null;
   if (price > 0 && material) return `The extra AED ${price.toLocaleString("en-US")} in starting price ${material}.`;
-  if (cash && material) return `This alternative ${material}.`;
-  if (price < 0) return `Its starting price is AED ${Math.abs(price).toLocaleString("en-US")} lower.`;
-  return material ? `This alternative ${material}.` : null;
+  if (cash && material) return `It ${material}.`;
+  if (price < 0) return `It starts AED ${Math.abs(price).toLocaleString("en-US")} lower.`;
+  return material ? `It ${material}.` : null;
 }
 
 function opportunityTradeoffs(opportunity, buyer) {
   const bits = [];
-  if (["within_stretch", "above_original_with_permission"].includes(opportunity.budgetStatus)) bits.push(`above your original AED ${Number(buyer.budgetAed).toLocaleString("en-US")} budget`);
+  if (["within_stretch", "above_original_with_permission"].includes(opportunity.budgetStatus)) bits.push(`it's above your original AED ${Number(buyer.budgetAed).toLocaleString("en-US")} budget`);
   if (opportunity.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) {
     bits.push(buyer.preferredAreas?.length && !isFlexiblePreference(buyer, "preferredAreas")
-      ? `outside your preferred area; ${buyer.preferredAreas.join(" or ")} remains the priority`
-      : "a different area from the primary");
+      ? `it's outside your preferred area (${buyer.preferredAreas.join(" or ")} stays the priority)`
+      : "it's in a different area");
   }
-  if (opportunity.cashDifferenceAed > 0) bits.push(`AED ${opportunity.cashDifferenceAed.toLocaleString("en-US")} more in documented initial payment`);
-  if (opportunity.tradeoffs.some(t => t.code === "different_bedroom_count") && buyer.bedrooms?.length && !isFlexiblePreference(buyer, "bedrooms") && !opportunity.buyerBenefit.some(b => b.code === "additional_bedroom")) bits.push("a different bedroom count");
-  if (opportunity.tradeoffs.some(t => t.code === "different_property_type")) bits.push("a different property type");
-  if (opportunity.tradeoffs.some(t => t.code === "different_handover")) bits.push("a different handover date");
-  return bits.length ? `The trade-off: ${bits.join("; ")}.` : null;
+  if (opportunity.cashDifferenceAed > 0) bits.push(`it needs AED ${opportunity.cashDifferenceAed.toLocaleString("en-US")} more upfront`);
+  if (opportunity.tradeoffs.some(t => t.code === "different_bedroom_count") && buyer.bedrooms?.length && !isFlexiblePreference(buyer, "bedrooms") && !opportunity.buyerBenefit.some(b => b.code === "additional_bedroom")) bits.push("the bedroom count differs from what you asked for");
+  if (opportunity.tradeoffs.some(t => t.code === "different_property_type")) bits.push("it's a different type of home");
+  if (opportunity.tradeoffs.some(t => t.code === "different_handover")) bits.push("the handover date is different");
+  if (!bits.length) return null;
+  const last = bits.pop();
+  return `Keep in mind ${bits.length ? `${bits.join(", ")} and ${last}` : last}.`;
+}
+
+function arabicBedrooms(count) {
+  if (count === 0) return "استوديو";
+  if (count === 1) return "غرفة نوم واحدة";
+  if (count === 2) return "غرفتا نوم";
+  return Number.isFinite(Number(count)) ? `${count} غرف نوم` : null;
+}
+
+// Keep the split ("70/30") and drop English notes the buyer did not write.
+function arabicPlan(summary) {
+  const split = String(summary).match(/\b\d{1,2}\s*\/\s*\d{1,2}\b/)?.[0];
+  return split ? split.replace(/\s/g, "") : String(summary);
 }
 
 function buildArabicAdvisorReply({ buyer, advisor, strategy, message }) {
   if (strategy.type === "no_push") return { text: "خذ وقتك. يمكننا المتابعة عندما تكون مستعداً.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null };
   if (!advisor.primary) return null;
   const pack = advisor.packs.find(p => p.projectId === advisor.primary.projectId && p.unitId === advisor.primary.unitId);
-  const card = p => `${p.name.value} — ${p.area.value}؛ ${p.projectLevel ? p.bedroomLabel.value || "" : `${p.bedrooms.value} غرف نوم`}؛ السعر يبدأ من ${p.startingPriceText.value}؛ الدفعة الأولى ${p.downPaymentText.value || "تحتاج تحققاً"}؛ خطة السداد ${p.paymentPlanSummary.value || "تحتاج تحققاً"}؛ التسليم ${p.handover.value || "يحتاج تحققاً"}.`;
+  const card = p => [
+    `${p.name.value} — ${p.area.value}`,
+    p.projectLevel ? p.bedroomLabel.value : arabicBedrooms(p.bedrooms.value),
+    `السعر يبدأ من ${p.startingPriceText.value}`,
+    p.downPaymentText.value ? `الدفعة الأولى ${p.downPaymentText.value}` : null,
+    p.paymentPlanSummary.value ? `خطة السداد ${arabicPlan(p.paymentPlanSummary.value)}` : null,
+    p.handover.value ? `التسليم ${p.handover.value}` : null
+  ].filter(Boolean).join("؛ ") + ".";
   if (strategy.type === "answer_action") {
     const text = strategy.nextAction === "compare" ? advisor.matches.map(m => card(m.factPack)).join("\n")
       : strategy.nextAction === "availability" ? `${pack.name.value}: التوفر ${pack.availability.value || "يحتاج تحققاً حديثاً"}.`
@@ -787,7 +809,7 @@ function buildArabicAdvisorReply({ buyer, advisor, strategy, message }) {
     lines.push(`الخيار البديل: ${card(other)}`);
     if (challenger.priceDifferenceAed > 0) lines.push(`فرق سعر البداية AED ${challenger.priceDifferenceAed.toLocaleString("en-US")}.`);
     const beds = challenger.buyerBenefit.find(b => b.code === "additional_bedroom");
-    if (beds) lines.push(`تحصل على ${beds.to} غرف نوم بدلاً من ${beds.from}.`);
+    if (beds) lines.push(`تحصل على ${arabicBedrooms(beds.to)} بدلاً من ${arabicBedrooms(beds.from)}.`);
     if (challenger.cashDifferenceAed < 0) lines.push(`تنخفض الدفعة الأولى بمقدار AED ${Math.abs(challenger.cashDifferenceAed).toLocaleString("en-US")}.`);
     if (challenger.cashDifferenceAed > 0) lines.push(`تزداد الدفعة الأولى بمقدار AED ${challenger.cashDifferenceAed.toLocaleString("en-US")}.`);
     if (challenger.budgetStatus === "above_original_with_permission") lines.push(`هذا أعلى من ميزانيتك الأصلية AED ${buyer.budgetAed.toLocaleString("en-US")}.`);
