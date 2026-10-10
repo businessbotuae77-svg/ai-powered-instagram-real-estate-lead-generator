@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { setupConversation } from "./helpers.js";
 import { extractFactsFromMessage } from "../src/conversation/extract.js";
-import { systemText } from "../src/conversation/model-request.js";
 
 const offline = { useLlm: false };
 const inventedContext = /confirmed option.*(?:fits|details)|for that property|which project|what project|which details|approved evidence|approved matrix/i;
@@ -97,31 +96,6 @@ test("general property-investment education works without prior inventory or qua
   }
 });
 
-test("model ask_facts misclassification cannot replace broad investment education with missing-property copy", async () => {
-  const services = await setupConversation();
-  await services.buyers.patchBuyer("model-explorer", { noCalls: true, preferredContactChannel: "instagram" });
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
-    const payload = JSON.parse(options.body);
-    const result = systemText(payload.system).includes("extract structured buyer requirements")
-      ? { facts: {}, intents: ["ask_facts"], signals: [] }
-      : { message: "I don't have current confirmed terms for that property yet. Which project are you asking about?",
-        askedQuestion: true, questionField: "comparisonProjects", claims: [], proposedActions: [] };
-    return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(result) }] }) };
-  };
-  services.engine.llm = { apiKey: "synthetic-test-key", baseUrl: "https://synthetic.test" };
-  try {
-    const result = await services.engine.handleMessage("model-explorer", "How do I make money");
-    coherent(result);
-    assert.match(result.reply, /rent|income/i);
-    assert.match(result.reply, /growth|resale|appreciation|sell|value/i);
-    assert.equal(result.buyer.noCalls, true);
-    assert.equal(result.buyer.preferredContactChannel, "instagram");
-    assert.equal(result.buyer.projectInterest, null);
-    assert.equal(result.polished, false);
-  } finally { globalThis.fetch = originalFetch; }
-});
-
 test("fresh-search reset preserves stored contact permissions and contact identity", async () => {
   const { engine, buyers } = await previousSearch();
   await buyers.patchBuyer("screenshot", { preferredContactChannel: "whatsapp", noCalls: true,
@@ -137,41 +111,6 @@ test("fresh-search reset preserves stored contact permissions and contact identi
   assert.equal(result.callRequest, null);
   assert.equal(result.pendingOffer, null);
   assert.doesNotMatch(result.reply, /number|call you|follow.up request/i);
-});
-
-test("reset model context cannot resurrect the previous search on Fresh or the next educational turn", async () => {
-  const services = await previousSearch();
-  const requests = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
-    const payload = JSON.parse(options.body);
-    const input = JSON.parse(payload.messages[0].content);
-    requests.push(input);
-    const isUnderstanding = systemText(payload.system).includes("extract structured buyer requirements");
-    const result = isUnderstanding ? { facts: {}, intents: [], signals: [] }
-      : { message: input.draftReply ?? input.fallbackDraft, askedQuestion: Boolean(input.requiredQuestion),
-        questionField: input.requiredQuestion?.field || null, claims: [], proposedActions: [] };
-    return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(result) }] }) };
-  };
-  services.engine.llm = { apiKey: "synthetic-test-key", baseUrl: "https://synthetic.test" };
-  try {
-    const fresh = await services.engine.handleMessage("screenshot", "Fresh");
-    coherent(fresh);
-    assert.equal(fresh.buyer.budgetAed, null);
-    const education = await services.engine.handleMessage("screenshot", "How do I make money");
-    coherent(education);
-    assert.equal(education.buyer.budgetAed, null);
-    assert.equal(education.buyer.projectInterest, null);
-    assert.ok(requests.length > 0, "The test must inspect at least one model payload");
-    for (const input of requests) {
-      // Broker payloads omit empty fields; either way the old search must be gone.
-      assert.equal(input.buyer.budgetAed ?? null, null);
-      assert.deepEqual(input.buyer.preferredAreas ?? [], []);
-      assert.doesNotMatch(JSON.stringify(input.recentTurns || input.conversation || []), /2M|Yas|1 bedroom|1,200,000/i);
-      assert.equal(input.buyer.noCalls, true);
-      assert.equal(input.buyer.preferredContactChannel, "instagram");
-    }
-  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("general investment education remembers an existing budget while leaving the area open", async () => {
@@ -256,29 +195,4 @@ test("How much can I make is investment education rather than the selected unit'
   assert.equal(result.buyer.activeRecommendationProjectId, before.activeRecommendationProjectId);
   assert.equal(result.buyer.activeRecommendationUnitId, before.activeRecommendationUnitId);
   assert.equal(result.matches.length, 0);
-});
-
-test("model understanding cannot turn a project name into new bedroom or type requirements", async () => {
-  const { engine } = await setupConversation();
-  const before = await engine.handleMessage("model-price", "2M Yas 1 bedroom apartment", offline);
-  const selectedPack = before.packs.find(p => p.unitId === before.buyer.activeRecommendationUnitId);
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => {
-    const payload = JSON.parse(options.body);
-    const data = systemText(payload.system).includes("extract structured buyer requirements")
-      ? { facts: { project: selectedPack.name.value, bedrooms: 0, propertyType: "studio" }, intents: ["ask_facts"], signals: [] }
-      : { message: "Malformed composition", askedQuestion: false, questionField: null };
-    return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(data) }] }) };
-  };
-  engine.llm = { apiKey: "synthetic-test-key", baseUrl: "https://synthetic.test" };
-  try {
-    const result = await engine.handleMessage("model-price", `What is the price of ${selectedPack.name.value}?`);
-    assert.equal(result.check.ok, true);
-    assert.deepEqual(result.buyer.bedrooms, [1]);
-    assert.deepEqual(result.buyer.propertyTypes, ["apartment"]);
-    assert.equal(result.packs[0].unitId, selectedPack.unitId);
-    assert.ok(result.reply.includes(selectedPack.startingPriceText.value), result.reply);
-    assert.equal(result.buyer.noCalls, before.buyer.noCalls);
-    assert.equal(result.alertRecommended, false);
-  } finally { globalThis.fetch = originalFetch; }
 });

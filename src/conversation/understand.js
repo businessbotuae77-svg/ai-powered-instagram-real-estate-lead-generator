@@ -1,9 +1,6 @@
-import { CONVERSATION_POLICY } from "./policy.js";
-import { recordModelException, recordModelHttpError, recordModelOutcome, recordModelUsage } from "./model-runtime.js";
-import { cachedSystem, DEFAULT_MODEL, thinkingOff } from "./model-request.js";
 import { normalizeBuyerText } from "./text.js";
 /**
- * Claude (or local) understanding → structured buyer updates.
+ * Local understanding → structured buyer updates.
  * Matching, memory persistence, and commercial facts stay in code / Airtable.
  */
 
@@ -12,120 +9,8 @@ import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { ADVISORY_FACT_FIELDS, parseAdvisoryFacts, normalizeAdvisoryFacts } from "./advisory-memory.js";
 import { canonicalQuestionField, isPropertyFactUncertainty, parseFlexiblePreferences } from "./preference-state.js";
 
-const UNDERSTAND_SYSTEM = [CONVERSATION_POLICY,
-  "You extract structured buyer requirements from Abu Dhabi off-plan property chat.",
-  "Return ONLY valid JSON with this shape:",
-  '{"facts":{"budget":number|null,"cash":number|null,"area":string|null,"areas":string[]|null,"bedrooms":number|number[]|null,"propertyType":string|null,"developer":string|null,"project":string|null,"financing":"cash"|"mortgage"|"payment_plan"|null,"useType":"investment"|"end_use"|null,"investmentObjective":"rental_income"|"growth"|"balanced"|null,"investmentGoal":"total_return"|"capital_appreciation"|"income"|"balanced"|null,"investmentStrategy":"OFF_PLAN_APPRECIATION"|"HANDOVER_EXIT"|"LONG_TERM_HOLD"|"INCOME_AFTER_HANDOVER"|"READY_INCOME"|"BALANCED"|"UNDECIDED"|null,"exitHorizon":"before_handover"|"handover"|"long_term"|null,"holdingPeriod":number|null,"incomeRequirement":"immediate"|"after_handover"|"none"|"flexible"|null,"growthPriority":"high"|"medium"|"low"|null,"liquidityPriority":"high"|"medium"|"low"|null,"riskTolerance":"low"|"medium"|"high"|null,"cashDeploymentPreference":"lower_initial"|"lower_construction"|"minimize_total_price"|"balanced"|null,"handoverStrategy":"sell"|"hold"|"rent"|null,"explorationState":boolean|null,"areaFlexibility":"open"|"preferred"|"fixed"|null,"propertyTypeFlexibility":boolean|null,"priorities":string[],"objections":[{"category":string}],"contactDeclined":boolean|null,"openToOtherAreas":boolean|null},"unsure":string[],"intents":string[],"signals":string[],"ack":string|null}',
-  "Rules:",
-  "- Convert money to AED numbers. around/about/roughly 2M → 2000000. 300k → 300000. no more than 150k down → cash 150000.",
-  "- bedrooms studio → 0. Corrections like actually make that 2 bedrooms replace bedrooms.",
-  "- If buyer says 1 or 2 bed / 1 or 2 bedrooms, set bedrooms to [1,2].",
-  "- Extract any clearly named Abu Dhabi area, including Yas Island, Saadiyat Island, Hudayriyat Island, Ramhan Island, Fahid Island, Al Reem Island, Masdar City, Al Raha Beach, Al Maryah Island, Khalifa City, and Al Reef.",
-  "- Canonicalize Masdar as Masdar City. If buyer says what about Masdar, forget Yas, or switch to Reem, set area to the newly requested area only.",
-  "- If buyer says not sure / unsure / idk / I don't know / you choose / best option / no preference about a field, put that semantic field name in unsure (budget, cash, area, bedrooms, propertyType, financing, investmentObjective, exitHorizon, riskTolerance, cashDeploymentPreference) and leave facts for that field null. Treat uncertainty as flexible/advisor-led, never ask the same conceptual question again or invent a preference.",
-  "- If the buyer does not know the area, also set openToOtherAreas true so the conversation moves forward across Abu Dhabi instead of asking area again.",
-  "- Best ROI is umbrella total_return intent; capital appreciation and rental income are return drivers, not opposites to ROI. Do not pick a return driver or strategy from ROI alone. Never clear a known budget or choose an area on the buyer's behalf.",
-  "- Extract volunteered investmentGoal, investmentStrategy, exitHorizon, incomeRequirement, growthPriority, liquidityPriority, riskTolerance, cashDeploymentPreference, handoverStrategy only when explicit. Short 'handover' after an exit question means handover exit; a project handover question does not. 'Hold 5 years' is a holding period, never a reservation request. A forecast question is not a preference.",
-  "- 'I do not care about Yas anymore' removes that preference; do not set Yas as the requested area. Explicit 'only Yas' makes area fixed.",
-  "- Exploring is a valid state. Set explorationState true; do not turn it into a home/investment objective without an explicit buyer preference.",
-  "- holdingPeriod is years, only if buyer supplies it. Objections are buyer concerns, not permission to invent listing facts or contact consent.",
-  "- If open to other areas while preferring one, set area plus openToOtherAreas true.",
-  "- intents may include greet, unsure, search, correction, decline_contact, high_intent, reserve, viewing, ask_facts, continue, start_fresh.",
-  "- ack is one short natural sentence acknowledging the update with NO prices, projects, or commercial claims. null if nothing useful.",
-  "- Never invent listing prices, payment plans, handover dates, or availability."
-].join(" ");
-
 /**
- * Ask Claude for structured understanding of one buyer message.
- */
-export async function understandMessageWithModel(client, { message, buyer, lastAskedField = null, recentTurns = [] }) {
-  if (!client?.apiKey) return null;
-
-  const user = JSON.stringify({
-    message,
-    lastAskedField,
-    buyer: {
-      language: buyer?.language,
-      preferredContactChannel: buyer?.preferredContactChannel,
-      noCalls: buyer?.noCalls,
-      salesPathStopped: buyer?.salesPathStopped,
-      budgetAed: buyer?.budgetAed ?? null,
-      budgetHardCap: buyer?.budgetHardCap !== false,
-      budgetFirm: buyer?.budgetFirm || false,
-      budgetFlexible: buyer?.budgetFlexible || false,
-      cashAvailableAed: buyer?.cashAvailableAed ?? null,
-      preferredAreas: buyer?.preferredAreas || [],
-      bedrooms: buyer?.bedrooms || [],
-      financing: buyer?.financing || null,
-      useType: buyer?.useType || null,
-      investmentObjective: buyer?.investmentObjective || null,
-      investmentGoal: buyer?.investmentGoal || null,
-      investmentStrategy: buyer?.investmentStrategy || "UNDECIDED",
-      preferenceStates: buyer?.preferenceStates || {},
-      investmentPreferenceState: buyer?.investmentPreferenceState || null,
-      advisorLed: buyer?.advisorLed === true,
-      exitHorizon: buyer?.exitHorizon || null,
-      holdingPeriod: buyer?.holdingPeriod || null,
-      incomeRequirement: buyer?.incomeRequirement || null,
-      growthPriority: buyer?.growthPriority || null,
-      liquidityPriority: buyer?.liquidityPriority || null,
-      riskTolerance: buyer?.riskTolerance || null,
-      cashDeploymentPreference: buyer?.cashDeploymentPreference || null,
-      handoverStrategy: buyer?.handoverStrategy || null,
-      priorities: buyer?.priorities || [],
-      concerns: buyer?.concerns || [],
-      projectInterest: buyer?.projectInterest || null
-    },
-    recentTurns: recentTurns.slice(-6).map((t) => ({ role: t.role, text: t.text }))
-  });
-
-  // Clients from createAnthropicClient carry a cheaper understanding model.
-  const model = client.understandingModel || client.model || DEFAULT_MODEL;
-  const startedAt = Date.now();
-  try {
-    const response = await (client.fetchImpl || fetch)(`${client.baseUrl}/v1/messages`, {
-      method: "POST",
-      signal: AbortSignal.timeout(15000),
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": client.apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 500,
-        ...thinkingOff(model),
-        system: cachedSystem(UNDERSTAND_SYSTEM),
-        messages: [{ role: "user", content: user }]
-      })
-    });
-    if (!response.ok) {
-      await recordModelHttpError(client, "understanding", response);
-      return null;
-    }
-    const data = await response.json();
-    recordModelUsage(client, "understanding", { model, startedAt, usage: data.usage });
-    const text = (data.content || [])
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-      .trim();
-    const parsed = parseJsonObject(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
-        !parsed.facts || typeof parsed.facts !== "object" || Array.isArray(parsed.facts)) {
-      recordModelOutcome(client, "understanding", { category: "invalid_response_shape" });
-      return null;
-    }
-    recordModelOutcome(client, "understanding");
-    return normalizeUnderstanding(parsed, "claude");
-  } catch (error) {
-    recordModelException(client, "understanding", error);
-    return null;
-  }
-}
-
-/**
- * Local heuristics for imperfect phrasing when Claude is offline (tests / fallback).
+ * Local heuristics for imperfect phrasing.
  */
 export function understandMessageLocally(message, { buyer = null, lastAskedField = null } = {}) {
   const text = normalizeBuyerText(message).trim();

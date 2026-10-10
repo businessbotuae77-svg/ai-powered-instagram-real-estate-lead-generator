@@ -25,9 +25,7 @@ export {
 } from "./conversation/qualify.js";
 export { ConversationMemory } from "./conversation/memory.js";
 export { ConversationEngine, createConversationEngine } from "./conversation/engine.js";
-export { createAnthropicClient, polishReplyWithModel } from "./conversation/llm.js";
 export {
-  understandMessageWithModel,
   understandMessageLocally,
   mergeUnderstanding
 } from "./conversation/understand.js";

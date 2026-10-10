@@ -8,7 +8,6 @@ import { compareProperties } from "../src/conversation/comparison.js";
 import { buildAdvisorOpportunities } from "../src/conversation/advisor-opportunities.js";
 import { buildFactPack } from "../src/facts/retrieval.js";
 import { normalizePriceHistory, normalizeMarketSnapshot } from "../src/facts/intelligence.js";
-import { composeReplyWithModel } from "../src/conversation/llm.js";
 
 // Fictional evidence throughout: no production inventory or network is used.
 const NOW = Date.now();
@@ -389,38 +388,3 @@ test("elite 29: high intent moves to availability or permitted transaction prepa
   assert.doesNotMatch(result.reply, /reservation confirmed|reserved for you|EOI (?:is |was )?submitted/i);
   safe(result);
 });
-
-test("elite 30: an invented model feature is rejected and the deterministic response survives", async t => {
-  const { engine } = await setup([option("safe")]);
-  const transport = async (_url, request) => {
-    const payload = JSON.parse(JSON.parse(request.body).messages[0].content);
-    const answer = payload.draftReply === undefined ? { facts: {}, unsure: [], intents: [], signals: [], ack: null } : {
-      message: "Fixture safe has a private beach. Want me to explain the payment terms?", askedQuestion: true, questionField: payload.requiredQuestion?.field,
-      claims: [{ text: "Fixture safe", projectId: "safe", unitId: "safe-unit", field: "name", value: "Fixture safe" }], proposedActions: []
-    };
-    return { ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(answer) }] }) };
-  };
-  t.mock.method(globalThis, "fetch", transport);
-  engine.llm = { apiKey: "synthetic", model: "synthetic", baseUrl: "https://synthetic.example.test", fetchImpl: transport };
-  const result = await engine.handleMessage("elite-30", "2M Yas 1 bedroom apartment");
-  assert.equal(result.polished, false);
-  assert.doesNotMatch(result.reply, /private beach/i);
-  assert.match(result.reply, /Fixture safe/);
-  safe(result);
-});
-
-for (const [category, message] of [
-  ["price", "Fixture safe starts at AED 1,234,567."], ["appreciation", "Fixture safe will appreciate 20%."],
-  ["availability", "Fixture safe is sold out."], ["payment plan", "Fixture safe has a 10/90 payment plan."],
-  ["catalyst", "Fixture safe is beside a new metro station."], ["resale demand", "Fixture safe has strong resale demand."],
-  ["scarcity", "Fixture safe is selling fast."], ["call consent", "You have agreed to a call, so I will call you."],
-  ["budget flexibility", "Your budget is flexible, so you can stretch."], ["completed EOI", "Your EOI has been submitted."]
-]) {
-  test(`elite adversarial: model cannot invent ${category}`, async () => {
-    const row = option("safe"), pack = row.factPack;
-    const response = { message, askedQuestion: false, questionField: null, proposedActions: [], claims: message.includes("Fixture safe")
-      ? [{ text: "Fixture safe", projectId: "safe", unitId: "safe-unit", field: "name", value: "Fixture safe" }] : [] };
-    const client = { apiKey: "synthetic", model: "synthetic", baseUrl: "https://synthetic.example.test", fetchImpl: async () => ({ ok: true, json: async () => ({ content: [{ type: "text", text: JSON.stringify(response) }] }) }) };
-    assert.equal(await composeReplyWithModel(client, { buyer: { budgetAed: 2_000_000, budgetHardCap: true, budgetFlexible: false, noCalls: true }, packs: [pack], forbiddenActions: ["call"] }), null);
-  });
-}
