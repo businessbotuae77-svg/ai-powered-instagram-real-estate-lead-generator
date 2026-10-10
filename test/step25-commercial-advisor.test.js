@@ -213,7 +213,7 @@ test("the cheaper equally suitable option wins and the advisor says it would not
   const result = await engine.handleMessage("value", "2M, Yas, 2 bedroom apartment for my home", offline);
   assert.equal(result.advisor.primary.projectId, "test-cheaper");
   assert.match(result.reply, /prefer Test Better Value/);
-  assert.match(result.reply, /would not pay (?:the )?extra/i);
+  assert.match(result.reply, /doesn't give you enough extra to be worth it/i);
   assert.equal(result.advisor.challenger, null);
   assert.ok(result.advisor.upgradeAssessment.reasonCodes.includes("no_material_buyer_benefit_for_extra_price"));
   oneQuestion(result);

@@ -21,14 +21,15 @@ export function comparisonReply(comparison, { preferredName = null, language = "
   const la = sameName && space ? `the ${a} ${size(space.a)}` : a;
   const lb = sameName && space ? `the ${size(space.b)}` : b;
   const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
-  if (price) rows.push(`${cap(la)} starts at ${aed(price.a)} versus ${aed(price.b)} for ${lb}, a price difference of ${aed(Math.abs(price.delta))}.`);
-  if (cash && cash.delta) rows.push(`The initial payment is ${aed(cash.a)} versus ${aed(cash.b)}, a difference of ${aed(Math.abs(cash.delta))}.`);
+  // Lead with the difference the buyer feels most: the price gap, then cash upfront.
+  if (price) rows.push(`${cap(la)} starts at ${aed(price.a)} and ${lb} at ${aed(price.b)}, so ${price.a <= price.b ? la : lb} is ${aed(Math.abs(price.delta))} cheaper to get into.`);
+  if (cash && cash.delta) rows.push(`Upfront you'd pay ${aed(cash.a)} versus ${aed(cash.b)}, a difference of ${aed(Math.abs(cash.delta))}.`);
   if (space && !sameName) rows.push(`${a} is a ${size(space.a)} and ${b} a ${size(space.b)}.`);
-  if (date) rows.push(`Handover is ${date.a} versus ${date.b}.`);
+  if (date) rows.push(`${a} hands over ${date.a}, ${b} ${date.b}.`);
   const upgrade = comparison.upgradeAssessment;
-  if (upgrade?.worthPaying === false) rows.push(`I wouldn't pay the extra ${aed(upgrade.extraCostAed)} for your priorities without a supported benefit.`);
-  if (preferredName) rows.push(`For you, I'd start with ${preferredName}.`);
-  else if (comparison.buyerPreference) rows.push(`For your stated priorities, I prefer ${comparison.buyerPreference.name}.`);
-  else rows.push("I wouldn't choose a winner until the missing buyer-relevant differences are clear.");
+  if (upgrade?.worthPaying === false) rows.push(`For what you've told me, the extra ${aed(upgrade.extraCostAed)} doesn't buy you enough to be worth it.`);
+  if (preferredName) rows.push(`For you, I'd choose ${preferredName}.`);
+  else if (comparison.buyerPreference) rows.push(`For what matters to you, I prefer ${comparison.buyerPreference.name}.`);
+  else rows.push("Both can work; it comes down to which of these differences matters more to you.");
   return rows.join(" ");
 }

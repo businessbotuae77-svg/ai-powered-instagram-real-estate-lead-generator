@@ -203,7 +203,7 @@ test("Arabic advice keeps two displayed choices and discloses the exact upgrade 
   assert.match(result.reply, /Test Beta/);
   assert.doesNotMatch(result.reply, /Test Extra/);
   assert.match(result.reply, /100,000/);
-  assert.match(result.reply, /2 غرف نوم بدلاً من 1/);
+  assert.match(result.reply, /غرفتا نوم بدلاً من غرفة نوم واحدة/);
   assert.match(result.reply, /أعلى من ميزانيتك الأصلية/);
   assert.ok((result.reply.match(/[?؟]/g) || []).length <= 1);
 });

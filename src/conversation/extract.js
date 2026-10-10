@@ -183,6 +183,8 @@ export function detectIntents(message, { lastAskedField = null } = {}) {
   if (/\b(thank|thanks|thx)\b/i.test(text)) intents.push("thanks");
   if (
     /\b(price|cost|how much|starting from|handover|availability|sold out)\b/i.test(text) ||
+    /\b(initial payment|down ?payment|deposit|booking amount|upfront|instal+ments?)\b/i.test(text) ||
+    (/\b(rent|rental|yield)\b/i.test(text) && /\?|\b(what|how much|earn|expect)\b/i.test(text)) ||
     (/\bunits?\s+(left|remaining|available)\b/i.test(text)) ||
     (/\bpayment\s*plan\b/i.test(text) && /\b(what|what'?s|tell|explain|details|for this|on this)\b/i.test(text))
   ) {
@@ -317,7 +319,7 @@ function extractCash(text) {
   return null;
 }
 
-function extractArea(text) {
+export function extractArea(text) {
   if (/[\u0600-\u06ff]/.test(text)) {
     const named = matchAreaNames(AREA_IDENTITIES, text);
     const normalized = areaKey(text);

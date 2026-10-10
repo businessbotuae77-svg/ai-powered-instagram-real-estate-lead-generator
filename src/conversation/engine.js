@@ -729,15 +729,20 @@ export class ConversationEngine {
       const primaryId = draft.advisoryExposure?.primaryProjectId || advisor.primary?.projectId;
       const name = draft.advisoryExposure && primaryId ? (packs.find(p => p.projectId === primaryId)?.name?.value || catalog.projects.find(p => p.id === primaryId)?.name || null) : null;
       const ar = buyer.language === "ar";
+      const active = name || catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId)?.name || null;
+      // Point to something concrete the buyer can ask next, never an empty filler.
       const alternatives = [
-        ...(draft.advisoryExposure ? [ar ? "لا مشكلة. يبقى ترشيحي كما هو. عندما تكون مستعداً يمكنني شرح جدول السداد أو مقارنة الخيارين."
-          : `No problem. My recommendation stays ${name ? `with ${name}` : "the same"}. When you're ready, I can break down the payment schedule or compare the options side by side.`] : []),
-        ar ? "لا داعي للعجلة. اسألني عن أي شيء يخص عقارات أبوظبي متى كنت مستعداً." : "No rush. Ask me anything about Abu Dhabi property whenever you're ready."
+        ...(draft.advisoryExposure ? [ar ? "يبقى ترشيحي كما هو. عندما تكون مستعداً يمكنني شرح جدول السداد أو مقارنة الخيارين."
+          : `My pick stays ${name ? `with ${name}` : "the same"}. When you're ready, I can walk you through the payment schedule or put the options side by side.`] : []),
+        active
+          ? (ar ? `هل تريد معرفة المزيد عن ${active}؟ يمكنني شرح جدول السداد أو موعد التسليم أو مقارنته بمشروع آخر.`
+            : `Anything else you'd like to know about ${active}? I can go through the payment schedule, the handover, or how it compares with another project.`)
+          : (ar ? "أخبرني بميزانية تقريبية أو منطقة أو اسم مشروع، وسأبدأ من هناك." : "Tell me a rough budget, an area or a project name, and I'll take it from there.")
       ];
       // A pending offer or open question survives the rewording, so a later
-      // "yes" still has something to accept instead of meeting "No rush".
-      const leads = ar ? ["تمام.", "لا مشكلة، خذ وقتك."]
-        : draft.pendingOffer ? ["That's everything I have on that so far.", "No problem, take your time."] : ["Got it.", "No problem, take your time."];
+      // "yes" still has something to accept.
+      const leads = ar ? ["حتى أضيّق الخيارات لك:", "سؤال واحد يساعدني:"]
+        : draft.pendingOffer ? ["Happy to go further.", "Whenever you're ready."] : ["Just so I can narrow it down:", "One thing that would help me:"];
       const keepQuestions = draft.nextQuestion?.prompt && !buyer.salesPathStopped ? leads.map(lead => `${lead}\n${draft.nextQuestion.prompt}`) : [];
       const fresh = [...keepQuestions, ...alternatives].find(text => !recentReplies.includes(body(text)));
       if (fresh && keepQuestions.includes(fresh)) {

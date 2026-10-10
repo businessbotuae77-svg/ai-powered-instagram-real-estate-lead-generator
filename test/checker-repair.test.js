@@ -89,6 +89,6 @@ test("project-knowledge fallback does not imply a unit match or invent current c
     area: "Masdar City", emirate: "Abu Dhabi", source: "Example source", lastVerified: new Date().toISOString() });
   const fallback = fallbackSafeText([knowledgePack]);
   assert.match(fallback, /Masdar Grove by Example Developer in Masdar City/);
-  assert.match(fallback, /unit prices, availability, payment terms or handover dates/);
+  assert.match(fallback, /Prices, payment terms and handover for these still need checking/);
   assert.doesNotMatch(fallback, /option that fits|payment plan.*confirmed|handover is/i);
 });

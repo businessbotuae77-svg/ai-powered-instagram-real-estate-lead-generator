@@ -18,11 +18,21 @@ function record(area, overrides = {}) {
 
 test("the production-shaped Areas adapter publishes twelve guides while research remains pending", () => {
   const store = new AirtableStore({});
-  store.optionalState.areas = { records: raw.map(area => record(area)), status: "available" };
+  store.areaRecords = raw.map(area => record(area));
   const intelligence = store.listIntelligence();
   assert.equal(intelligence.areaGuide.length, 12);
   assert.ok(intelligence.areaGuide.every(area => area.detail && area.ar.detail && !area.disabled));
   assert.ok(intelligence.areas.every(area => !area.usable));
+});
+
+test("area research ships in data/areas.json and loads without an Airtable table", async () => {
+  const store = new AirtableStore({ AIRTABLE_API_KEY: "test", AIRTABLE_BASE_ID: "app-test", developers: [],
+    fetch: async () => ({ ok: true, json: async () => ({ records: [] }) }) });
+  await store.refreshCatalog(true);
+  assert.equal(store.optionalTables.areas, null);
+  const intelligence = store.listIntelligence();
+  assert.equal(intelligence.areas.length, 12);
+  assert.ok(intelligence.areaGuide.length > 0);
 });
 
 test("all twelve areas answer in both languages using the serving fields without a model", async () => {

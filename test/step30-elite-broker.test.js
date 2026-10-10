@@ -360,7 +360,7 @@ test("elite 27: the cheaper equally suitable option wins in actual broker copy",
   const result = await engine.handleMessage("elite-27", "2M Yas 1 bedroom apartment for my home", offline);
   assert.equal(result.advisor.primary.projectId, "cheaper");
   assert.match(result.reply, /prefer Fixture cheaper/);
-  assert.match(result.reply, /would not pay.*extra/i);
+  assert.match(result.reply, /not.*enough extra to be worth it|doesn't give you enough extra/i);
   safe(result);
 });
 

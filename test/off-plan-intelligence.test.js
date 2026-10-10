@@ -139,20 +139,20 @@ test("Absent optional tables leave legacy catalog operational and cache research
     fetch: async url => {
       const table = decodeURIComponent(new URL(url).pathname.split("/")[3]);
       counts.set(table, (counts.get(table) || 0) + 1);
-      const core = ["Developers", "Projects", "Units"].includes(table);
+      const core = ["Projects", "Units"].includes(table);
       return { ok: core, status: core ? 200 : 404, json: async () => core ? { records: [] } : { error: { type: "NOT_FOUND" } } };
     }
   });
   await store.refreshCatalog(true);
   assert.deepEqual(store.listProjects(), []);
   assert.deepEqual(store.listIntelligence().priceHistory, []);
-  assert.equal(store.listIntelligence().limitations.find(row => row.category === "areas").status, "unavailable");
+  assert.equal(store.listIntelligence().limitations.find(row => row.category === "areas").status, "not_configured");
   store.catalogLoadedAt = Date.now() - 61000;
   await store.refreshCatalog();
   assert.equal(counts.get("Projects"), 2);
   assert.equal(counts.get("Price History"), 1);
   assert.equal(counts.get("Market Snapshot"), 1);
-  assert.equal(counts.get("Offers (research)"), 1);
+  assert.equal(counts.get("Offers (research)"), undefined);
   assert.deepEqual(emptyIntelligence().paymentSchedules, []);
 });
 

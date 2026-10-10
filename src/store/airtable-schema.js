@@ -1,4 +1,5 @@
 import {
+  AVAILABILITY_VALUES,
   EMIRATES,
   PROJECT_STATUSES,
   PROPERTY_TYPES
@@ -61,14 +62,11 @@ export const OWNER_EMAIL = "BusinessBotUAE77@gmail.com";
 
 export const BASE_NAME = "Abu Dhabi Listings";
 
-export function developerTableFields() {
-  return [{ name: "Name", type: "singleLineText" }, checkbox("Active")];
-}
-
-export function projectTableFields(developerTableId) {
+// Developers are kept in data/developers.json; Projects pick one by name.
+export function projectTableFields(developerNames) {
   return [
     { name: "Name", type: "singleLineText" },
-    link("Developer", developerTableId),
+    select("Developer", developerNames),
     select("Emirate", EMIRATES),
     { name: "Area", type: "singleLineText" },
     multiSelect("Property types", PROPERTY_TYPES),
@@ -88,6 +86,25 @@ export function projectTableFields(developerTableId) {
   ];
 }
 
+export function unitTableFields(projectTableId) {
+  return [
+    { name: "Name", type: "singleLineText" },
+    link("Project", projectTableId),
+    select("Property type", PROPERTY_TYPES),
+    number("Bedrooms"),
+    number("Starting price AED"),
+    number("Size sqft from"),
+    number("Size sqft to"),
+    number("Initial payment AED"),
+    select("Availability", AVAILABILITY_VALUES),
+    checkbox("Active")
+  ];
+}
+
+export function unitLabel(projectName, unit) {
+  const bed = unit.bedrooms === 0 ? "Studio" : `${unit.bedrooms}BR`;
+  return `${projectName} ${bed}`;
+}
 
 export const YAS_MATCH_CRITERIA = {
   emirate: "Abu Dhabi",

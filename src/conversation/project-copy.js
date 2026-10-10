@@ -74,19 +74,19 @@ export function renderProjectIntro({ buyer, packs, mode = "exact", mismatches = 
 
     if (primaryFit.tier === "exact") {
       opener = matchedText
-        ? `${lead} ${verb} a strong fit for ${matchedText}.`
-        : `${lead} ${verb} a strong confirmed option.`;
+        ? `${lead} ${verb} a good match for ${matchedText}.`
+        : `${lead} ${verb} a good match for what you've told me.`;
     } else if (primaryFit.tier === "strong_with_compromise") {
       opener = matchedText
-        ? `${lead} ${verb} a strong fit for ${matchedText}.`
-        : `${lead} ${verb} a strong option based on what you shared.`;
-      if (compromiseText) opener += ` The compromise is on the financing side. ${compromiseText}`;
+        ? `${lead} ${verb} a good match for ${matchedText}.`
+        : `${lead} ${verb} a good match for what you've told me.`;
+      if (compromiseText) opener += ` One thing to note on the payments: ${compromiseText}`;
     } else {
       const optionWord = projectNames.length === 1 ? "option" : "options";
       opener = matchedText
         ? `${lead} ${verb} the closest confirmed ${optionWord} and fit ${matchedText}.`
         : `${lead} ${verb} the closest confirmed ${optionWord}.`;
-      if (compromiseText) opener += ` The trade-off is clear. ${compromiseText}`;
+      if (compromiseText) opener += ` Keep in mind: ${compromiseText}`;
     }
 
     return [opener, packs.slice(0, 3).map(renderProjectCard).join("\n\n")]

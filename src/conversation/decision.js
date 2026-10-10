@@ -12,6 +12,7 @@ import { choicesForField } from "./choices.js";
 import { isFlexiblePreference } from "./preference-state.js";
 import { areaAnswer } from "./area-answers.js";
 import { areaGuideFromCatalog } from "../facts/area-guide.js";
+import { extractArea } from "./extract.js";
 
 function response(text, stage, field = null, prompt = null) {
   return { text, stage, nextQuestion: field ? { field, prompt } : null, pendingOffer: null, callRequest: null };
@@ -95,6 +96,14 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     return response(say(areas.length ? `The areas I cover include ${differences}. I would compare entry price, payment commitments and timing before choosing; future returns need comparable rental and cost figures.` : "Area details are unavailable right now. I can still explain how to compare rental demand, costs, and investment horizons.", areas.length ? `تشمل المناطق التي أغطيها ${areas.join("، ")}. أقارن سعر الدخول والتزامات السداد والتوقيت قبل الاختيار؛ مقارنة العوائد تحتاج أرقام إيجار وتكاليف قابلة للمقارنة.` : "تفاصيل المناطق غير متاحة حالياً. يمكنني شرح مقارنة الطلب الإيجاري والتكاليف ومدة الاستثمار."), "knowledge_answer");
   }
   if (/what projects|which projects|projects.*(know|have)|مشاريع/i.test(text)) {
+    // "Projects on Hudayriyat?" lists that area's projects, not the whole catalogue.
+    const asked = extractArea(text);
+    const inArea = asked ? projects.filter(p => String(p.area).toLowerCase() === String(asked).toLowerCase()) : [];
+    if (inArea.length) {
+      const list = inArea.map(p => p.name).join(", ");
+      return response(say(`On ${asked} I follow ${list}. Which one would you like to hear about, or should I narrow it down by budget?`,
+        `في ${asked} أتابع ${list}. أي مشروع تود معرفة المزيد عنه، أم أضيّق الخيارات حسب ميزانيتك؟`), "knowledge_answer");
+    }
     const groups = new Map();
     for (const p of projects) groups.set(p.area, [...(groups.get(p.area) || []), p.name]);
     const names = [...groups].slice(0, 4).map(([area, names]) => `${area}: ${names.slice(0, 3).join(", ")}`).join("; ");
@@ -120,7 +129,9 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     return { ...response(comparisonReply(comparisonFacts, { language: buyer.language }), "comparison"),
       factPacks: candidates.map(c => c.factPack), comparisonFacts };
   }
-  if (detectFactTopic(text) && (intents.includes("ask_facts") || /is it available|متاح/i.test(text))) {
+  // "I want to sell at handover" is a plan, not a question about the handover date.
+  const statesPlan = /\b(sell|exit|flip|resell)\b/i.test(text) && !/[?؟]|\b(what|when|how)\b/i.test(text);
+  if (!statesPlan && detectFactTopic(text) && (intents.includes("ask_facts") || /is it available|متاح/i.test(text))) {
     const answer = answerFactQuestion(text, packs);
     const prompt = say("Which project would you like me to check?", "أي مشروع تريد أن أتحقق منه؟");
     return { ...response(answer.handled ? answer.text : prompt, "fact_answer", answer.handled ? null : "factProject", answer.handled ? null : prompt), factTopic: answer.topic };
@@ -151,7 +162,7 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   }
   if (buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.cashDeploymentPreference && !buyer.liquidityPriority && !isFlexiblePreference(buyer, "priorities") && !buyer.advisorLed && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use") {
     const prompt = say("Should I start with a balanced shortlist, lower upfront cash, growth potential, or evidence for an easier resale?", "هل أبدأ بقائمة متوازنة أم بدفعة أولى أقل أم بفرص النمو أم بأدلة تسهّل إعادة البيع؟");
-    const result = response(say(`I can compare current options by entry price, payment timing and handover; rental or resale performance needs project-specific evidence. ${prompt}`, `أستطيع مقارنة الخيارات الحالية بسعر الدخول ومواعيد السداد والتسليم؛ أما أداء الإيجار أو إعادة البيع فيحتاج إلى أدلة خاصة بكل مشروع. ${prompt}`), "exploring", "investmentObjective", prompt);
+    const result = response(say(`Good, that gives me a range to work with. ${prompt}`, `ممتاز، هذا يعطيني نطاقاً واضحاً. ${prompt}`), "exploring", "investmentObjective", prompt);
     return { ...result, nextQuestion: { ...result.nextQuestion, choices: choicesForField("investmentObjective")?.choices || null } };
   }
   if (/^(i (don't|do not) know|not sure|unsure|idk|ما أعرف|لا أعرف)[.!?]*$/i.test(text.trim()) && !buyer.budgetAed) {

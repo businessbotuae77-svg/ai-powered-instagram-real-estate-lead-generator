@@ -42,7 +42,7 @@ async function seedExistingBase(env = process.env) {
 
   const schema = await meta(apiKey, `https://api.airtable.com/v0/meta/bases/${baseId}/tables`);
   const names = schema.tables.map((table) => table.name);
-  for (const required of ["Developers", "Projects", "Units"]) {
+  for (const required of ["Projects", "Units"]) {
     if (!names.includes(required)) {
       throw new Error(`Missing table ${required}. Found: ${names.join(", ")}`);
     }
@@ -51,7 +51,6 @@ async function seedExistingBase(env = process.env) {
   const store = new AirtableStore({ ...env, AIRTABLE_BASE_ID: baseId });
   await clearTable(store, "Units");
   await clearTable(store, "Projects");
-  await clearTable(store, "Developers");
   const seed = await loadSeed();
   await store.importSeed(seed);
   const results = await runAirtableMilestoneChecks(store);
