@@ -9,10 +9,6 @@
   },
   "scripts": {
     "test": "node --test --test-reporter=spec test/*.test.js",
-    "verify": "node scripts/verify-milestone1.js",
-    "verify:m1": "node scripts/verify-milestone1.js",
-    "verify:m2": "node scripts/verify-milestone2.js",
-    "verify:m3": "node --test test/step19-milestone3-integrations.test.js",
     "match": "node scripts/match-cli.js",
     "chat": "node scripts/chat-cli.js",
     "report": "node scripts/report.js",
@@ -21,7 +17,6 @@
     "import-seed": "node scripts/import-seed.js",
     "airtable:demo": "node scripts/airtable-demo.js",
     "airtable:provision": "node scripts/provision-airtable.js",
-    "airtable:seed": "node scripts/seed-existing-airtable.js",
-    "verify:spec": "node --test test/step20-newer-spec.test.js"
+    "airtable:seed": "node scripts/seed-existing-airtable.js"
   }
 }

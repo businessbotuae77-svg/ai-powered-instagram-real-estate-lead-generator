@@ -1,4 +1,4 @@
-name: Conversation validation
+name: Bot checks
 on:
   push:
   pull_request:

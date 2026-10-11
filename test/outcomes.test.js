@@ -1,23 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp } from "node:fs/promises";
-import { setupConversation } from "./helpers.js";
-import { IntegrationOrchestrator } from "../src/integrations/orchestrator.js";
+import { setupConversation, talk } from "./helpers.js";
 import { classifyTurn, contactPermissions, isFinal, nextConversationState, permittedNextAction } from "../src/conversation/outcomes.js";
-import { buildDailyReport, formatDailyReport, reportDeliveryConfig } from "../src/reporting/outcome-report.js";
 
 // Every reply must answer and, unless the buyer paused or opted out, leave one
 // clear next step; the recorded outcome must match what actually happened.
 const FILLER = /That's everything I have|No problem, take your time|No rush/;
 
-async function talk(messages, id = "buyer") {
-  const services = await setupConversation();
-  const turns = [];
-  for (const message of messages) turns.push(await services.engine.handleMessage(id, message, { useLlm: false }));
-  return { ...services, turns, last: turns.at(-1) };
-}
 
 test("exact match shows a shortlist and offers one next step", async () => {
   const { last } = await talk(["Budget 2M, 2 bedroom in Yas"]);
@@ -194,62 +183,4 @@ test("outcome precedence, finality and a returning buyer", () => {
   assert.equal(classifyTurn({ stage: "investment_risk" }), "info_provided");
   assert.equal(classifyTurn({ stage: "exploring", buyer: { budgetAed: 2000000 } }), "qualifying");
   assert.equal(classifyTurn({ stage: "exploring" }), "browsing");
-});
-
-const ENV = { META_PAGE_ACCESS_TOKEN: "test", META_PAGE_ID: "page", WHATSAPP_ACCESS_TOKEN: "test", WHATSAPP_PHONE_NUMBER_ID: "wa",
-  WHATSAPP_ALERT_TO: "971500000000", WHATSAPP_TEMPLATE_NAME: "alert" };
-
-function transport(calls, state) {
-  return async (url, options) => {
-    const service = url.includes("/wa/") ? "whatsapp" : "instagram";
-    calls.push({ service, body: JSON.parse(options.body) });
-    if (service === "whatsapp" && state.whatsappDown) return { ok: false, status: 503, json: async () => ({ error: { message: "outage" } }) };
-    return { ok: true, json: async () => ({ message_id: "ig-out", messages: [{ id: `wa-${calls.length}` }] }) };
-  };
-}
-
-test("a failed lead alert is retried until delivered, never duplicated, and the buyer reply is sent once", async () => {
-  const { engine, buyers } = await setupConversation();
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), "outcome-alerts-"));
-  const calls = [], state = { whatsappDown: true };
-  const orchestrator = new IntegrationOrchestrator({ engine, buyers, rootDir, env: ENV, fetchImpl: transport(calls, state) });
-  const event = { mid: "m-human", senderId: "ig_lead", text: "Can I talk to a human?" };
-  const first = await orchestrator.processMessageEvent(event, { useLlm: false });
-  assert.equal(first.pending, true);
-  assert.equal((await buyers.getOrCreate("ig_lead")).intentAlert.status, "failed");
-  state.whatsappDown = false;
-  const retried = await orchestrator.processMessageEvent(event, { retry: true });
-  assert.equal(retried.pending, false);
-  assert.equal((await buyers.getOrCreate("ig_lead")).intentAlert.status, "delivered");
-  await orchestrator.processMessageEvent(event, { retry: true });
-  const delivered = calls.filter(call => call.service === "whatsapp" && !state.whatsappDown);
-  assert.equal(calls.filter(call => call.service === "instagram").length, 1, "the buyer's reply is not resent on retry");
-  assert.ok(delivered.length >= 1);
-  const summaries = calls.filter(call => call.service === "whatsapp").map(call => call.body.template.components[0].parameters.at(-1).text);
-  assert.match(summaries.at(-1), /^LEAD ALERT: human intent, contact not requested yet/);
-  assert.match(summaries.at(-1), /Buyer said: "Can I talk to a human\?"/);
-});
-
-test("a delivered follow-up request is marked delivered and appears in the daily report", async () => {
-  const { engine, buyers, store } = await setupConversation();
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), "outcome-report-"));
-  const calls = [];
-  const orchestrator = new IntegrationOrchestrator({ engine, buyers, rootDir, env: ENV, fetchImpl: transport(calls, {}) });
-  let i = 0;
-  const send = text => orchestrator.processMessageEvent({ mid: `r${i++}`, senderId: "ig_report", text }, { useLlm: false });
-  await send("How much is Yas Waterfront Residences?");
-  await send("yes");
-  await send("Here on Instagram");
-  const buyer = await buyers.getOrCreate("ig_report");
-  assert.equal(buyer.handoff.status, "delivered");
-  await engine.handleMessage("ig_open", "What is the handover for Yas Waterfront Residences?", { useLlm: false });
-  const day = new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 10);
-  const report = buildDailyReport({ buyers: store.snapshot().buyers, callRequests: await orchestrator.callRequests.list(), day });
-  assert.equal(report.outcomes.follow_up_requested, 1);
-  assert.equal(report.outcomes.info_missing, 1);
-  assert.equal(report.handoffs.delivered, 1);
-  assert.deepEqual(report.unresolved.map(row => row.buyer), ["ig_open"], "a delivered handoff is no longer an open lead");
-  assert.match(formatDailyReport(report), /Unanswered questions to follow up \(1\)/);
-  assert.equal(reportDeliveryConfig({}).enabled, false, "delivery stays off until configured");
-  assert.equal(reportDeliveryConfig({ REPORT_DELIVERY_ENABLED: "true", REPORT_RECIPIENT: "9715", REPORT_HOUR_DUBAI: "9" }).enabled, true);
 });

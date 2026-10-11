@@ -41,9 +41,6 @@ Node 18 or newer. No required extra packages.
 
 ```bash
 npm test
-npm run verify:m1
-npm run verify:m2
-npm run verify:m3
 npm run match -- --budget 3M --cash 500k --area "Yas" --bedrooms 3 --payment-plan
 npm run chat:web
 npm run chat
