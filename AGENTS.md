@@ -4,7 +4,7 @@ Instructions for coding agents (Claude Code, Codex and others) working in this r
 
 ## What this is
 
-An Instagram DM bot for Abu Dhabi off-plan property. A buyer messages the Instagram account; the bot qualifies them, recommends listings from an approved Airtable catalogue, answers questions, and hands high-intent buyers to the broker by WhatsApp alert. **No AI model is called** (removed 10 October 2026 to save credits): code reads the buyer message, owns every fact, number and permission, and writes every reply from templates (`replies.js`, `fact-answers.js`, `comparison-reply.js`, `localize.js`, `decision.js`). Improve wording there; `test/no-ai-replies.test.js` guards the common follow-ups.
+An Instagram DM bot for Abu Dhabi off-plan property. A buyer messages the Instagram account; the bot qualifies them, recommends listings from an approved Airtable catalogue, answers questions, and hands high-intent buyers to the broker by WhatsApp alert. **No AI model is called** (removed 10 October 2026 to save credits): code reads the buyer message, owns every fact, number and permission, and writes every reply from templates (`replies.js`, `fact-answers.js`, `comparison-reply.js`, `localize.js`, `decision.js`). Improve wording there.
 
 Live: Railway project `instagram-property-bot`, service `instagram-bot`, deploys `main` automatically. Merging a PR to `main` is a production deploy.
 
@@ -13,14 +13,11 @@ Live: Railway project `instagram-property-bot`, service `instagram-bot`, deploys
 Node 18+ (CI uses 22). ES modules. **No npm dependencies**: do not add any without asking.
 
 ```bash
-npm test                     # all tests, about 15 s. Run before every commit.
-node --test test/<file>.test.js   # one file while iterating
-npm run verify:m1 && npm run verify:m2 && npm run verify:m3 && npm run verify:spec
 npm run chat                 # CLI chat against seed data (no keys needed)
 npm run chat:web             # web test chat at http://127.0.0.1:8787/
 ```
 
-Tests never call the network.
+There is no automated test suite (removed 11 October 2026 as out of date). Check changes by running the bot locally with `npm run chat` or `npm run chat:web` before opening a PR.
 
 ## Layout
 
@@ -31,11 +28,11 @@ Tests never call the network.
 | `src/conversation/*.js` (rest) | Deterministic logic: qualification, intents, contact rules, advisor strategy, replies, localisation. |
 | `src/facts/` | The fact checker (`checker.js`), fact packs, freshness gates, payment stages, area guide. |
 | `src/matching/` | Inventory matching and normalisation (areas, money, bedrooms). |
-| `src/store/` | Airtable store (production) and local JSON store (tests, dev). |
+| `src/store/` | Airtable store (production) and local JSON store (local development). |
 | `src/integrations/` | Meta webhook, Instagram send, WhatsApp alerts, durable JSON state on the Railway volume. |
 | `scripts/chat-web.js` | The production server (`npm start`): webhook, health, test chat. |
 | `prompts/conversation-policy.md` | The written conversation policy. No longer sent to a model; its hash is the `policyVersion` in `/api/health`. |
-| `data/` | `area-guide.json` (12 areas, EN/AR), `qualification-choices.json` (quick replies), `services.json`, `seed/` (demo stock, tests only). |
+| `data/` | `area-guide.json` (12 areas, EN/AR), `qualification-choices.json` (quick replies), `services.json`, `seed/` (demo stock for local runs). |
 | `docs/` | Milestone, handover and design notes. `docs/test-results/` is archived output: don't read it. |
 
 ## Rules that must not break
@@ -53,7 +50,7 @@ Tests never call the network.
 
 ## Conventions
 
-- Plain ES modules and `node:test` with `node:assert/strict`. New test files: `test/<topic>.test.js`.
+- Plain ES modules.
 - Match the surrounding style: short functions, sparse comments that explain why, no TypeScript, no build step.
 - **Line endings are mixed (some files CRLF, some LF, some both).** Keep each line's existing ending. Scripts that read and rewrite whole files in text mode will convert them and produce a whole-file diff. Check with `git -c core.whitespace=cr-at-eol diff --check` and `git diff --stat` before committing.
 - User-facing copy is short, warm and plain English or Arabic. Internal words (fact pack, engine, catalogue, challenger, upsell) never reach buyers.
@@ -62,6 +59,6 @@ Tests never call the network.
 ## Working efficiently
 
 - Start from the Layout table and `grep`; avoid reading `engine.js`, `replies.js`, `response-validation.js` or the policy prompt end to end unless the task is in them.
-- Run the single relevant test file while iterating, then `npm test` once before committing.
+- Try each change in `npm run chat` with the conversations it affects, in English and Arabic, before committing.
 - For behaviour questions, `npm run chat` shows real replies faster than reading code.
 - Deployment and live checks: `docs/DEPLOYMENT-PLAN.md`, `docs/RAILWAY_SETUP.md`, `docs/HANDOVER.md`.
