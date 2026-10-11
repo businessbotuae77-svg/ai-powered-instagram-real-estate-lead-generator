@@ -71,6 +71,8 @@ const PROJECT_HINTS = {
  * Pull structured buyer facts from a free-text or quick-reply message.
  * Matching still happens in code; this only fills the buyer card.
  */
+export const OTHER_OFFER = /\b(?:another|other|different|a different)\s+(?:broker|agent|agency|realtor)\b|\bsomeone else\s+(?:offered|quoted|said)\b|وسيط آخر/i;
+
 export function extractFactsFromMessage(message, { buyer = null, lastAskedField = null } = {}) {
   const text = normalizeBuyerText(message).trim();
   let facts = {};
@@ -155,6 +157,8 @@ export function extractFactsFromMessage(message, { buyer = null, lastAskedField 
     intents.push("correction");
   }
   if (facts.investmentGoal || facts.investmentStrategy || facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined) intents.push("advisory");
+  // "Another broker said 2.2M" quotes someone else's offer; it is not the buyer's budget.
+  if (OTHER_OFFER.test(text)) delete facts.budget;
   const refined = refineTurnIntent({ intents, signals, facts, message: text });
   return {
     facts: refined.facts,

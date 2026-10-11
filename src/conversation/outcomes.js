@@ -65,7 +65,9 @@ function sharedRequirements(buyer = {}) {
  * (a channel question mid-handoff, a permission change, "no thanks" to a service).
  */
 export function classifyTurn({ stage, buyer = {}, followUpSubmitted = false, callRequestSubmitted = false,
-  shortlistShown = false, factMissing = [] } = {}) {
+  shortlistShown = false, factMissing = [], closingRemark = false } = {}) {
+  // "I'm good" ends the sales conversation; only an explicit stop is a full opt-out.
+  if (stage === "paused" && closingRemark) return "not_now";
   if (buyer.salesPathStopped && stage === "paused") return "opted_out";
   if (followUpSubmitted) return callRequestSubmitted ? "call_requested" : "follow_up_requested";
   if (stage === "catalog_unavailable") return "system_issue";

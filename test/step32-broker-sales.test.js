@@ -338,5 +338,5 @@ test("step 32y a returning greeting never re-asks a known purpose (live DM regre
   assert.match(hi.reply, /keep looking at investment options, or start fresh\?/);
   assert.equal(hi.check.ok, true);
   assert.equal(fresh.stage, "exploring");
-  assert.match(fresh.reply, /^Fresh start\./);
+  assert.match(fresh.reply, /^Fresh start 👋 I'm The Sustainable Bot/);
 });

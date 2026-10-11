@@ -10,6 +10,7 @@ import { isFlexiblePreference } from "./preference-state.js";
 import { areaPitchSentence, findAreaEntry, loadAreaGuide } from "../facts/area-guide.js";
 import { packPaymentStages } from "../facts/payment-stages.js";
 import { isAdvisorLedDiscovery } from "./investment-strategy.js";
+import { WELCOME_CHOICES } from "./welcome.js";
 
 /** Pure greeting with no other request in the same message. */
 export function isGreetingOnly(message) {
@@ -41,11 +42,11 @@ export function buildConversationReply({
   let callRequest = null;
 
   if (intents.includes("start_fresh")) {
-    lines.push("Fresh start. What are you curious about — an area, a project, or what your budget could buy?");
+    lines.push("Fresh start 👋 I'm The Sustainable Bot, your AI guide to UAE property. What would you like to explore?");
     nextQuestion = {
       field: "explorationTopic",
-      prompt: "What are you curious about — an area, a project, or what your budget could buy?",
-      choices: null
+      prompt: "What would you like to explore?",
+      choices: WELCOME_CHOICES
     };
     return finish(lines, "exploring", nextQuestion, null);
   }
@@ -61,7 +62,7 @@ export function buildConversationReply({
     lines.push("Glad to help.");
   }
   if (intents.includes("decline_contact") && !intents.includes("decline_call")) {
-    lines.push("No problem. We can keep looking without a phone number.");
+    lines.push(/\b(phone|number|whatsapp|call)\b/i.test(message) ? "No problem. We can keep looking without a phone number." : "No problem. We can keep going without that.");
   }
   if (ack) {
     lines.push(ack);
@@ -121,9 +122,9 @@ export function buildConversationReply({
       nextPending = { type: "session_choice" };
       return finish(lines, "welcome_back", nextQuestion, nextPending);
     }
-    const prompt = "What are you curious about — an area, a project, or what your budget could buy?";
-    lines.push(`Hi 👋 I can help you explore Abu Dhabi areas, compare current projects, or understand payment plans. ${prompt}`);
-    nextQuestion = { field: "explorationTopic", prompt, choices: null };
+    const prompt = "What would you like to explore?";
+    lines.push(`Hi 👋 I'm The Sustainable Bot, your AI guide to UAE property. ${prompt}`);
+    nextQuestion = { field: "explorationTopic", prompt, choices: WELCOME_CHOICES };
     return finish(lines, "qualifying", nextQuestion, null);
   }
 
