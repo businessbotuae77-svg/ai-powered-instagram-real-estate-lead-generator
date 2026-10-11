@@ -28,6 +28,7 @@ export function resolveMatches(catalog, buyer) {
     !row.fit.hardConstraintFailures?.length &&
     !(buyer.rejectedProjects || []).some(item => (typeof item === "string" ? item : item.projectId) === row.project.id) &&
     !(buyer.rejectionReasons?.[row.project.id] && buyer.rejectionReasons[row.project.id].resolved !== true) &&
+    !(buyer.listingRejectionReasons?.[`${row.project.id}|${row.unit.id}`] && buyer.listingRejectionReasons[`${row.project.id}|${row.unit.id}`].resolved !== true) &&
     !(row.project.area === "Hudayriyat Island" && row.unit.bedrooms === 0)
   );
   const bestTier = bestRecommendableTier(assessments);

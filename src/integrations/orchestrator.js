@@ -1,4 +1,5 @@
 import { POLICY_VERSION } from "../conversation/policy.js";
+import { recordCommercialEvent } from "../conversation/commercial-events.js";
 import { createHash, randomUUID } from "node:crypto";
 import { IntegrationLog } from "./integration-log.js";
 import { ProcessedEventStore } from "./processed-events.js";
@@ -20,8 +21,9 @@ export function messageEventAgeMs(event, now = Date.now()) {
 export function retryResult(result) {
   const { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
     followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, intentAlert, outcome } = result;
-  return { reply, stage, intents, buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
+  return { reply, stage, intents, buyer: buyer ? { ...buyer, commercialEvents: undefined } : buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
     followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, intentAlert: intentAlert || null, outcome: outcome || null, compact: true,
+    commercialDecision: result.commercialDecision || null,
     // Quick-reply buttons are re-sent on a retry, so keep the question.
     nextQuestion: result.nextQuestion ? { field: result.nextQuestion.field, prompt: result.nextQuestion.prompt, choices: result.nextQuestion.choices || null } : null,
     matches: (result.matches || []).map(m => ({ project: { id: m.project?.id, name: m.project?.name }, unit: { id: m.unit?.id } })) };
@@ -146,6 +148,7 @@ export class IntegrationOrchestrator {
     const mid = event.mid;
     if (!mid || !event.senderId) throw new Error("Message event requires id and sender");
     const saved = await this.events.get(mid);
+    const startedAt = saved?.at || new Date().toISOString();
     if (saved?.status === "completed") return { duplicate: true, mid };
     const resuming = saved && saved.status !== "queued";
     if (resuming && !options.retry) return { duplicate: true, mid, pending: true };
@@ -206,12 +209,23 @@ export class IntegrationOrchestrator {
       // Store only what a retry needs. The full result carries the whole
       // catalogue analysis and made this file grow by megabytes per message.
       await this.events.save(mid, { result: retryResult(result) });
+      if (result.commercialDecision?.selected) {
+        await this.#recordCommercial(result, event, "home_type_selected", { selected: result.commercialDecision.selected,
+          at: startedAt });
+      }
       const alert = previous.alert || await this.#safeCallRequestAlert(result, event);
       const needsAlert = result.alertRecommended;
       const revoked = alert.reason === "permission_revoked";
       const alertOk = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert" || revoked);
       if (alertOk || !needsAlert) await this.events.save(mid, { alert });
       if (needsAlert) await this.#recordHandoff(result, alertOk && !revoked ? "delivered" : revoked ? "cancelled" : "failed");
+      if (needsAlert && alertOk && !revoked) {
+        await this.#recordCommercial(result, event, "broker_request_delivered", { deliveryKey: alert.key, at: alert.deliveredAt || undefined });
+        const serviceRequest = result.commercialDecision?.serviceRequest || result.buyer?.serviceRequest;
+        if (serviceRequest?.status === "requested" && serviceRequest.serviceId) {
+          await this.#recordCommercial(result, event, "service_request_delivered", { serviceId: serviceRequest.serviceId, deliveryKey: alert.key, at: alert.deliveredAt || undefined });
+        }
+      }
       // The internal lead alert is retried like any delivery; it never changes the buyer's reply.
       const intentAlert = previous.intentAlert?.ok ? previous.intentAlert : await this.#safeIntentAlert(result, event);
       if (intentAlert.ok) await this.events.save(mid, { intentAlert });
@@ -237,13 +251,18 @@ export class IntegrationOrchestrator {
         if (needsAlert && alertOk) result.reply = reply;
       }
       const failed = (needsAlert && !alertOk) || Boolean(intentAlert.error) || !send || send.error || send.skipped;
+      if (send && !send.error && !send.skipped && !send.uiOnly && result.commercialDecision?.comparisonId) {
+        await this.#recordCommercial(result, event, "comparison_delivered", {
+          comparisonId: result.commercialDecision.comparisonId, pair: result.commercialDecision.pair, at: send.confirmedAt || undefined
+        });
+      }
       if (failed) {
         await this.events.save(mid, { status: "failed", nextAttemptAt: Date.now() + Math.min(3600000, 30000 * 2 ** (previous.attempts || 0)) });
       } else {
         await this.events.complete(mid, { outboundMessageId: send.messageId || null, alertKey: alert.key || null });
       }
       await this.log.record({ correlationId: mid, integration: "conversation", operation: "decision", status: failed ? "pending" : "ok",
-        meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, handoffRequired: result.handoffRequired, catalogError: result.catalogError, buyerState: { budget: result.buyer?.budgetAed, areas: result.buyer?.preferredAreas, bedrooms: result.buyer?.bedrooms, channel: result.buyer?.preferredContactChannel, noCalls: result.buyer?.noCalls }, projectIds: result.matches?.map(m => m.project.id), reply: result.reply } });
+        meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, handoffRequired: result.handoffRequired, catalogUnavailable: Boolean(result.catalogError), comparison: Boolean(result.commercialDecision?.comparisonId), selection: Boolean(result.commercialDecision?.selected) } });
       return { duplicate: false, mid, result, send, alert, intentAlert, pending: Boolean(failed) };
     } catch (error) {
       await this.events.fail(mid, { message: error.message });
@@ -265,10 +284,21 @@ export class IntegrationOrchestrator {
    * Deliver a handoff produced outside the webhook (the web test chat) and
    * return the honest buyer-facing outcome.
    */
-  async notifyAdvisor(result, { requestKey, senderId }) {
+  notifyAdvisor(result, { requestKey, senderId }) {
+    return this.processing.run(String(senderId || result.buyer?.instagramUserId || ""), () => this.#notifyAdvisor(result, { requestKey, senderId }));
+  }
+
+  async #notifyAdvisor(result, { requestKey, senderId }) {
     if (!result.followUpSubmitted || !result.alertRecommended) return { alert: { skipped: true, reason: "not_a_submitted_call_request" }, reply: result.reply };
     const alert = await this.#safeCallRequestAlert(result, { mid: requestKey, senderId });
     const ok = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert");
+    await this.#recordHandoff(result, ok ? "delivered" : "failed");
+    if (ok) {
+      const event = { mid: requestKey, senderId };
+      await this.#recordCommercial(result, event, "broker_request_delivered", { deliveryKey: alert.key, at: alert.deliveredAt || undefined });
+      const service = result.commercialDecision?.serviceRequest || result.buyer?.serviceRequest;
+      if (service?.status === "requested" && service.serviceId) await this.#recordCommercial(result, event, "service_request_delivered", { serviceId: service.serviceId, deliveryKey: alert.key, at: alert.deliveredAt || undefined });
+    }
     const reply = ok ? handoffConfirmation(result.buyer, this.engine.broker)
       : handoffFailureNotice(result.buyer, this.engine.broker, { unconfigured: /env incomplete/i.test(alert.reason || "") });
     return { alert, ok, reply };
@@ -295,7 +325,7 @@ export class IntegrationOrchestrator {
         outbound = `${text}\n\nRequest a Call: reply with the phone number you want us to use.`;
       }
       const replyHash = createHash("sha256").update(JSON.stringify({ text: outbound, choices })).digest("hex");
-      return await sendInstagramText({
+      const sent = await sendInstagramText({
         recipientId,
         text: outbound,
         choices,
@@ -304,6 +334,7 @@ export class IntegrationOrchestrator {
         env: this.env,
         fetchImpl: this.fetchImpl
       });
+      return { ...sent, confirmedAt: new Date().toISOString() };
     } catch (error) {
       await this.log.record({
         correlationId: mid,
@@ -315,6 +346,19 @@ export class IntegrationOrchestrator {
         meta: { recipientId }
       });
       return { skipped: true, error: error.message };
+    }
+  }
+
+  async #recordCommercial(result, event, type, details = {}) {
+    const { deliveryKey, ...facts } = details;
+    const id = deliveryKey ? `${deliveryKey}:${type}` : `${event.mid}:${type}`;
+    const recorded = await recordCommercialEvent(this.buyers, event.senderId, {
+      id, type, sessionId: result.buyer?.conversation?.sessionId, ...facts
+    });
+    if (type === "service_request_delivered" && recorded?.serviceRequest?.status === "requested" &&
+        recorded.serviceRequest.serviceId === details.serviceId) {
+      const deliveredAt = recorded.commercialEvents.find(row => row.id === id)?.at;
+      await this.buyers.patchBuyer(event.senderId, { serviceRequest: { ...recorded.serviceRequest, status: "delivered", deliveredAt } });
     }
   }
 

@@ -1,16 +1,35 @@
 import { normalizeBuyerText } from "./text.js";
 import { isAffirmation } from "./affirmation.js";
 import { brokerLabel, brokerProfile, brokerShortName, directContactLine } from "./broker-profile.js";
+import { isIdentityQuestion } from "./sales-moments.js";
 
 /** An explicit request to talk to a person. Honored immediately, even after an earlier decline. */
 export function wantsHuman(message) {
   const text = normalizeBuyerText(message);
-  return (/\b(?:speak|talk|chat|connect|put me in touch)\b.{0,35}\b(?:advisor|adviser|human|agent|someone|somebody|a person|real person|broker|consultant|expert|you guys|your team|the owner)\b|\b(?:want|need|request|get me)\b.{0,25}\b(?:an?\s+)?(?:advisor|adviser|human|agent|real person|broker|consultant)\b|أريد.*(?:مستشار|شخص|وسيط)|أتحدث مع (?:شخص|مستشار)/i.test(text)) &&
-    !/\b(?:already (?:have|has)|have my own|working with|don'?t (?:need|want)|do not (?:need|want)|no need)\b.{0,25}\b(?:agent|advisor|adviser|broker|someone|anyone|human)\b/i.test(text);
+  if (isAgentEducationQuestion(text)) return false;
+  return (/\b(?:speak|talk|chat|connect|put me in touch)\b.{0,35}\b(?:advisor|adviser|human|agent|someone|somebody|a person|real person|broker|consultant|expert|you guys|your team|the owner)\b|\b(?:want|need|request|get me)\b.{0,25}\b(?:an?\s+)?(?:advisor|adviser|human|agent|real person|broker|consultant)\b|^(?:agent|human|broker|advisor|adviser)[.!?]*$|(?:أريد|اريد|أحتاج|احتاج).*(?:مستشار|شخص|وسيط)|(?:أتحدث|اتحدث|التحدث|التواصل|اوصلني|أوصلني).{0,25}(?:شخص|مستشار|وسيط|فريق)/i.test(text)) &&
+    !/\b(?:already (?:have|has)|have my own|working with|don'?t (?:need|want)|do not (?:need|want)|no need)\b.{0,25}\b(?:agent|advisor|adviser|broker|someone|anyone|human)\b|(?:لا\s+(?:أريد|اريد|أحتاج|احتاج)|لدي).*(?:مستشار|وسيط|شخص)/i.test(text);
+}
+
+export function isAgentEducationQuestion(message) {
+  const text = normalizeBuyerText(message).trim();
+  if (isIdentityQuestion(text)) return false;
+  if (/\b(?:speak|talk|connect|put me in touch|call me)\b|(?:أريد|اريد).*(?:التحدث|التواصل)|(?:أتحدث|اتحدث|التحدث|التواصل).{0,12}(?:مع|إلى|الى)/i.test(text)) return false;
+  const person = /\b(?:agent|broker|advisor|adviser|consultant)\b|(?:وسيط|الوسيط|مستشار|المستشار)/i.test(text);
+  return person && (/^(?:do|does|did|should|must|why|what|how|is|are|will|would)\b/i.test(text) || /^(?:هل|ما|ماذا|كيف|لماذا)/.test(text));
+}
+
+export function agentEducationReply(message, buyer = {}) {
+  if (!isAgentEducationQuestion(message)) return null;
+  return { text: buyer.language === "ar"
+    ? "يمكن للوسيط مساعدتك في مقارنة العقارات والتحقق من التوفر وشرح خطوات الشراء. أستطيع الإجابة من قوائمنا، ويمكنك اختيار التحدث مع فريقنا عندما ترغب."
+    : "A broker can help you compare properties, check availability and explain the buying steps. I can answer from our listings, and you can choose to speak with our team when you're ready.",
+  stage: "education", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
 }
 
 export function contactDecision({ message, buyer, pending, explicitCall = false, highIntent = false, phoneSubmitted = false, broker = brokerProfile() }) {
   const text = normalizeBuyerText(message);
+  if (isAgentEducationQuestion(text) && !explicitCall && !phoneSubmitted) return null;
   if (/\b(?:do not|don'?t|stop)\s+(?:want\s+(?:any\s+|a\s+)?|(?:to |please )?)(?:follow[ -]?up|contact(?:ing)?|messag(?:e|ing))\b|\bno\s+(?:unsolicited\s+)?follow[ -]?up\b/i.test(text)) return null;
   const follow = /follow[ -]?up|contact me|whatsapp me|message me on whatsapp|متابعة|واتساب/i.test(text);
   const human = wantsHuman(text);

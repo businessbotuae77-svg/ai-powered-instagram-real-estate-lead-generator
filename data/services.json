@@ -5,46 +5,61 @@
       "id": "property_management",
       "enabled": false,
       "name": "Leasing and property management",
+      "nameAr": "التأجير وإدارة العقارات",
       "pitch": "If you'd rather not manage the rental yourself, our leasing and property management service can handle tenant search, contracts and rent collection.",
+      "pitchAr": "إذا كنت تفضل عدم إدارة التأجير بنفسك، يمكن لخدمة التأجير وإدارة العقارات لدينا تولي البحث عن المستأجرين والعقود وتحصيل الإيجار.",
       "feeText": null,
       "triggers": ["rental_investor"],
-      "keywords": ["property management", "management", "leasing", "manage the rental"]
+      "keywords": ["property management", "management", "leasing", "manage the rental"],
+      "keywordsAr": ["إدارة العقارات", "ادارة العقارات", "إدارة العقار", "تأجير"]
     },
     {
       "id": "mortgage_advice",
       "enabled": false,
       "name": "Mortgage advice",
+      "nameAr": "استشارات التمويل العقاري",
       "pitch": "Our mortgage advice service can compare bank offers and check what you could borrow before you commit.",
+      "pitchAr": "يمكن لخدمة استشارات التمويل العقاري لدينا مقارنة عروض البنوك والتحقق مما يمكنك اقتراضه قبل الالتزام.",
       "feeText": null,
       "triggers": ["mortgage_buyer", "mortgage_question"],
-      "keywords": ["mortgage advice", "mortgage adviser", "mortgage advisor", "bank offers"]
+      "keywords": ["mortgage advice", "mortgage adviser", "mortgage advisor", "bank offers"],
+      "keywordsAr": ["استشارات التمويل", "مستشار التمويل", "استشارة تمويل"]
     },
     {
       "id": "snagging_inspection",
       "enabled": false,
       "name": "Handover snagging inspection",
+      "nameAr": "فحص العيوب عند التسليم",
       "pitch": "Before you accept the keys, our snagging inspection checks the unit for defects so the developer can fix them.",
+      "pitchAr": "قبل استلام المفاتيح، يتحقق فحص العيوب لدينا من عيوب الوحدة ليتمكن المطور من إصلاحها.",
       "feeText": null,
       "triggers": ["off_plan_purchase", "ready_purchase"],
-      "keywords": ["snagging", "inspection"]
+      "keywords": ["snagging", "inspection"],
+      "keywordsAr": ["فحص العيوب", "فحص التسليم"]
     },
     {
       "id": "visa_guidance",
       "enabled": false,
       "name": "Residence visa guidance",
+      "nameAr": "إرشادات تأشيرة الإقامة",
       "pitch": "Our visa guidance service can take you through the current property-visa requirements and paperwork for your case.",
+      "pitchAr": "يمكن لخدمة إرشادات التأشيرة لدينا شرح متطلبات التأشيرة المرتبطة بالعقار والمستندات الحالية لحالتك.",
       "feeText": null,
       "triggers": ["visa_question"],
-      "keywords": ["visa guidance", "visa service", "visa help"]
+      "keywords": ["visa guidance", "visa service", "visa help"],
+      "keywordsAr": ["إرشادات التأشيرة", "خدمة التأشيرة", "مساعدة التأشيرة"]
     },
     {
       "id": "furnishing",
       "enabled": false,
       "name": "Furnishing package",
+      "nameAr": "باقة التأثيث",
       "pitch": "Our furnishing package can get the unit ready to live in or to let without you coordinating suppliers.",
+      "pitchAr": "يمكن لباقة التأثيث لدينا تجهيز الوحدة للسكن أو التأجير دون أن تنسق مع الموردين بنفسك.",
       "feeText": null,
       "triggers": ["end_use_buyer"],
-      "keywords": ["furnishing", "furniture", "furnish"]
+      "keywords": ["furnishing", "furniture", "furnish"],
+      "keywordsAr": ["تأثيث", "تاثيث", "أثاث", "اثاث"]
     }
   ]
 }

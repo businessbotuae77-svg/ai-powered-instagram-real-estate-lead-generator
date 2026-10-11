@@ -86,8 +86,8 @@ export function identityReply({ buyer, broker }) {
   const ar = buyer.language === "ar";
   const label = brokerSubject(broker, buyer.language);
   const hasHuman = Boolean(broker.name || broker.role);
-  if (ar) return `أنا مساعد عقاري يعمل بالذكاء الاصطناعي، ولست شخصاً ولا وسيطاً مرخصاً. أشرح المشاريع والأسعار وخطط السداد من بيانات القوائم لدينا${hasHuman ? `، ويمكن لـ${label} المساعدة في أي قرار أو معاملة` : ""}.`;
-  return `I'm an AI property assistant, not a person or a licensed broker. I can explain projects, prices and payment plans from our listings${hasHuman ? `, and ${label} can help with anything that needs a human decision or a transaction` : ", and our team can help with anything that needs a human decision or a transaction"}.`;
+  if (ar) return `أنا مساعد عقاري آلي، ولست شخصاً ولا وسيطاً مرخصاً. أشرح المشاريع والأسعار وخطط السداد من بيانات القوائم لدينا${hasHuman ? `، ويمكن لـ${label} المساعدة في أي قرار أو معاملة` : "، ويمكن لفريقنا المساعدة في القرارات والمعاملات"}.`;
+  return `I'm an automated property assistant, not a person or a licensed broker. I explain projects, prices and payment plans from our listings${hasHuman ? `, and ${label} can help with anything that needs a human decision or a transaction` : ", and our team can help with anything that needs a human decision or a transaction"}.`;
 }
 
 /** General, non-determinative answer for a professional-judgment topic. */

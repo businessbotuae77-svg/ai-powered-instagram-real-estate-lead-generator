@@ -82,6 +82,7 @@ export function buildFactPack(match, options = {}) {
     const provenance = { source: row.source, recordId: row.sourceRecordId, scope: row.scope, verifiedAt: row.verifiedOn,
       evidenceClass: "CALCULATION", confidence: row.confidence || "Unrated" };
     for (const key of ["bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed"]) pack[key] = field(payment[key], provenance);
+    if (payment.feesComplete && payment.feesAed != null) pack.feesAed = field(payment.feesAed, { ...provenance, scope: "explicit_complete_fee_schedule" });
   }
   return pack;
 }
@@ -117,7 +118,7 @@ export function collectAllowedClaims(packs, evidenceClaims = []) {
   const phrases = new Set();
 
   for (const pack of packs) {
-    for (const key of ["bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed"]) {
+    for (const key of ["bookingAed", "cash30DaysAed", "cash6MonthsAed", "cash12MonthsAed", "cashBeforeHandoverAed", "cashAtHandoverAed", "cashAfterHandoverAed", "feesAed"]) {
       if (pack[key]?.confirmed) amounts.add(Number(pack[key].value));
     }
     for (const key of ["startingPriceAed", "downPaymentAed", "sizeSqftFrom", "sizeSqftTo", "bedrooms", "bedroomsFrom", "bedroomsTo"]) {

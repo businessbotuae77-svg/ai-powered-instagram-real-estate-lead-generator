@@ -33,10 +33,15 @@ export function normalizeServices(rows = []) {
     .map(row => ({
       id: row.id,
       name: String(row.name || row.id),
+      nameAr: typeof row.nameAr === "string" && row.nameAr.trim() ? row.nameAr.trim() : null,
       pitch: row.pitch.trim(),
+      pitchAr: typeof row.pitchAr === "string" && row.pitchAr.trim() ? row.pitchAr.trim() : null,
       feeText: typeof row.feeText === "string" && row.feeText.trim() ? row.feeText.trim() : null,
+      feeTextAr: typeof row.feeTextAr === "string" && row.feeTextAr.trim() ? row.feeTextAr.trim() : null,
+      provider: typeof row.provider === "string" && row.provider.trim() ? row.provider.trim() : null,
+      providerAr: typeof row.providerAr === "string" && row.providerAr.trim() ? row.providerAr.trim() : null,
       triggers: (row.triggers || []).filter(trigger => SERVICE_TRIGGERS.includes(trigger)),
-      keywords: (row.keywords || []).map(keyword => String(keyword).toLowerCase()).filter(Boolean)
+      keywords: [...(row.keywords || []), ...(row.keywordsAr || [])].map(keyword => String(keyword).toLowerCase()).filter(Boolean)
     }));
 }
 
@@ -64,14 +69,37 @@ export function buyerNeeds(buyer, { topic = null, pack = null } = {}) {
 
 /** Service ids the buyer declined in this message ("no need for property management"). */
 export function declinedServiceIds(message, services = loadServices()) {
+  return services.filter(service => serviceClauses(message).some(clause =>
+    mentionsService(clause, service) && isServiceRefusal(clause))).map(service => service.id);
+}
+
+/** Keep each refusal attached to its clause, including an affirmative correction. */
+export function serviceClauses(message) {
+  return normalizeBuyerText(message).replace(/[\u064B-\u065F\u0670]/g, "").toLowerCase().split(/[;,.!?؟؛،]+|\b(?:but|however|instead)\b|(?:^|\s)(?:ولكن|لكن|بل)(?:\s|$)|\band\s+(?=(?:yes|i\s+(?:want|need|would)|please|do not|don'?t|no\b))|\s+و(?=(?:أريد|اريد|أحتاج|احتاج|لا أريد|لا اريد|نعم))/i)
+    .map(clause => clause.trim()).filter(Boolean);
+}
+
+export function mentionsService(message, service) {
   const text = normalizeBuyerText(message).toLowerCase();
-  if (!/\b(?:no|don'?t|do not|not|without|skip)\b/.test(text)) return [];
-  return services.filter(service => service.keywords.some(keyword => {
-    const index = text.indexOf(keyword);
-    if (index === -1) return false;
-    const before = text.slice(Math.max(0, index - 45), index);
-    return /\b(?:no|don'?t|do not|not|without|skip)\b/.test(before);
-  })).map(service => service.id);
+  const terms = [...(service.keywords || []), service.name, service.nameAr].filter(Boolean);
+  return terms.some(term => {
+    const normalized = String(term).toLowerCase();
+    let from = 0;
+    while (from < text.length) {
+      const index = text.indexOf(normalized, from);
+      if (index < 0) return false;
+      const before = text[index - 1] || "";
+      const after = text[index + normalized.length] || "";
+      if (!/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after)) return true;
+      from = index + normalized.length;
+    }
+    return false;
+  });
+}
+
+export function isServiceRefusal(clause) {
+  const text = normalizeBuyerText(clause).toLowerCase();
+  return /\b(?:no|don'?t|do not|without|skip|not interested|not needed|not for me|not now|decline)\b|(?:لا\s+(?:أريد|اريد|أحتاج|احتاج|أرغب|ارغب)|لا حاجة|لست مهتم|بدون|غير مهتم|ليس الآن)/i.test(text);
 }
 
 /**
@@ -90,8 +118,13 @@ export function suggestService({ buyer, topic = null, pack = null, services = lo
     if (!trigger) continue;
     const record = `${service.id}:${trigger}`;
     if (suggested.has(record)) continue;
-    const line = service.feeText ? `${service.pitch} The fee is ${service.feeText}.` : service.pitch;
-    return { id: service.id, trigger, record, line, amounts: amountsIn(service.feeText), percents: percentsIn(service.feeText) };
+    const ar = buyer.language === "ar";
+    if (ar && !service.pitchAr) continue;
+    const pitch = ar ? service.pitchAr : service.pitch;
+    const fee = ar ? service.feeTextAr : service.feeText;
+    const line = fee ? `${pitch} ${ar ? "الرسوم" : "The fee is"} ${fee}.` : pitch;
+    const prompt = ar ? `هل تريد المساعدة في ترتيب ${service.nameAr || "هذه الخدمة"}؟` : `Would you like help arranging ${service.name}?`;
+    return { id: service.id, trigger, record, line, prompt, pendingOffer: { type: "service_offer", serviceId: service.id }, amounts: amountsIn(fee), percents: percentsIn(fee) };
   }
   return null;
 }
@@ -99,14 +132,14 @@ export function suggestService({ buyer, topic = null, pack = null, services = lo
 /** Fee amounts the owner configured, so the fact checker can accept them. */
 export function configuredServiceTerms(services = loadServices()) {
   return {
-    amounts: services.flatMap(service => amountsIn(service.feeText)),
-    percents: services.flatMap(service => percentsIn(service.feeText))
+    amounts: services.flatMap(service => [...amountsIn(service.feeText), ...amountsIn(service.feeTextAr)]),
+    percents: services.flatMap(service => [...percentsIn(service.feeText), ...percentsIn(service.feeTextAr)])
   };
 }
 
 function amountsIn(text) {
   if (!text) return [];
-  return [...String(text).matchAll(/(?:AED|Dhs|Dh)\s*([\d,]+(?:\.\d+)?)/gi)].map(hit => Math.round(Number(hit[1].replace(/,/g, ""))));
+  return [...normalizeBuyerText(text).matchAll(/(?:AED|Dhs|Dh)\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*(?:درهم|دراهم)/gi)].map(hit => Math.round(Number((hit[1] || hit[2]).replace(/,/g, ""))));
 }
 
 function percentsIn(text) {

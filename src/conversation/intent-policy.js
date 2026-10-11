@@ -1,5 +1,5 @@
 import { normalizeBuyerText } from "./text.js";
-import { wantsHuman } from "./contact.js";
+import { isAgentEducationQuestion, wantsHuman } from "./contact.js";
 import { OUTCOME_LABELS, contactPermissions, permittedNextAction } from "./outcomes.js";
 /**
  * Buyer intent and call-request policy for Milestone 3.
@@ -23,6 +23,16 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
   let nextIntents = [...intents];
   let nextSignals = [...signals];
   const nextFacts = { ...facts };
+  if (isAgentEducationQuestion(text)) {
+    nextIntents = without(nextIntents, ["agent", "high_intent", "search"]);
+    nextSignals = without(nextSignals, ["agent_request", "high_intent"]);
+    nextIntents.push("education");
+  }
+  if (isNegatedBuying(text)) {
+    nextIntents = without(nextIntents, ["reserve", "high_intent", "search"]);
+    nextSignals = without(nextSignals, ["reserve_interest", "buy_interest", "high_intent"]);
+    nextIntents.push("browsing");
+  }
 
   if (isInformationalEoi(text) && !wantsCallRequest(text)) {
     nextIntents = without(nextIntents, ["reserve", "viewing", "callback", "agent", "high_intent", "request_call"]);
@@ -125,7 +135,13 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
   };
 }
 
+export function isNegatedBuying(message) {
+  const text = normalizeBuyerText(message);
+  return /\b(?:don'?t|do not|not|never)\s+(?:want|ready|going|interested)\b.{0,30}\b(?:buy|buying|reserve|proceed)\b|\b(?:not buying|no purchase|not ready to buy)\b|(?:لا\s+(?:أريد|اريد|أرغب|ارغب)|لست جاهز|غير مستعد).{0,25}(?:شراء|الشراء|الحجز)/i.test(text);
+}
+
 export function hasBuyingInterest(intents = [], signals = [], message = "") {
+  if (isNegatedBuying(message) && !wantsHuman(message) && !wantsCallRequest(message)) return false;
   if (intents.includes("decline_call") || intents.includes("decline_reserve") || intents.includes("eoi_info")) {
     return false;
   }
@@ -283,6 +299,9 @@ export function buildCallRequestSummary(buyer, { matches = [], reason = "Request
   const declined = (buyer.declinedSuggestions || []).filter(item => item.startsWith("service:")).map(item => readable(item.slice(8)));
   if (buyer.upgradeDeclined) declined.push("upgrade above budget");
   if (declined.length) lines.push(`Declined: ${declined.join(", ")}`);
+  if (buyer.serviceRequest?.status === "requested") lines.push(`Service requested: ${buyer.serviceRequest.name || buyer.serviceRequest.serviceId}`);
+  const selectedUnit = matches[0]?.unit;
+  if (selectedUnit?.bedrooms != null || selectedUnit?.propertyType) lines.push(`Selected home: ${[selectedUnit.propertyType, selectedUnit.bedrooms != null ? `${selectedUnit.bedrooms} bedroom${selectedUnit.bedrooms === 1 ? "" : "s"}` : null].filter(Boolean).join(", ")}`);
   const project = matches[0]?.project?.name || buyer.projectInterest;
   if (project) lines.push(`Interested in: ${project}`);
   lines.push(`Requested action: ${buyer.requestedAction || reason}`);
