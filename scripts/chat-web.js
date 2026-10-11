@@ -135,6 +135,7 @@ const server = http.createServer(async (req, res) => {
       memory: memoryStatus(),
       source: store.source || "local",
       milestone: 3,
+      buyerDecisions: { enabled: engine.buyerDecisions.enabled, pilotHomeTypes: engine.buyerDecisions.pilotUnitIds?.length || 0 },
       integrations: {
         metaConfigured: Boolean(process.env.META_PAGE_ACCESS_TOKEN && process.env.META_APP_SECRET),
         instagramPoller:

@@ -32,8 +32,12 @@ export function mergeBuyer(existing, patch) {
       if (typeof value === "boolean") next[key] = value;
       continue;
     }
-    if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "investmentObjective"].includes(key)) {
+    if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "lastUpgradeUnitId", "investmentObjective"].includes(key)) {
       if (value === null || (typeof value === "string" && value.trim())) next[key] = value;
+      continue;
+    }
+    if (["decisionComparison", "decisionPendingOffer", "selectedListing", "serviceRequest"].includes(key)) {
+      if (value === null || (value && typeof value === "object" && !Array.isArray(value))) next[key] = value;
       continue;
     }
     if (key === "salesPathStopped" || key === "noCalls") {
@@ -93,6 +97,7 @@ export function mergeBuyer(existing, patch) {
     if (Array.isArray(patch[field])) next[field] = uniqueStrings([...(base[field] || []), ...patch[field]]).slice(-100);
   }
   if (patch.rejectionReasons && typeof patch.rejectionReasons === "object") next.rejectionReasons = { ...base.rejectionReasons, ...patch.rejectionReasons };
+  if (patch.listingRejectionReasons && typeof patch.listingRejectionReasons === "object") next.listingRejectionReasons = { ...base.listingRejectionReasons, ...patch.listingRejectionReasons };
   if (Array.isArray(patch.objections)) {
     const objections = [...(base.objections || [])];
     for (const raw of patch.objections) {
@@ -249,24 +254,32 @@ export class BuyerService {
   }
 
   /** Record only inventory actually presented, without replacing buyer criteria. */
-  async recordAdvisoryExposure(instagramUserId, { projectIds = [], primaryProjectId = null, primaryUnitId = null, upgradeProjectId = null } = {}) {
+  async recordAdvisoryExposure(instagramUserId, { projectIds = [], primaryProjectId = null, primaryUnitId = null, upgradeProjectId = null, upgradeUnitId = null } = {}) {
     const patch = { shownProjects: projectIds.filter(Boolean) };
     if (primaryProjectId) {
       patch.activeRecommendationProjectId = primaryProjectId;
       patch.activeRecommendationUnitId = primaryUnitId;
     }
-    if (upgradeProjectId) patch.lastUpgradeProjectId = upgradeProjectId;
+    if (upgradeProjectId) {
+      patch.lastUpgradeProjectId = upgradeProjectId;
+      patch.lastUpgradeUnitId = upgradeUnitId;
+    }
     return this.patchBuyer(instagramUserId, patch);
   }
 
   /** Bind a current objection to its offer so the next suggestion solves it. */
-  async recordObjection(instagramUserId, { projectId = null, unitId = null, category, factFingerprint = null, evidenceState = null } = {}) {
+  async recordObjection(instagramUserId, { projectId = null, unitId = null, category, factFingerprint = null, evidenceState = null, listingScoped = false } = {}) {
     if (!OBJECTION_CATEGORIES.includes(category)) return this.getOrCreate(instagramUserId);
     const buyer = await this.getOrCreate(instagramUserId);
     const at = nowIso();
     const patch = { concerns: [category], objections: [{ category, projectId, unitId, resolved: false, at }] };
     const propertyRejection = !["needs_time", "already_has_agent", "no_calls", "trust_concern"].includes(category);
-    if (projectId && propertyRejection) {
+    if (listingScoped && projectId && unitId && propertyRejection && !["wrong_area", "developer_concern"].includes(category)) {
+      const key = `${projectId}|${unitId}`;
+      const prior = buyer.listingRejectionReasons?.[key];
+      patch.listingRejectionReasons = { [key]: { categories: uniqueStrings([...(prior?.categories || []), category]), projectId, unitId, factFingerprint, evidenceState, resolved: false, at } };
+      if (projectId === buyer.lastUpgradeProjectId && unitId === buyer.lastUpgradeUnitId) patch.upgradeDeclined = true;
+    } else if (projectId && propertyRejection) {
       const prior = buyer.rejectionReasons?.[projectId];
       patch.rejectedProjects = [projectId];
       patch.rejectionReasons = { [projectId]: { categories: uniqueStrings([...(prior?.categories || []), category]), unitId, factFingerprint, evidenceState, resolved: false, at } };
@@ -297,6 +310,7 @@ export class BuyerService {
       language: existing.language,
       // A fresh search keeps the buyer's stated refusals, not old suggestions.
       declinedSuggestions: existing.declinedSuggestions || [],
+      commercialEvents: existing.commercialEvents || [],
       createdAt: existing.createdAt || nowIso(),
       updatedAt: nowIso(),
       lastSeenAt: nowIso()

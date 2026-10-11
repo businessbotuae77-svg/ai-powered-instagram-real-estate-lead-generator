@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "inspectedAt": "2026-10-11T14:10:47.000Z",
+  "source": {
+    "provider": "airtable",
+    "baseId": "appbIG0pZvueaTp07",
+    "projectsTableId": "tblfDGRYAajQj2Eoe",
+    "unitsTableId": "tbl2WNB2G2YjG1ikb"
+  },
+  "purpose": "Controlled home-type pilot: six apartments and six family homes. This selection is not approval to quote or reserve.",
+  "inspection": {
+    "catalogueProjects": 36,
+    "catalogueUnits": 105,
+    "pilotPriceRows": 5,
+    "explicitInitialPaymentRows": 0,
+    "confirmedAvailabilityRows": 0,
+    "notes": [
+      "Every selected row needs broker availability verification.",
+      "Seven pilot rows lack a confirmed unit-type price.",
+      "Bashayer and Muheira lack a published payment-plan summary.",
+      "Al Naseem has a partial 40/60 plan; booking and construction split remain unknown.",
+      "Nawayef East plan applies to Homes only; Heights and Mansions are excluded.",
+      "Inspection is historical context. Recheck live data before rollout; do not use this manifest as commercial evidence."
+    ]
+  },
+  "units": [
+    {
+      "unitId": "rec1dCTLv4qDCoADq",
+      "name": "Nawayef Park Views 1BR Apartment",
+      "projectId": "rechIsmpeP1yUp3ht",
+      "projectName": "Nawayef Park Views",
+      "segment": "apartments",
+      "propertyType": "apartment",
+      "bedrooms": 1,
+      "selectionReason": "Published starting price and plan; adjacent bedroom variant for a cash comparison."
+    },
+    {
+      "unitId": "rec3BI8eE8QiK3kWG",
+      "name": "Nawayef Park Views 2BR Apartment",
+      "projectId": "rechIsmpeP1yUp3ht",
+      "projectName": "Nawayef Park Views",
+      "segment": "apartments",
+      "propertyType": "apartment",
+      "bedrooms": 2,
+      "selectionReason": "Adjacent bedroom variant to the priced 1BR row; its own price must be confirmed."
+    },
+    {
+      "unitId": "recuH6LbZqEQJHwA4",
+      "name": "Bashayer 1BR Apartment",
+      "projectId": "recV8Af6bt2d31jip",
+      "projectName": "Bashayer",
+      "segment": "apartments",
+      "propertyType": "apartment",
+      "bedrooms": 1,
+      "selectionReason": "Published starting price and size range; adjacent bedroom variant for comparison."
+    },
+    {
+      "unitId": "recN4lem2rSlZrfNE",
+      "name": "Bashayer 2BR Apartment",
+      "projectId": "recV8Af6bt2d31jip",
+      "projectName": "Bashayer",
+      "segment": "apartments",
+      "propertyType": "apartment",
+      "bedrooms": 2,
+      "selectionReason": "Published size range and adjacent bedroom variant; confirm its own commercial terms."
+    },
+    {
+      "unitId": "rec3inzVi75CcvVqj",
+      "name": "Muheira 1BR Apartment",
+      "projectId": "rec1ZBwrnPPihFmmX",
+      "projectName": "Muheira",
+      "segment": "apartments",
+      "propertyType": "apartment",
+      "bedrooms": 1,
+      "selectionReason": "Published size range; paired bedroom variants broaden the apartment pilot."
+    },
+    {
+      "unitId": "recBjnraQzWhPGKS4",
+      "name": "Muheira 2BR Apartment",
+      "projectId": "rec1ZBwrnPPihFmmX",
+      "projectName": "Muheira",
+      "segment": "apartments",
+      "propertyType": "apartment",
+      "bedrooms": 2,
+      "selectionReason": "Published size range; paired bedroom variants broaden the apartment pilot."
+    },
+    {
+      "unitId": "recYcGqW5I3aVWxPw",
+      "name": "Al Naseem Community 4BR Villa",
+      "projectId": "recBurbYOnLovzFGF",
+      "projectName": "Al Naseem Community",
+      "segment": "family",
+      "propertyType": "villa",
+      "bedrooms": 4,
+      "selectionReason": "Published starting price and partial plan; family bedroom variants share one project."
+    },
+    {
+      "unitId": "recR5qC7PUS2ApMIR",
+      "name": "Al Naseem Community 5BR Villa",
+      "projectId": "recBurbYOnLovzFGF",
+      "projectName": "Al Naseem Community",
+      "segment": "family",
+      "propertyType": "villa",
+      "bedrooms": 5,
+      "selectionReason": "Published starting price and size; family bedroom variants share one project."
+    },
+    {
+      "unitId": "recawaww1siXbYyie",
+      "name": "Al Naseem Community 6BR Villa",
+      "projectId": "recBurbYOnLovzFGF",
+      "projectName": "Al Naseem Community",
+      "segment": "family",
+      "propertyType": "villa",
+      "bedrooms": 6,
+      "selectionReason": "Published starting price; family bedroom variants share one project."
+    },
+    {
+      "unitId": "recnmK2OAeg7lMnT2",
+      "name": "Nawayef East Homes 4BR Villa",
+      "projectId": "recwUlm5ZEzaTGwvf",
+      "projectName": "Nawayef East",
+      "segment": "family",
+      "propertyType": "villa",
+      "bedrooms": 4,
+      "selectionReason": "Homes collection plan has an explicit booking split; price remains unconfirmed."
+    },
+    {
+      "unitId": "recy4W8WtndsKd3Tk",
+      "name": "Nawayef East Homes 5BR Villa",
+      "projectId": "recwUlm5ZEzaTGwvf",
+      "projectName": "Nawayef East",
+      "segment": "family",
+      "propertyType": "villa",
+      "bedrooms": 5,
+      "selectionReason": "Homes collection plan has an explicit booking split; paired family bedroom variant."
+    },
+    {
+      "unitId": "recPlNAzI0AmmhVee",
+      "name": "Muheira 3BR Apartment",
+      "projectId": "rec1ZBwrnPPihFmmX",
+      "projectName": "Muheira",
+      "segment": "family",
+      "propertyType": "apartment",
+      "bedrooms": 3,
+      "selectionReason": "Published size range; larger-home alternative linked to the apartment pair."
+    }
+  ]
+}

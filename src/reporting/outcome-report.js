@@ -4,6 +4,7 @@
 // call requests. No buyer message text is included beyond the unanswered question.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { COMMERCIAL_EVENT_TYPES, normalizeCommercialEvent } from "../conversation/commercial-events.js";
 import { OUTCOME_LABELS, OUTCOME_PRECEDENCE, contactPermissions, isFinal, permittedNextAction } from "../conversation/outcomes.js";
 
 const DUBAI_OFFSET_MS = 4 * 3600000;
@@ -34,8 +35,16 @@ export function buildDailyReport({ buyers = [], callRequests = [], day, now = Da
   const handoffs = { requested: 0, delivered: 0, failed: 0, cancelled: 0 };
   const intentAlerts = { delivered: 0, failed: 0, not_sent: 0, pending: 0 };
   const restrictions = { optedOut: 0, noCalls: 0, declinedFollowUp: 0 };
+  const commercial = Object.fromEntries(COMMERCIAL_EVENT_TYPES.map(type => [type, 0]));
 
   for (const buyer of buyers) {
+    const countedEvents = new Set();
+    for (const raw of Array.isArray(buyer.commercialEvents) ? buyer.commercialEvents : []) {
+      const event = normalizeCommercialEvent(raw);
+      if (!event || countedEvents.has(event.id) || dubaiDay(event.at) !== day) continue;
+      countedEvents.add(event.id);
+      commercial[event.type] += 1;
+    }
     const sessions = sessionsOn(buyer, day);
     for (const session of sessions) {
       conversations += 1;
@@ -74,6 +83,7 @@ export function buildDailyReport({ buyers = [], callRequests = [], day, now = Da
   const requests = callRequests.filter(row => row.at && dubaiDay(row.at) === day);
   return {
     day, conversations, final, open: conversations - final, outcomes, unresolved, handoffs, intentAlerts, restrictions,
+    commercial,
     recordedRequests: { contact: requests.filter(row => row.kind !== "intent").length, intent: requests.filter(row => row.kind === "intent").length }
   };
 }
@@ -98,6 +108,8 @@ export function formatDailyReport(report) {
   lines.push(`Handoff requests: ${h.requested} (delivered ${h.delivered}, failed ${h.failed}, cancelled ${h.cancelled})`);
   const i = report.intentAlerts;
   lines.push(`Lead alerts: delivered ${i.delivered}, failed ${i.failed}, not sent ${i.not_sent}`);
+  const c = report.commercial || {};
+  lines.push(`Buyer decisions: comparisons delivered ${c.comparison_delivered || 0}, home types selected ${c.home_type_selected || 0}, broker requests delivered ${c.broker_request_delivered || 0}, service requests delivered ${c.service_request_delivered || 0}`);
   const r = report.restrictions;
   lines.push(`Restrictions: opted out ${r.optedOut}, no calls ${r.noCalls}, declined follow-up ${r.declinedFollowUp}`);
   if (report.unresolved.length) {

@@ -484,9 +484,9 @@ export function fallbackSafeText(packs) {
   const seenCommercial = new Set();
   const commercial = [];
   for (const pack of packs) {
-    if (pack.knowledgeOnly || !pack.unitId || seenCommercial.has(pack.projectId)) continue;
+    if (pack.knowledgeOnly || !pack.unitId || seenCommercial.has(`${pack.projectId}|${pack.unitId}`)) continue;
     commercial.push(pack);
-    seenCommercial.add(pack.projectId);
+    seenCommercial.add(`${pack.projectId}|${pack.unitId}`);
   }
   const projectOnly = packs.filter(pack => (pack.knowledgeOnly || !pack.unitId) && !commercialProjectIds.has(pack.projectId));
   const projectRows = projectOnly.map(pack => {
@@ -559,8 +559,8 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   if (strategy.type === "trust_check") {
     const prompt = buyer.language === "ar" ? "ما الذي تريد التحقق منه: تفاصيل المشروع أم الأسعار أم إجراءات الشراء؟" : "What would you like to verify first — the project details, the figures, or the buying process?";
     const answer = buyer.language === "ar"
-      ? "سؤال في محله. أنا مساعد يعمل بالذكاء الاصطناعي، والأرقام التي أشاركها من قوائمنا الحالية، ولا يتم حجز أو دفع أي شيء عبر هذه المحادثة."
-      : "That's a fair question. I'm an AI assistant, the figures I share come from our current listings, and nothing is reserved or paid through this chat.";
+      ? "سؤال في محله. أنا مساعد عقاري آلي، والأرقام التي أشاركها من قوائمنا الحالية، ولا يتم حجز أو دفع أي شيء عبر هذه المحادثة."
+      : "That's a fair question. I'm an automated property guide, the figures I share come from our current listings, and nothing is reserved or paid through this chat.";
     return { text: `${answer} ${prompt}`, stage: "trust_check", nextQuestion: { field: "trustConcern", prompt }, pendingOffer: null, callRequest: null };
   }
   if (buyer.language === "ar") return buildArabicAdvisorReply({ buyer, advisor, strategy, message });
@@ -710,7 +710,8 @@ function advisorDraft(text, advisor, action, prompt, packs = advisor.packs) {
     advisoryExposure: {
       projectIds: advisor.matches.map(m => m.project.id),
       primaryProjectId: advisor.primary.projectId, primaryUnitId: advisor.primary.unitId,
-      upgradeProjectId: advisor.challenger?.type === "smart_upgrade" ? advisor.challenger.projectId : null
+      upgradeProjectId: advisor.challenger?.type === "smart_upgrade" ? advisor.challenger.projectId : null,
+      upgradeUnitId: advisor.challenger?.type === "smart_upgrade" ? advisor.challenger.unitId : null
     }
   };
 }

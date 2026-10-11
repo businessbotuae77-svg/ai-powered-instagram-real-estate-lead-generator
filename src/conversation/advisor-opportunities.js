@@ -119,6 +119,7 @@ function getCandidates(catalog, buyer, options) {
   for (const unit of safe.units) {
     const project = safe.projects.find(row => row.id === unit.projectId);
     if (!project || !unit.active || project.developerActive === false) continue;
+    if (options.buyerDecisionsEnabled && options.pilotUnitIds?.length && !options.pilotUnitIds.includes(unit.inventoryUnitId || unit.id)) continue;
     if (project.developerId && safe.developers?.length && !safe.developers.some(row => row.id === project.developerId && row.active)) continue;
     // A catalogue prohibition cannot be relaxed by sales or buyer flexibility.
     if (sameText(normalizeArea(project.area), "Hudayriyat Island") && (unit.bedrooms === 0 || normalizePropertyType(unit.propertyType) === "studio")) continue;
@@ -148,7 +149,7 @@ export function commercialEvidenceFingerprint(candidate) {
 }
 
 function rejectionResolvedByEvidence(candidate, buyer) {
-  const reasons = buyer.rejectionReasons?.[candidate.project.id];
+  const reasons = buyer.listingRejectionReasons?.[`${candidate.project.id}|${candidate.unit.id}`] || buyer.rejectionReasons?.[candidate.project.id];
   if (!reasons || reasons.resolved) return false;
   let prior = reasons.evidenceState;
   if (!prior && reasons.factFingerprint) {
@@ -178,7 +179,7 @@ function rejectionResolvedByEvidence(candidate, buyer) {
 function isRejected(candidate, buyer, options) {
   const projectId = candidate.project.id;
   if ((options.explicitRequestedProjectIds || []).includes(projectId)) return false;
-  const reasons = buyer.rejectionReasons?.[projectId];
+  const reasons = buyer.listingRejectionReasons?.[`${projectId}|${candidate.unit.id}`] || buyer.rejectionReasons?.[projectId];
   if (reasons?.resolved === true || rejectionResolvedByEvidence(candidate, buyer)) return false;
   return (buyer.rejectedProjects || []).some(item => (typeof item === "string" ? item : item.projectId) === projectId) || Boolean(reasons && reasons.resolved !== true);
 }
@@ -548,6 +549,10 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const originalBudgetDirect = directMatches.filter(withinOriginal);
   const relevantDirect = referenceFresh && hasSuitabilityObjection ? originalBudgetDirect.filter(candidate => (rejectionResolvedByEvidence(candidate, buyer) || candidate.unit.id !== referenceFresh.unit.id && graphAllows(referenceFresh, candidate) && solvesObjection(compareBenefits(referenceFresh, candidate, buyer, context), context))) : originalBudgetDirect;
   let primaryCandidate = relevantDirect[0] || null;
+  if (options.buyerDecisionsEnabled && options.preserveBaseline !== false && !hasSuitabilityObjection && referenceFresh &&
+      (withinOriginal(referenceFresh) || (buyer.selectedListing?.projectId === referenceFresh.project.id && buyer.selectedListing?.unitId === referenceFresh.unit.id)) &&
+      !eligibility(referenceFresh, buyer, budgetPolicy.ceilingAed, options).length &&
+      (!preferenceGaps(referenceFresh, buyer).length || buyer.selectedListing?.unitId === referenceFresh.unit.id)) primaryCandidate = referenceFresh;
   if (!primaryCandidate && referenceFresh) {
     primaryCandidate = sortByFit(eligible.filter(candidate => withinOriginal(candidate) && graphAllows(referenceFresh, candidate) && canChallenge(candidate, buyer, context) && relevantChallengeBenefits(candidate, referenceFresh, buyer, context).length && solvesObjection(relevantChallengeBenefits(candidate, referenceFresh, buyer, context), context)))[0] || null;
   }
@@ -572,7 +577,7 @@ export function buildAdvisorOpportunities(catalog, buyer, options = {}) {
   const challengerRows = eligible.filter(candidate => candidate.unit.id !== primaryCandidate.unit.id && graphAllows(primaryCandidate, candidate) && canChallenge(candidate, buyer, context)).map(candidate => ({ candidate, benefits: relevantChallengeBenefits(candidate, primaryCandidate, buyer, context) })).filter(row => row.benefits.length && solvesObjection(row.benefits, context));
   const usefulChallengers = challengerRows.filter(row => {
     const costsMore = value(row.candidate.factPack, "startingPriceAed") > value(primaryCandidate.factPack, "startingPriceAed");
-    return !costsMore || (!buyer.upgradeDeclined && row.candidate.project.id !== buyer.lastUpgradeProjectId && row.benefits.some(item => item.code !== "lower_starting_price"));
+    return !costsMore || (!buyer.upgradeDeclined && (options.buyerDecisionsEnabled ? !(row.candidate.project.id === buyer.lastUpgradeProjectId && row.candidate.unit.id === buyer.lastUpgradeUnitId) : row.candidate.project.id !== buyer.lastUpgradeProjectId) && row.benefits.some(item => item.code !== "lower_starting_price"));
   });
   usefulChallengers.sort((a, b) => {
     const priorityA = a.benefits.some(item => item.code === "lower_initial_commitment") && objections.has("initial_payment_too_high") ? 1 : 0;

@@ -3,7 +3,7 @@ import { KeyedQueue } from "./keyed-queue.js";
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
 import { decideConversation, isClosingRemark } from "./decision.js";
 import { conversationalScope } from "./question-scope.js";
-import { contactDecision, wantsHuman } from "./contact.js";
+import { contactDecision, wantsHuman, agentEducationReply } from "./contact.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
 import { extractFactsFromMessage } from "./extract.js";
 import { ConversationMemory } from "./memory.js";
@@ -31,13 +31,17 @@ import { nextStepFor, offeredRecently } from "./next-step.js";
 import { isAffirmation, resolveAffirmation } from "./affirmation.js";
 import { retrieveFacts } from "../facts/retrieval.js";
 import { brokerProfile, directContactLine, permittedContactDetails } from "./broker-profile.js";
-import { declinesOffer, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
+import { declinesOffer, isBareDecline, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
+import { routeServiceTurn } from "./service-flow.js";
+import { loadBuyerDecisionsConfig } from "./buyer-decisions-config.js";
+import { buildBuyerDecisionTurn, decorateBuyerDecisionDraft, decisionControlKind, budgetPermissionFacts, decisionScope, inspectDecisionComparison } from "./buyer-decision-flow.js";
 import {
   buildCallRequestSummary,
   hasBuyingInterest,
   intentAlertFor,
   refineTurnIntent,
+  isNegatedBuying,
   wantsCallRequest
 } from "./intent-policy.js";
 
@@ -60,13 +64,14 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
-  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null } = {}) {
+  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null, buyerDecisions = null } = {}) {
     if (!buyers || !properties) throw new Error("ConversationEngine requires buyers and properties");
     this.buyers = buyers;
     this.properties = properties;
     this.memory = memory || new ConversationMemory();
     // Claude composes replies directly from the catalogue unless BROKER_MODE=off.
     this.advisorOptions = advisorOptions;
+    this.buyerDecisions = buyerDecisions || loadBuyerDecisionsConfig();
     // The human the bot hands off to, and the owner-approved complementary services.
     this.broker = broker || brokerProfile();
     this.services = services || loadServices();
@@ -188,9 +193,41 @@ export class ConversationEngine {
     intents = refined.intents;
     // "No thanks" to a connection offer declines that offer only; it does not
     // end the conversation. An explicit request for a person always wins.
-    const pendingAtStart = this.memory.getPendingOffer(instagramUserId);
+    const pendingAtStart = this.memory.getPendingOffer(instagramUserId) || (this.buyerDecisions.enabled ? existingBuyer.decisionPendingOffer : null);
+    const decisionKind = this.buyerDecisions.enabled ? decisionControlKind(text, existingBuyer.decisionComparison) : null;
+    if (decisionKind) {
+      for (const field of ["area", "areas", "project", "bedrooms", "propertyType", "propertyTypes", "openToOtherAreas", "areaFlexibility"]) delete facts[field];
+      if (!/\bbudget\b|ميزاني/i.test(text)) delete facts.budget;
+      if (!/\bcash (?:available|budget)\b/i.test(text)) delete facts.cash;
+      const correction = text.match(/\b(?:but|actually|instead|correction)\b(.+)$|(?:لكن|ولكن|بل)(.+)$/i);
+      if (correction) {
+        const corrected = extractFactsFromMessage(correction[1] || correction[2], { buyer: existingBuyer }).facts;
+        for (const field of ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes", "openToOtherAreas", "areaFlexibility"]) {
+          if (corrected[field] !== undefined) facts[field] = corrected[field];
+        }
+      }
+      if (decisionKind === "choose" && !/\breserve\b|احجز/.test(text)) {
+        intents = intents.filter(intent => !["reserve", "high_intent"].includes(intent));
+        signals = signals.filter(signal => !["reserve_interest", "buy_interest", "high_intent"].includes(signal));
+      }
+    }
+    const permissionFacts = this.buyerDecisions.enabled ? budgetPermissionFacts(text, existingBuyer, pendingAtStart) : null;
+    if (permissionFacts !== null) {
+      for (const field of ["budget", "cash", "budgetHardCap", "budgetFirm", "budgetFlexible", "budgetStretchAed", "budgetFlexibilityPct", "upgradeDeclined"]) delete facts[field];
+      Object.assign(facts, permissionFacts);
+      if (isBareDecline(text) || isAffirmation(text)) {
+        intents = intents.filter(intent => !["stop", "decline_contact"].includes(intent));
+        delete facts.salesPathStopped;
+        delete facts.contactDeclined;
+      }
+    }
+    if (pendingAtStart?.type === "service_offer" && isBareDecline(text)) {
+      intents = intents.filter(intent => !["stop", "decline_contact"].includes(intent));
+      delete facts.salesPathStopped;
+      delete facts.contactDeclined;
+    }
     const humanRequest = wantsHuman(text);
-    if (pendingAtStart?.type === "handoff_offer" && declinesOffer(text) && !humanRequest) {
+    if (pendingAtStart?.type === "handoff_offer" && declinesOffer(text) && !humanRequest && !declinedServiceIds(text, this.services).length) {
       intents = [...intents.filter(i => !["stop", "decline_call", "decline_contact"].includes(i)), "decline_handoff"];
       delete facts.salesPathStopped;
       facts.contactDeclined = true;
@@ -372,7 +409,7 @@ export class ConversationEngine {
     }
     const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog();
     const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
-    if (namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
+    if (!decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
       facts.project = namedProjects[0].name;
       buyer = await this.buyers.remember(instagramUserId, { project: facts.project });
@@ -389,20 +426,22 @@ export class ConversationEngine {
           downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }) } : null;
         buyer = await this.buyers.recordObjection(instagramUserId, {
           projectId, unitId: buyer.activeRecommendationUnitId,
-          category: objection.category,
+          category: objection.category, listingScoped: this.buyerDecisions.enabled,
           ...(rejected ? { factFingerprint: commercialEvidenceFingerprint(rejected), evidenceState: commercialEvidenceState(rejected) } : {})
         });
       }
     }
     if (facts.upgradeDeclined && buyer.lastUpgradeProjectId && this.buyers.recordObjection) {
       buyer = await this.buyers.recordObjection(instagramUserId, {
-        projectId: buyer.lastUpgradeProjectId, category: "too_expensive"
+        projectId: buyer.lastUpgradeProjectId, unitId: buyer.lastUpgradeUnitId, category: "too_expensive", listingScoped: this.buyerDecisions.enabled
       });
     }
     let matchResult = resolveMatches(catalog, buyer);
     const explicitRequestedProjectIds = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()) &&
       /\b(show|review|reconsider|back to|tell me|focus|want)\b/i.test(text)).map(p => p.id);
     const advisor = buildAdvisorOpportunities(catalog, buyer, { ...this.advisorOptions, explicitRequestedProjectIds,
+      buyerDecisionsEnabled: this.buyerDecisions.enabled, pilotUnitIds: this.buyerDecisions.pilotUnitIds,
+      preserveBaseline: !existingBuyer.decisionComparison || existingBuyer.decisionComparison.scope === decisionScope(buyer),
       requestedRecommendation: /\b(recommend|show|compare|options|keep looking)\b/i.test(text) });
     advisor.areaGuide = areaGuideFromCatalog(catalog);
     const strategy = determineAdvisorStrategy({ buyer, advisor, message: text,
@@ -467,8 +506,10 @@ export class ConversationEngine {
     const alertReason = alertRecommended ? (callRequestSubmitted ? "call_request" : "follow_up") : null;
     const turnObjections = (facts.objections || []).map(o => o.category);
     const askedFields = new Set(this.memory.getTurns(instagramUserId).map(turn => turn.role === "assistant" && turn.questionField).filter(Boolean));
-    let draft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
+    const serviceDraft = routeServiceTurn({ message: text, buyer, services: this.services, pendingOffer: pendingAtStart });
+    let draft = (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
       askedFields });
+    if (!contact && !serviceDraft && isNegatedBuying(text) && !searchUpdateForDecision(facts)) draft = { text: buyer.language === "ar" ? "بالتأكيد. يمكنك تصفح المشاريع أو السؤال عنها متى أردت." : "Of course. You can browse or ask about a project whenever you’re ready.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
     // "Yes" to "Want me to break down the payment plan?" offered about a project
     // the engine has not picked: answer it from that project's listings.
     const offered = pendingAtStart?.type === "advisory_next_action" && pendingAtStart.projectId && isAffirmation(text) && !contact ? pendingAtStart : null;
@@ -485,20 +526,21 @@ export class ConversationEngine {
         packs = unitPacks;
       }
     }
-    if (!contact && ["resolve_objection", "trust_check"].includes(strategy?.type) && !["paused", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "exploring", "welcome_back"].includes(draft?.stage)) {
+    if (!contact && !draft?.suppressCommercial && ["resolve_objection", "trust_check"].includes(strategy?.type) && !["paused", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "exploring", "welcome_back"].includes(draft?.stage)) {
       draft = buildAdvisorReply({ buyer, advisor, strategy, message: text, turnObjections, lastAskedField, askedFields });
       matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
       packs = [];
     }
     if (contact && !["paused", "permissions_updated"].includes(draft?.stage)) draft = contact;
     if (contact && draft?.stage === "permissions_updated" && contact.channel === "whatsapp") draft = contact;
+    if (contact && serviceDraft?.serviceRequest) draft = { ...draft, serviceRequest: serviceDraft.serviceRequest, buyerPatch: serviceDraft.buyerPatch };
     // Buying intent, a quote or a discount question: answer what is known about
     // the option under discussion, then offer the human who can confirm it.
     // A message carrying new search criteria is a search, not a transaction step.
     const searchUpdate = ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
-    const moment = !contact && !buyer.salesPathStopped && !searchUpdate ? transactionMoment(text) : null;
+    const moment = !contact && !draft?.suppressCommercial && !buyer.salesPathStopped && !searchUpdate ? transactionMoment(text) : null;
     // "No need for property management" on its own: acknowledge and move on.
-    if (declinedServices.length && !moment && !searchUpdate && !contact && !/[?؟]/.test(text) && text.split(/\s+/).length <= 10) {
+    if (!serviceDraft && declinedServices.length && !moment && !searchUpdate && !contact && !/[?؟]/.test(text) && text.split(/\s+/).length <= 10) {
       const names = this.services.filter(s => declinedServices.includes(s.id)).map(s => s.name.toLowerCase());
       draft = { text: buyer.language === "ar" ? "تمام، سأستبعد ذلك." : `Understood, I'll leave ${names.join(" and ")} out.`, stage: "suggestion_declined",
         nextQuestion: null, pendingOffer: null, callRequest: null };
@@ -515,11 +557,32 @@ export class ConversationEngine {
       matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
       packs = draft.factPacks;
     }
+    if (this.buyerDecisions.enabled && contact && decisionKind === "choose" && !buyer.salesPathStopped) {
+      const choice = buildBuyerDecisionTurn({ message: text, buyer, advisor, pendingOffer: pendingAtStart });
+      if (choice) {
+        draft = { ...draft, text: `${choice.text}\n${draft.text}`, factPacks: choice.factPacks || [],
+          buyerDecision: true, buyerPatch: choice.buyerPatch, selectedDecision: choice.selectedDecision || null,
+          selectionUnconfirmed: !choice.selectedDecision };
+        packs = draft.factPacks;
+      }
+    }
+    if (this.buyerDecisions.enabled && !contact && !draft?.suppressCommercial && !buyer.salesPathStopped &&
+        !["paused", "permissions_updated", "catalog_unavailable", "handoff_declined"].includes(draft?.stage)) {
+      const decisionDraft = buildBuyerDecisionTurn({ message: text, buyer, advisor, pendingOffer: pendingAtStart });
+      if (decisionDraft) {
+        draft = decisionDraft;
+        packs = draft.factPacks || [];
+        const identities = new Set(packs.map(pack => `${pack.projectId}|${pack.unitId}`));
+        matchResult = { ...matchResult, matches: advisor.candidates.filter(candidate => identities.has(`${candidate.project.id}|${candidate.unit.id}`)), matchCount: packs.length };
+      } else if (buyer.decisionComparison && !inspectDecisionComparison(buyer.decisionComparison, advisor, buyer).valid) {
+        buyer = await this.buyers.patchBuyer(instagramUserId, { decisionComparison: null, decisionPendingOffer: null, selectedListing: null });
+      }
+    }
     // Named commercial comparisons can run before buyer qualification creates
     // advisor.primary. Their concrete fact packs retain the existing gates.
     const concreteComparison = draft?.stage === "comparison" && draft.comparisonFacts &&
       draft.factPacks?.length >= 2 && draft.factPacks.every(pack => pack.unitId && !pack.knowledgeOnly);
-    if (!contact && !concreteComparison && !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "welcome_back", "area_guide"].includes(draft?.stage)) {
+    if (!contact && !draft?.buyerDecision && !draft?.suppressCommercial && !concreteComparison && !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "welcome_back", "area_guide"].includes(draft?.stage)) {
       const research = researchReply({ buyer, catalog, message: text, advisor });
       if (research) draft = research;
     }
@@ -528,6 +591,7 @@ export class ConversationEngine {
       if (draft) packs = draft.factPacks || advisor.packs;
     }
     if (!draft && !contact && !advisor.primary) draft = knowledgeAdvice({ buyer, catalog, message: text, advisor });
+    if (this.buyerDecisions.enabled && draft?.advisoryExposure && !contact) draft = decorateBuyerDecisionDraft(draft, { buyer, advisor });
     // The external handoff uses the offer already discussed, even if a newly
     // volunteered payment preference would otherwise change internal ranking.
     if (contact && buyer.activeRecommendationProjectId && !facts.project) {
@@ -589,15 +653,16 @@ export class ConversationEngine {
     let serviceSuggestion = null;
     // Selective: never in a turn where the buyer declined one, nor within two replies of the last.
     const recentService = this.memory.recentContext(instagramUserId, 4).some(turn => turn.role === "assistant" && turn.serviceId);
-    if (!contact && (draft.allowsServiceSuggestion || draft.serviceTopic) && !buyer.salesPathStopped && !declinedServices.length && !recentService) {
+    if (!contact && !draft.suppressCommercial && !draft.buyerDecision && !draft.nextQuestion && !draft.pendingOffer && !draft.handoffReason && (draft.allowsServiceSuggestion || draft.serviceTopic) && !buyer.salesPathStopped && !declinedServices.length && !recentService) {
       const primaryPack = packs.find(p => p.projectId === buyer.activeRecommendationProjectId) || (draft.advisoryExposure ? packs.find(p => p.projectId === advisor.primary?.projectId) : null);
       serviceSuggestion = suggestService({ buyer, topic: draft.serviceTopic || null, pack: primaryPack || null, services: this.services });
-      if (serviceSuggestion) draft = { ...draft, text: insertBeforeQuestion(draft.text, serviceSuggestion.line, draft.nextQuestion?.prompt) };
+      if (serviceSuggestion) draft = { ...draft, text: `${draft.text}\n${serviceSuggestion.line}\n${serviceSuggestion.prompt}`,
+        nextQuestion: { field: "serviceOffer", prompt: serviceSuggestion.prompt }, pendingOffer: serviceSuggestion.pendingOffer, suppressCommercial: true };
     }
     // Arabic first, so a next step added below is never mixed into an English answer.
     draft = localizeDraft(draft, buyer, packs);
     // Answer first, then at most one useful next step instead of a dead end.
-    if (!contact) {
+    if (!contact && !draft.buyerDecision && !draft.suppressCommercial) {
       const step = nextStepFor(draft, { buyer, recentTurns: this.memory.getTurns(instagramUserId) });
       if (step?.question) draft = { ...draft, text: `${draft.text}\n${step.question.prompt}`, nextQuestion: step.question };
       else if (step) draft = { ...draft, handoffReason: step.handoffReason, handoffTopic: draft.handoffTopic || step.handoffTopic };
@@ -665,7 +730,7 @@ export class ConversationEngine {
     // Compared without a trailing question, so new information is never treated as a repeat.
     const body = text => String(text || "").trim().replace(/\n[^\n]*[?؟]\s*$/, "").trim();
     const recentReplies = this.memory.getTurns(instagramUserId).filter(turn => turn.role === "assistant").slice(-3).map(turn => body(turn.text));
-    if (check.ok && replyText && recentReplies.includes(body(replyText)) && !contact && !["paused", "permissions_updated", "acknowledged"].includes(draft.stage)) {
+    if (check.ok && replyText && recentReplies.includes(body(replyText)) && !contact && !["paused", "permissions_updated", "acknowledged"].includes(draft.stage) && !draft.buyerDecision && !draft.suppressCommercial) {
       const primaryId = draft.advisoryExposure?.primaryProjectId || advisor.primary?.projectId;
       const name = draft.advisoryExposure && primaryId ? (packs.find(p => p.projectId === primaryId)?.name?.value || catalog.projects.find(p => p.id === primaryId)?.name || null) : null;
       const ar = buyer.language === "ar";
@@ -720,6 +785,11 @@ export class ConversationEngine {
       }
     }
     this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
+    if (check.ok && draft.stage !== "fact_check_fallback" && draft.buyerPatch) buyer = await this.buyers.patchBuyer(instagramUserId, draft.buyerPatch);
+    if (check.ok && draft.stage !== "fact_check_fallback" && draft.buyerDecision) {
+      buyer = await this.buyers.patchBuyer(instagramUserId, { decisionPendingOffer: draft.pendingOffer || null });
+      this.memory.setPendingOffer(instagramUserId, draft.pendingOffer || null);
+    }
     if (check.ok && draft.advisoryExposure && strategy?.type === "budget_permission" && draft.stage !== "fact_check_fallback") {
       buyer = await this.buyers.patchBuyer(instagramUserId, { budgetFlexibilityAsked: true });
     }
@@ -809,7 +879,7 @@ export class ConversationEngine {
 
     const activeProject = catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId);
     const activeUnit = catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === activeProject?.id);
-    const handoffMatches = activeProject && activeUnit ? [{ project: activeProject, unit: activeUnit,
+    const handoffMatches = draft.selectionUnconfirmed ? [] : activeProject && activeUnit ? [{ project: activeProject, unit: activeUnit,
       downPaymentAed: activeUnit.initialPaymentAed ?? activeProject.initialPaymentAed }] : matchResult.matches;
     const callSummary = followUpSubmitted
       ? buildCallRequestSummary(buyer, {
@@ -878,6 +948,10 @@ export class ConversationEngine {
       packs,
       advisor,
       strategy,
+      commercialDecision: check.ok && draft.stage !== "fact_check_fallback" && (draft.formattedComparison || draft.selectedDecision || draft.serviceRequest || (followUpSubmitted && buyer.serviceRequest)) ? {
+        ...(draft.formattedComparison || {}), selected: draft.selectedDecision || null,
+        ...(draft.serviceRequest || (followUpSubmitted && buyer.serviceRequest) ? { serviceRequest: draft.serviceRequest || buyer.serviceRequest } : {})
+      } : null,
       conversationState: state, investmentProfile, investmentTheses, comparison: comparisonFacts,
       researchClaims: draft.researchClaims || [], projectRelations: draft.projectRelations || null,
       knowledgeOnly: draft.knowledgeOnly === true, commercialQuote: draft.commercialQuote ?? null,
@@ -926,7 +1000,8 @@ export function createConversationEngine(services, options = {}) {
     memory: options.memory,
     advisorOptions: options.advisorOptions || {},
     broker: options.broker || null,
-    services: options.services || null
+    services: options.services || null,
+    buyerDecisions: options.buyerDecisions || null
   });
 }
 
@@ -960,4 +1035,8 @@ function recentlyDiscussedProject(catalog, turns) {
     if (hits.length > 1) return null;
   }
   return null;
+}
+
+function searchUpdateForDecision(facts) {
+  return ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
 }

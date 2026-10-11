@@ -12,6 +12,7 @@ import { applyChoiceFacts } from "./choices.js";
 import { refineTurnIntent } from "./intent-policy.js";
 import { parseAdvisoryFacts } from "./advisory-memory.js";
 import { parseFlexiblePreferences } from "./preference-state.js";
+import { wantsHuman } from "./contact.js";
 
 const AREA_LABELS = {
   ...CATALOG_AREA_ALIASES,
@@ -212,7 +213,7 @@ export function detectIntents(message, { lastAskedField = null } = {}) {
   if (/\b(call me|callback|phone me|whatsapp me|contact me)\b/i.test(text)) {
     intents.push("callback");
   }
-  if (/\b(agent|human|advisor|speak to|talk to (a |an )?(person|someone|sales))\b/i.test(text) && !/\b(already (?:have|has) (?:an? )?agent|have my own agent|working with (?:an? )?agent)\b/i.test(text)) {
+  if (wantsHuman(text)) {
     intents.push("agent");
   }
   if (/\b(i want to buy|ready to buy|want this unit|buy this)\b/i.test(text)) {
@@ -371,6 +372,8 @@ export function extractArea(text) {
  * Returns one bedroom count, or an array when the buyer accepts multiple sizes.
  */
 function extractBedrooms(text) {
+  const arabic = extractArabicBedrooms(text);
+  if (arabic !== null) return arabic;
   const multi = text.match(
     /\b(?:studio|\d+)\s*(?:br|bed(?:room)?s?)?\s*(?:or|\/|,|and)\s*(?:studio|\d+)\s*(?:br|bed(?:room)?s?)?\b/i
   );
@@ -397,6 +400,22 @@ function extractBedrooms(text) {
   const match = text.match(/\b(\d+)\s*(?:br|bed(?:room)?s?)\b/i);
   if (match) return normalizeBedrooms(match[1]);
   return null;
+}
+
+export function extractArabicBedrooms(message) {
+  const text = normalizeBuyerText(message);
+  const matches = [...text.matchAll(/(\d+)\s*(?:غرف(?:ة|تان|تين)?|غرفة نوم)|(?:غرفتان|غرفتين)(?:\s+نوم)?|(?:غرفة(?:\s+نوم)?\s+واحدة)|(?:واحدة|واحد|اثنتان|اثنين|اثنتين|ثلاث|ثلاثة|أربع|اربع|أربعة|اربعة|خمس|خمسة|ست|ستة)\s+غرف(?:ة)?(?:\s+نوم)?/g)];
+  const values = matches.map(hit => {
+    if (hit[1]) return normalizeBedrooms(hit[1]);
+    if (/غرفتان|غرفتين|اثنتان|اثنين|اثنتين/.test(hit[0])) return 2;
+    if (/ثلاث/.test(hit[0])) return 3;
+    if (/أربع|اربع/.test(hit[0])) return 4;
+    if (/خمس/.test(hit[0])) return 5;
+    if (/ست/.test(hit[0])) return 6;
+    return 1;
+  }).filter(value => value !== null);
+  const unique = [...new Set(values)].sort((a, b) => a - b);
+  return unique.length > 1 ? unique : unique.length ? unique[0] : /(?:غرفة(?:\s+نوم)?)(?![\u0600-\u06ff])/.test(text) ? 1 : null;
 }
 
 function extractPropertyType(text) {

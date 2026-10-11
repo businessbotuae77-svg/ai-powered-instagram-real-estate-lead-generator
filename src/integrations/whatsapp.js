@@ -23,6 +23,12 @@ export class AlertLedger {
     this.store = new JsonFileStore(path.join(rootDir || runtimeRoot(), "alert-ledger.json"));
   }
 
+  async get(key) {
+    const data = await this.store.read({ keys: {} });
+    const row = data.keys?.[String(key)];
+    return row ? structuredClone(row) : null;
+  }
+
   async has(key) {
     const data = await this.store.read({ keys: {} });
     return Boolean(data.keys?.[String(key)]);

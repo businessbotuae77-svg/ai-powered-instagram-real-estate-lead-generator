@@ -18,7 +18,9 @@ export function advisorAlertKey({ buyer, reason, matchName = "" }) {
     reason,
     messageId: createHash("sha256").update(JSON.stringify({ channel: buyer.preferredContactChannel, phone: buyer.phone, budget: buyer.budgetAed,
       areas: buyer.preferredAreas, bedrooms: buyer.bedrooms, propertyTypes: buyer.propertyTypes, financing: buyer.financing,
-      project: matchName || buyer.projectInterest, action: buyer.requestedAction || reason, noCalls: buyer.noCalls })).digest("hex").slice(0, 24)
+      project: matchName || buyer.projectInterest, action: buyer.requestedAction || reason, noCalls: buyer.noCalls,
+      ...(buyer.selectedListing?.unitId ? { selectedHome: { projectId: buyer.selectedListing.projectId, unitId: buyer.selectedListing.unitId } } : {}),
+      ...(buyer.serviceRequest?.status === "requested" ? { service: buyer.serviceRequest.serviceId, serviceRequestedAt: buyer.serviceRequest.requestedAt || null } : {}) })).digest("hex").slice(0, 24)
   });
 }
 
@@ -27,7 +29,7 @@ export async function sendAdvisorAlert({ buyer, reason, matchName = "", messageI
   const channels = alertChannels(env);
   if (!channels.length) return { skipped: true, reason: "Alert env incomplete" };
   const key = advisorAlertKey({ buyer, reason, matchName });
-  if (await ledger.has(key)) return { skipped: true, reason: "duplicate_alert", key };
+  if (await ledger.has(key)) return { skipped: true, reason: "duplicate_alert", key, deliveredAt: (await ledger.get?.(key))?.at || null };
   const sent = {};
   let lastError = null;
   for (const channel of channels) {
@@ -46,7 +48,7 @@ export async function sendAdvisorAlert({ buyer, reason, matchName = "", messageI
   }
   if (!Object.values(sent).includes("sent")) throw lastError;
   await ledger.mark(key, { reason, buyerId: buyer.instagramUserId, channels: sent });
-  return { skipped: false, key, channels: sent, summary: summaryText };
+  return { skipped: false, key, channels: sent, summary: summaryText, deliveredAt: (await ledger.get?.(key))?.at || new Date().toISOString() };
 }
 
 /** The daily report, once per day, by the channel reportDeliveryConfig chose. */
