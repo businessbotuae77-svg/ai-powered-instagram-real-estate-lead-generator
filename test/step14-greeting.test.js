@@ -19,19 +19,21 @@ test("step 14b Start fresh clears criteria then opens purpose and exploration", 
   await engine.handleMessage("ig_m2_hi2", "Budget AED 2M and Yas Island");
   const fresh = await engine.handleMessage("ig_m2_hi2", "Start fresh");
   assert.equal(fresh.stage, "exploring");
-  assert.match(fresh.reply, /area.*project.*budget/i);
+  assert.match(fresh.reply, /The Sustainable Bot, your AI guide to UAE property\. What would you like to explore\?/);
   assert.equal(fresh.nextQuestion.field, "explorationTopic");
   const buyer = await buyers.getOrCreate("ig_m2_hi2");
   assert.equal(buyer.budgetAed, null);
   assert.deepEqual(buyer.preferredAreas, []);
 });
 
-test("a first hello offers useful property hooks instead of a buyer-type form", async () => {
+test("a first hello introduces the bot as the guide describes and offers three choices", async () => {
   const { engine } = await setupConversation();
   const hi = await engine.handleMessage("opening-hook", "Hi");
   assert.equal(hi.stage, "exploring");
   assert.equal(hi.nextQuestion?.field, "explorationTopic");
-  assert.match(hi.reply, /explore Abu Dhabi areas.*compare current projects.*payment plans/i);
+  assert.equal(hi.reply, "Hi 👋 I'm The Sustainable Bot, your AI guide to UAE property. What would you like to explore?");
+  assert.deepEqual(hi.nextQuestion.choices.map(choice => choice.label), ["Find a property", "Payment plans", "Ask a question"]);
+  assert.doesNotMatch(hi.reply, /budget/i, "the welcome invites a conversation, not a budget");
   assert.doesNotMatch(hi.reply, /are you buying a home, investing, or just exploring/i);
 });
 
@@ -53,4 +55,22 @@ test("step 14c Continue after Hi resumes with confirmed options", async () => {
   assert.ok(cont.matchCount >= 1);
   assert.match(cont.reply, /Yas Park Views|Yas Studio/i);
   assert.doesNotMatch(cont.reply, /Want to continue with your last search/i);
+});
+
+test("each welcome choice gets its own useful reply, in English and Arabic", async () => {
+  const { engine } = await setupConversation();
+  const find = await engine.handleMessage("choice-find", "Find a property");
+  assert.equal(find.nextQuestion.field, "useType");
+  assert.match(find.reply, /buying a home to live in, investing, or not sure yet\?/);
+  const plans = await engine.handleMessage("choice-plans", "Payment plans");
+  assert.equal(plans.stage, "education");
+  assert.match(plans.reply, /booking payment, instalments during construction, and a balance at handover/);
+  assert.equal(plans.check.ok, true);
+  const ask = await engine.handleMessage("choice-ask", "Ask a question");
+  assert.match(ask.reply, /Ask me anything about Abu Dhabi property/);
+  const arHi = await engine.handleMessage("choice-ar", "مرحبا");
+  assert.match(arHi.reply, /أنا The Sustainable Bot، دليلك الذكي لعقارات الإمارات/);
+  assert.deepEqual(arHi.nextQuestion.choices.map(choice => choice.label), ["ابحث عن عقار", "خطط السداد", "اسأل سؤالاً"]);
+  const arPlans = await engine.handleMessage("choice-ar", "خطط السداد");
+  assert.match(arPlans.reply, /دفعة الحجز/);
 });

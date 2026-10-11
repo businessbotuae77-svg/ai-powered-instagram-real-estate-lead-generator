@@ -1,7 +1,7 @@
 import { localizeDraft } from "./localize.js";
 import { KeyedQueue } from "./keyed-queue.js";
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
-import { decideConversation } from "./decision.js";
+import { decideConversation, isClosingRemark } from "./decision.js";
 import { conversationalScope } from "./question-scope.js";
 import { contactDecision, wantsHuman } from "./contact.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
@@ -701,8 +701,8 @@ export class ConversationEngine {
       replyText = fallbackPacks.length
         ? fallbackSafeText(fallbackPacks)
         : buyer.advisorLed
-          ? "You're open, so I'll do the filtering using the budget and constraints you've shared. I don't have enough current evidence for a reliable shortlist yet. I'll check entry price, payment commitments, timing and resale evidence before suggesting a property."
-          : "I can't give a reliable property comparison from the details available right now. I can still help explain the buying choices.";
+          ? "You're open, so I'll do the filtering. I don't have a shortlist I'm confident in for that yet; tell me an area or a budget range and I'll narrow it down."
+          : "I'd rather not guess on that one. Tell me a rough budget, an area or a project name, and I'll show you what I can confirm.";
       check = validateBuyerResponse(replyText, {
         buyer, packs: fallbackPacks, allowedBuyerAmounts, permittedContacts,
         allowedActions: [], forbiddenActions
@@ -791,6 +791,7 @@ export class ConversationEngine {
     // anything the buyer asked that the data could not confirm.
     const shortlistShown = check.ok && ["matched", "soft_match"].includes(draft.stage) && Boolean(draft.advisoryExposure || matchResult.matchCount);
     const turnOutcome = classifyTurn({ stage: draft.stage, buyer, followUpSubmitted, callRequestSubmitted, shortlistShown,
+      closingRemark: isClosingRemark(text),
       factMissing: check.ok ? draft.factMissing || [] : [] });
     const missingFact = draft.stage === "fact_check_fallback" ? { topic: "unverified_reply" } : check.ok ? (draft.factMissing || [])[0] : null;
     const unresolved = turnOutcome === "info_missing" && missingFact

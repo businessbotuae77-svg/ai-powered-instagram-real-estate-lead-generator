@@ -179,7 +179,7 @@ export function intentAlertFor({ message = "", intents = [], moment = null, buye
 export function isInformationalEoi(text) {
   const value = normalizeBuyerText(text);
   return (
-    /\b(expression of interest|eoi)\b/i.test(value) && /\b(info|information|about|what is|tell me)\b/i.test(value) ||
+    /\b(expression of interest|eoi)\b/i.test(value) && /\b(info|information|about|what is|what'?s|tell me|mean|means|meaning|explain|what does)\b/i.test(value) ||
     (/\b(just\s+)?(interested|looking)\b/i.test(value) &&
       /\b(info|information|details|curious|browsing|for now)\b/i.test(value)) ||
     /\binformational\b/i.test(value)
