@@ -13,11 +13,12 @@ Live: Railway project `instagram-property-bot`, service `instagram-bot`, deploys
 Node 18+ (CI uses 22). ES modules. **No npm dependencies**: do not add any without asking.
 
 ```bash
+npm test                     # the full suite, about 1 s
 npm run chat                 # CLI chat against seed data (no keys needed)
 npm run chat:web             # web test chat at http://127.0.0.1:8787/
 ```
 
-There is no automated test suite (removed 11 October 2026 as out of date). Check changes by running the bot locally with `npm run chat` or `npm run chat:web` before opening a PR.
+`npm test` runs the suite (about 1 s, no network); GitHub runs it on every push. It was rewritten on 11 October 2026 for the current bot: `welcome`, `replies` (brand-guide cases), `outcomes`, `handoff-alerts`, `facts`, `data-store` and `report`. Add a test to the matching file when you change behaviour.
 
 ## Layout
 
@@ -50,7 +51,7 @@ There is no automated test suite (removed 11 October 2026 as out of date). Check
 
 ## Conventions
 
-- Plain ES modules.
+- Plain ES modules and `node:test` with `node:assert/strict`; shared setup in `test/helpers.js` (`talk`, `setupOrchestrator`).
 - Match the surrounding style: short functions, sparse comments that explain why, no TypeScript, no build step.
 - **Line endings are mixed (some files CRLF, some LF, some both).** Keep each line's existing ending. Scripts that read and rewrite whole files in text mode will convert them and produce a whole-file diff. Check with `git -c core.whitespace=cr-at-eol diff --check` and `git diff --stat` before committing.
 - User-facing copy is short, warm and plain English or Arabic. Internal words (fact pack, engine, catalogue, challenger, upsell) never reach buyers.
@@ -59,6 +60,6 @@ There is no automated test suite (removed 11 October 2026 as out of date). Check
 ## Working efficiently
 
 - Start from the Layout table and `grep`; avoid reading `engine.js`, `replies.js`, `response-validation.js` or the policy prompt end to end unless the task is in them.
-- Try each change in `npm run chat` with the conversations it affects, in English and Arabic, before committing.
+- Run `npm test` before committing, and try the affected conversations in `npm run chat`, in English and Arabic.
 - For behaviour questions, `npm run chat` shows real replies faster than reading code.
 - Deployment and live checks: `docs/DEPLOYMENT-PLAN.md`, `docs/RAILWAY_SETUP.md`, `docs/HANDOVER.md`.

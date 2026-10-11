@@ -8,6 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "test": "node --test --test-reporter=spec test/*.test.js",
     "match": "node scripts/match-cli.js",
     "chat": "node scripts/chat-cli.js",
     "report": "node scripts/report.js",
