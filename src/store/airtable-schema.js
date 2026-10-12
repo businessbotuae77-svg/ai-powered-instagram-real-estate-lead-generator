@@ -92,7 +92,15 @@ export function unitTableFields(projectTableId) {
     link("Project", projectTableId),
     select("Property type", PROPERTY_TYPES),
     number("Bedrooms"),
+    { name: "Phase", type: "singleLineText" },
+    dateField("Launch date"),
+    number("Launch price AED"),
     number("Starting price AED"),
+    select("Payment plan available", ["Yes", "No", "Unknown"]),
+    { name: "Payment plan summary", type: "multilineText" },
+    { name: "Handover", type: "singleLineText" },
+    { name: "Source", type: "singleLineText" },
+    dateField("Last verified"),
     number("Size sqft from"),
     number("Size sqft to"),
     number("Initial payment AED"),
@@ -103,7 +111,7 @@ export function unitTableFields(projectTableId) {
 
 export function unitLabel(projectName, unit) {
   const bed = unit.bedrooms === 0 ? "Studio" : `${unit.bedrooms}BR`;
-  return `${projectName} ${bed}`;
+  return `${projectName}${unit.phase ? ` — ${String(unit.phase).trim()}` : ""} ${bed}`;
 }
 
 export const YAS_MATCH_CRITERIA = {

@@ -34,6 +34,7 @@ import { brokerProfile, directContactLine, permittedContactDetails } from "./bro
 import { declinesOffer, isBareDecline, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
 import { routeServiceTurn } from "./service-flow.js";
+import { matchesRequestedPhase, phaseConstraintReply, phaseRefusalTurn, requestedPhases } from "./phase-request.js";
 import { loadBuyerDecisionsConfig } from "./buyer-decisions-config.js";
 import { buildBuyerDecisionTurn, decorateBuyerDecisionDraft, decisionControlKind, budgetPermissionFacts, decisionScope, inspectDecisionComparison } from "./buyer-decision-flow.js";
 import {
@@ -196,13 +197,14 @@ export class ConversationEngine {
     const pendingAtStart = this.memory.getPendingOffer(instagramUserId) || (this.buyerDecisions.enabled ? existingBuyer.decisionPendingOffer : null);
     const decisionKind = this.buyerDecisions.enabled ? decisionControlKind(text, existingBuyer.decisionComparison) : null;
     if (decisionKind) {
-      for (const field of ["area", "areas", "project", "bedrooms", "propertyType", "propertyTypes", "openToOtherAreas", "areaFlexibility"]) delete facts[field];
+      for (const field of ["area", "areas", "project", "bedrooms", "propertyType", "propertyTypes", "openToOtherAreas", "areaFlexibility", "phaseInterest"]) delete facts[field];
+      if (decisionKind === "compare" && requestedPhases(text).length > 1) facts.phaseInterest = null;
       if (!/\bbudget\b|ميزاني/i.test(text)) delete facts.budget;
       if (!/\bcash (?:available|budget)\b/i.test(text)) delete facts.cash;
       const correction = text.match(/\b(?:but|actually|instead|correction)\b(.+)$|(?:لكن|ولكن|بل)(.+)$/i);
       if (correction) {
         const corrected = extractFactsFromMessage(correction[1] || correction[2], { buyer: existingBuyer }).facts;
-        for (const field of ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes", "openToOtherAreas", "areaFlexibility"]) {
+        for (const field of ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes", "openToOtherAreas", "areaFlexibility", "phaseInterest"]) {
           if (corrected[field] !== undefined) facts[field] = corrected[field];
         }
       }
@@ -356,6 +358,7 @@ export class ConversationEngine {
       callRequestSubmitted = false;
     }
 
+    if (facts.project && existingBuyer.projectInterest && facts.project.toLowerCase() !== existingBuyer.projectInterest.toLowerCase() && facts.phaseInterest === undefined) facts.phaseInterest = null;
     let buyer = await this.buyers.remember(instagramUserId, facts);
     this.memory.recordPreferenceStates?.(instagramUserId, buyer.preferenceStates);
     const explicitResume = buyerWouldResume(deterministic.facts, deterministic.intents) ||
@@ -407,13 +410,18 @@ export class ConversationEngine {
     if (this.properties.refresh) {
       try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
     }
-    const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog();
-    const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
+    const allCatalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog();
+    const namedProjects = allCatalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
     if (!decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
       facts.project = namedProjects[0].name;
-      buyer = await this.buyers.remember(instagramUserId, { project: facts.project });
+      const changedProject = existingBuyer.projectInterest && existingBuyer.projectInterest.toLowerCase() !== facts.project.toLowerCase();
+      if (changedProject && !requestedPhases(text).length) facts.phaseInterest = null;
+      buyer = await this.buyers.remember(instagramUserId, { project: facts.project, ...(facts.phaseInterest !== undefined ? { phaseInterest: facts.phaseInterest } : {}) });
     }
+    const comparedPhases = decisionKind === "compare" ? requestedPhases(text) : [];
+    const phaseFilter = comparedPhases.length > 1 ? comparedPhases : buyer.phaseInterest ? [buyer.phaseInterest] : [];
+    const catalog = phaseFilter.length ? { ...allCatalog, units: allCatalog.units.filter(unit => phaseFilter.some(phase => matchesRequestedPhase(unit, phase))) } : allCatalog;
     // Bind objections to the last displayed primary, never to a freshly ranked
     // candidate. Contact boundaries are handled independently below.
     for (const objection of facts.objections || []) {
@@ -477,7 +485,7 @@ export class ConversationEngine {
     // ("What's the payment plan?"), is answered from that project's listings.
     const factTopic = detectFactTopic(text);
     const asksQuestion = /[?؟]\s*$/.test(text) || /^(?:what|what's|whats|how|when|is|are|does|do|tell|price|initial|payment|handover|any|can)\b/i.test(text);
-    const newCriteria = ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
+    const newCriteria = ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes", "phaseInterest"].some(field => facts[field] !== undefined);
     if (factTopic && asksQuestion && !newCriteria && !/\bcompare\b/i.test(text)) {
       const subject = namedProjects.length === 1 ? namedProjects[0]
         : !namedProjects.length && !packs.length ? recentlyDiscussedProject(catalog, this.memory.getTurns(instagramUserId)) : null;
@@ -507,8 +515,13 @@ export class ConversationEngine {
     const turnObjections = (facts.objections || []).map(o => o.category);
     const askedFields = new Set(this.memory.getTurns(instagramUserId).map(turn => turn.role === "assistant" && turn.questionField).filter(Boolean));
     const serviceDraft = routeServiceTurn({ message: text, buyer, services: this.services, pendingOffer: pendingAtStart });
-    let draft = (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
-      askedFields });
+    const requestedProject = catalog.projects.find(project => project.name === buyer.projectInterest);
+    const phaseUnavailable = buyer.phaseInterest && !catalog.units.some(unit => !requestedProject || unit.projectId === requestedProject.id);
+    const standardDraft = decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker, askedFields });
+    const explicitInformation = ["education", "identity", "acknowledged", "permissions_updated", "paused", "paused_advice", "welcome_back", "area_guide"].includes(standardDraft?.stage);
+    let draft = (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) ||
+      (!contact && !explicitInformation && !intents.includes("stop") && !isClosingRemark(text) ? phaseRefusalTurn(text, buyer, facts.project && existingBuyer.projectInterest && facts.project.toLowerCase() !== existingBuyer.projectInterest.toLowerCase() ? null : pendingAtStart) : null) ||
+      (!contact && phaseUnavailable && !explicitInformation && !intents.includes("stop") && !isClosingRemark(text) ? phaseConstraintReply(buyer, requestedProject?.name) : null) || standardDraft;
     if (!contact && !serviceDraft && isNegatedBuying(text) && !searchUpdateForDecision(facts)) draft = { text: buyer.language === "ar" ? "بالتأكيد. يمكنك تصفح المشاريع أو السؤال عنها متى أردت." : "Of course. You can browse or ask about a project whenever you’re ready.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
     // "Yes" to "Want me to break down the payment plan?" offered about a project
     // the engine has not picked: answer it from that project's listings.
@@ -537,7 +550,7 @@ export class ConversationEngine {
     // Buying intent, a quote or a discount question: answer what is known about
     // the option under discussion, then offer the human who can confirm it.
     // A message carrying new search criteria is a search, not a transaction step.
-    const searchUpdate = ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
+    const searchUpdate = ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes", "phaseInterest"].some(field => facts[field] !== undefined);
     const moment = !contact && !draft?.suppressCommercial && !buyer.salesPathStopped && !searchUpdate ? transactionMoment(text) : null;
     // "No need for property management" on its own: acknowledge and move on.
     if (!serviceDraft && declinedServices.length && !moment && !searchUpdate && !contact && !/[?؟]/.test(text) && text.split(/\s+/).length <= 10) {
@@ -1038,5 +1051,5 @@ function recentlyDiscussedProject(catalog, turns) {
 }
 
 function searchUpdateForDecision(facts) {
-  return ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
+  return ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes", "phaseInterest"].some(field => facts[field] !== undefined);
 }

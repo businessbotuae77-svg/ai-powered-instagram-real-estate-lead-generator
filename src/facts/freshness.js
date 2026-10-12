@@ -1,4 +1,5 @@
 import { commercialOfferGate } from "./commercial-offers.js";
+import { hasPhase, projectForListing, offerMatchesPhase } from "./scoped-listing.js";
 
 export function factPolicy(env = process.env) {
   const days = (key, fallback) => {
@@ -25,16 +26,22 @@ export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy() }
   const units = catalog.units.filter(u => projects.some(p => p.id === u.projectId)).map(u => {
     const p = projects.find(p => p.id === u.projectId);
     if (u.commercialOffer) {
-      const gate = commercialOfferGate(u.commercialOffer, { now, policy });
+      const observedGate = commercialOfferGate(u.commercialOffer, { now, policy });
+      const gate = offerMatchesPhase(u) ? observedGate : { ...observedGate, ok: false, reasons: [...observedGate.reasons, "phase_scope_mismatch"] };
       return { ...u, commercialGate: gate,
         startingPriceAed: gate.ok ? u.commercialOffer.price : null,
         initialPaymentAed: gate.ok ? u.commercialOffer.initialPaymentAed : null,
         availability: gate.ok ? u.commercialOffer.availability : null };
     }
-    const fresh = approvedFresh(p, { now, maxAgeDays: policy.commercialDays });
-    return { ...u, startingPriceAed: fresh ? u.startingPriceAed : null,
+    const scopedProject = projectForListing(p, u);
+    const fresh = approvedFresh(scopedProject, { now, maxAgeDays: policy.commercialDays });
+    const phaseTerms = hasPhase(u) ? { phaseScoped: true,
+      paymentPlanAvailable: fresh ? scopedProject.paymentPlanAvailable : null,
+      paymentPlanSummary: fresh ? scopedProject.paymentPlanSummary : null,
+      handover: fresh ? scopedProject.handover : null } : {};
+    return { ...u, ...phaseTerms, startingPriceAed: fresh ? u.startingPriceAed : null,
       initialPaymentAed: fresh ? u.initialPaymentAed : null,
-      availability: approvedFresh(p, { now, maxAgeDays: policy.availabilityDays }) ? u.availability : null };
+      availability: approvedFresh(scopedProject, { now, maxAgeDays: policy.availabilityDays }) ? u.availability : null };
   });
   return { ...catalog, projects, units };
 }

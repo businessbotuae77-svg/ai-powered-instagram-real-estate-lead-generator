@@ -13,6 +13,7 @@ import { refineTurnIntent } from "./intent-policy.js";
 import { parseAdvisoryFacts } from "./advisory-memory.js";
 import { parseFlexiblePreferences } from "./preference-state.js";
 import { wantsHuman } from "./contact.js";
+import { phaseRequestFacts } from "./phase-request.js";
 
 const AREA_LABELS = {
   ...CATALOG_AREA_ALIASES,
@@ -76,7 +77,7 @@ export const OTHER_OFFER = /\b(?:another|other|different|a different)\s+(?:broke
 
 export function extractFactsFromMessage(message, { buyer = null, lastAskedField = null } = {}) {
   const text = normalizeBuyerText(message).trim();
-  let facts = {};
+  let facts = phaseRequestFacts(text);
   const signals = [];
   if (!text) return { facts, signals, intents: ["empty"] };
 

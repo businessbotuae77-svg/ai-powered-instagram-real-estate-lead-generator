@@ -1,4 +1,6 @@
 import { buildFactPack } from "../facts/retrieval.js";
+import { hasPhase, phaseMatches, projectForListing } from "../facts/scoped-listing.js";
+import { approvedFresh } from "../facts/freshness.js";
 import { formatAed, normalizeArea, normalizeDeveloper, normalizePropertyType, sameText } from "../matching/normalize.js";
 
 const TIER_RANK = {
@@ -18,6 +20,7 @@ const WEIGHTS = {
 };
 
 function initialPayment(project, unit) {
+  project = projectForListing(project, unit);
   if (unit.commercialOffer) return unit.commercialOffer.initialPaymentAed ?? null;
   if (unit.initialPaymentAed !== null && unit.initialPaymentAed !== undefined) {
     return unit.initialPaymentAed;
@@ -59,10 +62,10 @@ function dimension(key, status, weight, details = {}) {
 }
 
 function activeCandidate(catalog, unit) {
-  const project = catalog.projects.find((row) => row.id === unit.projectId);
+  const project = projectForListing(catalog.projects.find((row) => row.id === unit.projectId), unit);
   if (!project || !project.active || !project.developerActive || !unit.active) return null;
   const candidate = { project, unit, downPaymentAed: initialPayment(project, unit), bedroomLabel: bedroomPhrase(unit.bedrooms) };
-  if (!unit.commercialOffer) return candidate;
+  if (!unit.commercialOffer && !hasPhase(unit)) return candidate;
   const pack = buildFactPack(candidate);
   const fact = key => pack[key]?.confirmed ? pack[key].value : null;
   return { ...candidate, project: { ...project, paymentPlanAvailable: fact("paymentPlanAvailable"), paymentPlanSummary: fact("paymentPlanSummary"), handover: fact("handover") }, unit: { ...unit, startingPriceAed: fact("startingPriceAed") }, downPaymentAed: fact("downPaymentAed") };
@@ -293,10 +296,12 @@ function distancePenalty(dimensions) {
 /** Explicit constraints govern recommendation permission independently of the
  * retained legacy fit score. Unknown evidence never satisfies a hard constraint. */
 export function candidateConstraintFailures(candidate, buyer) {
-  const { project, unit } = candidate;
+  const { unit } = candidate;
+  const project = projectForListing(candidate.project, unit);
   const failures = [];
-  const price = unit.startingPriceAed;
-  const cash = candidate.downPaymentAed;
+  if (!phaseMatches(unit, buyer.phaseInterest)) failures.push("requested_phase");
+  const price = hasPhase(unit) && !unit.commercialOffer && !approvedFresh(project) ? null : unit.startingPriceAed;
+  const cash = hasPhase(unit) ? unit.initialPaymentAed ?? null : candidate.downPaymentAed;
   const budget = buyer.budgetAed;
   const flexible = buyer.budgetFlexible === true && buyer.budgetHardCap !== true && buyer.budgetFirm !== true;
   const zeroStretch = buyer.budgetFlexibilityPct === 0 && !(buyer.budgetStretchAed > 0);
@@ -328,6 +333,13 @@ function explainComponents(dimensions, hardFailures, buyer) {
 }
 
 export function assessCandidate(candidate, buyer) {
+  if (hasPhase(candidate.unit)) {
+    const project = projectForListing(candidate.project, candidate.unit);
+    const pack = buildFactPack({ ...candidate, project, downPaymentAed: candidate.unit.initialPaymentAed ?? null });
+    const fact = key => pack[key]?.confirmed ? pack[key].value : null;
+    candidate = { ...candidate, project: { ...project, paymentPlanAvailable: fact("paymentPlanAvailable"), paymentPlanSummary: fact("paymentPlanSummary"), handover: fact("handover") },
+      unit: { ...candidate.unit, startingPriceAed: fact("startingPriceAed") }, downPaymentAed: fact("downPaymentAed") };
+  }
   const dimensions = assessDimensions(candidate, buyer);
   const tier = classify(dimensions, buyer);
   const hardConstraintFailures = candidateConstraintFailures(candidate, buyer);
@@ -366,7 +378,7 @@ export function assessInventory(catalog, buyer) {
 
   for (const unit of catalog.units) {
     const candidate = activeCandidate(catalog, unit);
-    if (!candidate) continue;
+    if (!candidate || !phaseMatches(unit, buyer.phaseInterest)) continue;
     if (buyer.preferredEmirate && !sameText(candidate.project.emirate, buyer.preferredEmirate)) continue;
     if (
       requestedProject &&

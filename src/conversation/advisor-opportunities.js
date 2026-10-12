@@ -1,4 +1,5 @@
 import { safeCatalog } from "../facts/freshness.js";
+import { phaseMatches, projectForListing } from "../facts/scoped-listing.js";
 import { buildFactPack } from "../facts/retrieval.js";
 import { assessCandidate } from "./fit-assess.js";
 import { bedroomLabel, normalizeArea, normalizePropertyType, sameText } from "../matching/normalize.js";
@@ -117,7 +118,8 @@ function getCandidates(catalog, buyer, options) {
   const safe = safeCatalog(catalog, options);
   const result = [];
   for (const unit of safe.units) {
-    const project = safe.projects.find(row => row.id === unit.projectId);
+    const project = projectForListing(safe.projects.find(row => row.id === unit.projectId), unit);
+    if (!phaseMatches(unit, buyer.phaseInterest)) continue;
     if (!project || !unit.active || project.developerActive === false) continue;
     if (options.buyerDecisionsEnabled && options.pilotUnitIds?.length && !options.pilotUnitIds.includes(unit.inventoryUnitId || unit.id)) continue;
     if (project.developerId && safe.developers?.length && !safe.developers.some(row => row.id === project.developerId && row.active)) continue;
@@ -140,7 +142,7 @@ function getCandidates(catalog, buyer, options) {
 /** Date refresh alone does not reopen a rejected property. */
 export function commercialEvidenceState(candidate) {
   const pack = candidate.factPack || {};
-  const fields = ["startingPriceAed", "downPaymentAed", "paymentPlanSummary", "handover", "availability", "bedrooms", "sizeSqftFrom", "sizeSqftTo", "area", "propertyType", "developer"];
+  const fields = ["startingPriceAed", "downPaymentAed", "paymentPlanSummary", "handover", "availability", "bedrooms", "sizeSqftFrom", "sizeSqftTo", "area", "propertyType", "developer", "phase", "source", "lastVerified"];
   return Object.fromEntries(fields.map(key => [key, value(pack, key)]));
 }
 

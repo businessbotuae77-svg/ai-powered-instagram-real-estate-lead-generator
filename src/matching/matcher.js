@@ -6,8 +6,11 @@ import {
   sameText
 } from "./normalize.js";
 import { buildFactPack } from "../facts/retrieval.js";
+import { approvedFresh } from "../facts/freshness.js";
+import { hasPhase, phaseMatches, projectForListing, offerMatchesPhase } from "../facts/scoped-listing.js";
 
 function downPayment(project, unit) {
+  project = projectForListing(project, unit);
   if (unit.commercialOffer) return unit.initialPaymentAed ?? null;
   if (unit.initialPaymentAed !== null && unit.initialPaymentAed !== undefined) {
     return unit.initialPaymentAed;
@@ -29,7 +32,10 @@ function reject(unit, project, reason) {
 }
 
 export function matchCriteria(project, unit, criteria = {}) {
-  if (unit.commercialOffer && unit.commercialGate?.ok !== true) return reject(unit, project, "commercial_offer_unusable");
+  project = projectForListing(project, unit);
+  if (!phaseMatches(unit, criteria.phaseInterest ?? criteria.phase)) return reject(unit, project, "phase");
+  if (hasPhase(unit) && !unit.commercialOffer && !approvedFresh(project)) return reject(unit, project, "phase_commercial_unconfirmed");
+  if (unit.commercialOffer && (unit.commercialGate?.ok !== true || !offerMatchesPhase(unit))) return reject(unit, project, "commercial_offer_unusable");
   if (!project.active) return reject(unit, project, "project_inactive");
   if (!project.developerActive) return reject(unit, project, "developer_inactive");
   if (!unit.active) return reject(unit, project, "unit_inactive");
@@ -109,7 +115,7 @@ export function matchInventory(catalog, criteria = {}) {
   const matches = [];
 
   for (const unit of catalog.units) {
-    const project = catalog.projects.find((row) => row.id === unit.projectId);
+    const project = projectForListing(catalog.projects.find((row) => row.id === unit.projectId), unit);
     if (!project) {
       rejected.push({ unitId: unit.id, reason: "missing_project" });
       continue;
@@ -152,6 +158,7 @@ export function criteriaFromBuyer(buyer) {
     area: buyer.preferredAreas?.[0] || null,
     developer: buyer.developerInterest || null,
     project: buyer.projectInterest || null,
+    phase: buyer.phaseInterest || null,
     propertyType: buyer.propertyTypes?.[0] || null,
     bedrooms: beds,
     budgetAed: buyer.budgetAed ?? null,

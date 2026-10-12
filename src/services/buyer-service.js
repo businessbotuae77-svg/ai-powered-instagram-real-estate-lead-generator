@@ -1,4 +1,5 @@
 import { emptyBuyer, FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
+import { normalizePhase } from "../facts/scoped-listing.js";
 import { ADVISORY_FACT_FIELDS, OBJECTION_CATEGORIES, normalizeAdvisoryFacts } from "../conversation/advisory-memory.js";
 import { INVESTMENT_PROFILE_FIELDS, deriveInvestmentStrategy } from "../conversation/investment-strategy.js";
 import { canonicalQuestionField, isFlexiblePreference, normalizePreferenceStates } from "../conversation/preference-state.js";
@@ -32,7 +33,7 @@ export function mergeBuyer(existing, patch) {
       if (typeof value === "boolean") next[key] = value;
       continue;
     }
-    if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "lastUpgradeUnitId", "investmentObjective"].includes(key)) {
+    if (["activeRecommendationProjectId", "activeRecommendationUnitId", "lastUpgradeProjectId", "lastUpgradeUnitId", "investmentObjective", "phaseInterest"].includes(key)) {
       if (value === null || (typeof value === "string" && value.trim())) next[key] = value;
       continue;
     }
@@ -172,6 +173,7 @@ export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   if (facts.emirate) patch.preferredEmirate = facts.emirate;
   if (facts.developer) patch.developerInterest = normalizeDeveloper(facts.developer);
   if (facts.project) patch.projectInterest = facts.project;
+  if (facts.phaseInterest !== undefined) patch.phaseInterest = normalizePhase(facts.phaseInterest);
   if (facts.propertyType) patch.propertyTypes = [normalizePropertyType(facts.propertyType)].filter(Boolean);
   if (facts.propertyTypes) patch.propertyTypes = facts.propertyTypes.map(normalizePropertyType).filter(Boolean);
   if (facts.bedrooms !== undefined) {

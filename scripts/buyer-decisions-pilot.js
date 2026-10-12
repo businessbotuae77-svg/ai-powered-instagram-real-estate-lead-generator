@@ -4,6 +4,7 @@ import { createCatalogStore } from "../src/store/create-store.js";
 import { approvedFresh, factPolicy } from "../src/facts/freshness.js";
 import { buildFactPack } from "../src/facts/retrieval.js";
 import { packPaymentStages } from "../src/facts/payment-stages.js";
+import { projectForListing, normalizePhase } from "../src/facts/scoped-listing.js";
 
 const MANIFEST_URL = new URL("../data/buyer-decisions-pilot.json", import.meta.url);
 const present = value => value !== null && value !== undefined && value !== "";
@@ -29,6 +30,7 @@ export function inspectPilot(catalog, manifest, { now = Date.now(), policy = fac
   const units = rows.map(row => {
     const unit = (catalog.units || []).find(candidate => candidate.id === row.unitId);
     const project = (catalog.projects || []).find(candidate => candidate.id === unit?.projectId);
+    const scopedProject = projectForListing(project, unit);
     const missingFields = [];
     if (!unit) missingFields.push("unit_record");
     if (!project) missingFields.push("project_record");
@@ -36,15 +38,16 @@ export function inspectPilot(catalog, manifest, { now = Date.now(), policy = fac
     if (project && project.active !== true) missingFields.push("project_active");
     if (project && project.developerActive !== true) missingFields.push("developer_active");
     if (unit && (unit.projectId !== row.projectId || unit.propertyType !== row.propertyType ||
-      unit.bedrooms !== row.bedrooms || (unit.name && unit.name !== row.name))) missingFields.push("home_type_identity");
-    if (project && !present(project.source)) missingFields.push("source");
-    if (project && !present(project.lastVerified)) missingFields.push("last_verified");
-    if (project?.approved === false) missingFields.push("approval");
-    const fresh = Boolean(project && approvedFresh(project, { now, maxAgeDays: policy.commercialDays }));
+      unit.bedrooms !== row.bedrooms || (unit.name && unit.name !== row.name) ||
+      (Object.hasOwn(row, "phase") && normalizePhase(unit.phase) !== normalizePhase(row.phase)))) missingFields.push("home_type_identity");
+    if (scopedProject && !present(scopedProject.source)) missingFields.push("source");
+    if (scopedProject && !present(scopedProject.lastVerified)) missingFields.push("last_verified");
+    if (scopedProject?.approved === false) missingFields.push("approval");
+    const fresh = Boolean(project && approvedFresh(scopedProject, { now, maxAgeDays: policy.commercialDays }));
     if (project && !fresh) missingFields.push("fresh_commercial_verification");
 
-    const pack = project && unit ? buildFactPack({ project, unit,
-      downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed ?? null }, { now, policy }) : null;
+    const pack = project && unit ? buildFactPack({ project: scopedProject, unit,
+      downPaymentAed: unit.initialPaymentAed ?? scopedProject.initialPaymentAed ?? null }, { now, policy }) : null;
     const priceConfirmed = Boolean(pack?.startingPriceAed?.confirmed && positive(pack.startingPriceAed.value));
     if (!priceConfirmed) missingFields.push("starting_price");
     const readyForPriceComparison = missingFields.length === 0;
@@ -58,11 +61,11 @@ export function inspectPilot(catalog, manifest, { now = Date.now(), policy = fac
     if (!pack?.handover?.confirmed) missingFields.push("handover");
     const completeCashPicture = missingFields.length === 0;
 
-    const availabilityFresh = Boolean(project && approvedFresh(project, { now, maxAgeDays: policy.availabilityDays }));
+    const availabilityFresh = Boolean(project && approvedFresh(scopedProject, { now, maxAgeDays: policy.availabilityDays }));
     const availabilityKnown = availabilityFresh && /^(available|limited)$/i.test(unit?.availability || "");
     const availabilityStatus = availabilityKnown ? "verified" : availabilityFresh && /^sold out$/i.test(unit?.availability || "") ?
       "unavailable" : "needs_verification";
-    return { unitId: row.unitId, name: row.name, projectId: row.projectId, segment: row.segment,
+    return { unitId: row.unitId, name: row.name, projectId: row.projectId, phase: unit?.phase || null, segment: row.segment,
       readyForPriceComparison, completeCashPicture, readyForRollout: completeCashPicture && availabilityKnown,
       missingFields: [...new Set(missingFields)], availabilityStatus,
       needsAvailabilityVerification: availabilityStatus === "needs_verification",
