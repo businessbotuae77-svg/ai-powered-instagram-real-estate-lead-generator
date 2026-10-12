@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createLocalStore } from "./local-store.js";
 import { AirtableStore, airtableConfigured } from "./airtable-store.js";
 import { MemoryAirtableApi } from "./airtable-memory.js";
+import { GoogleSheetsStore } from "./google-sheets-store.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -32,6 +33,13 @@ export async function createSeededAirtableStore(options = {}) {
 export async function createCatalogStore(options = {}) {
   const env = options.env || process.env;
   if (options.store === "local") return createLocalStore(options);
+  const provider = env.CATALOG_PROVIDER || "airtable";
+  if (!["airtable", "google_sheets"].includes(provider)) throw new Error("Unsupported catalogue provider.");
+  if (provider === "google_sheets") {
+    const store = new GoogleSheetsStore({ ...env, runtimeDir: options.runtimeDir, fetch: options.fetch || env.fetch, tokenProvider: options.tokenProvider || env.tokenProvider, now: options.now || env.now });
+    await store.load();
+    return store;
+  }
   if (airtableConfigured(env)) {
     const store = new AirtableStore({ ...env, runtimeDir: options.runtimeDir });
     await store.load();

@@ -17,9 +17,11 @@ Nawayef East Heights and Mansions are excluded: the published Homes plan cannot 
 
 Complementary services in `data/services.json` remain disabled. A service can be enabled only after the brokerage confirms that it offers it and supplies approved wording, fees and fulfilment details.
 
-Developer approval is manual, one developer per day, using the [combined catalogue review](https://airtable.com/appbIG0pZvueaTp07/paglQqyiUdkpmzUbC). The chat reminder runs at 08:00 Asia/Dubai: Modon on 12 October 2026, Aldar on 13 October, Burtville on 14 October, Ohana on 15 October, Eagle Hills on 16 October, Reportage on 17 October, then Royal Development Holding on 18 October. A missed day carries the earliest explicitly unapproved developer forward. The reminder requests the broker's review; it does not approve a developer, update Airtable, invent missing terms or enable the feature. Keep the pilot disabled until the selected live facts and controlled QA are ready.
+Developer approval is manual, one developer per day, using the [Google Sheets catalogue](https://docs.google.com/spreadsheets/d/1fPDK8y3LSQlYwaevKDp3i3wbBdSBosRLjHV_4yHu-Ug/edit). Research preparation runs at 07:00 Asia/Dubai before the 08:00 reminder; it stages source links and pending findings without approving data. See [the private Sheets migration](GOOGLE-SHEETS-CATALOGUE.md) for its reviewed source contract and rollout boundary. The chat reminder runs at 08:00 Asia/Dubai: Modon on 12 October 2026, Aldar on 13 October, Burtville on 14 October, Ohana on 15 October, Eagle Hills on 16 October, Reportage on 17 October, then Royal Development Holding on 18 October. A missed day carries the earliest explicitly unapproved developer forward. The reminder requests the broker's review; it does not approve a developer, update Airtable, invent missing terms or enable the feature. Keep the pilot disabled until the selected live facts and controlled QA are ready.
 
 ## Projects, phases and home types in one review
+
+Google Sheets is now the requested review and replacement serving source. The Airtable interface below was prepared earlier and remains available; it is not the daily review destination. Switching the live reader requires the private Google connection and a smoke check.
 
 The published **Developer catalogue review** interface contains the **Projects, phases and home types** page. Filter by Developer; expand a project to see its home types, or open the project to edit the embedded home-type grid grouped by Phase. The existing 36 projects and 105 home types remain linked by their original record IDs. No commercial records were merged, copied, approved or relabelled. The `Units` table is the underlying home-type storage; reviewing it separately is unnecessary.
 
@@ -36,15 +38,17 @@ On 12 October 2026, [Ohana's official project page](https://mancityyasresidences
 ```sh
 npm run pilot:check
 npm run pilot:check -- --airtable
+npm run pilot:check -- --sheets
 ```
 
-The first command always uses local seed data, even if Airtable credentials exist. It will report that the production pilot IDs are missing from demo stock. Production mode rejects a local check. The second command explicitly opts into read-only Airtable access through `createCatalogStore`; `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` must already be configured in the process environment. The command does not load `.env`, provision tables, write records or save buyers.
+The first command always uses local seed data, even if Airtable credentials exist. It will report that the production pilot IDs are missing from demo stock. Production mode rejects a local check. The third command explicitly opts into the private Google Sheets provider, using configured GOOGLE_SHEETS_ID and GOOGLE_SERVICE_ACCOUNT_JSON; no credentials are loaded or created by the command. The second command explicitly opts into read-only Airtable access through `createCatalogStore`; `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` must already be configured in the process environment. The command does not load `.env`, provision tables, write records or save buyers.
 
 `inspectPilot(catalog, manifest, { now, policy })` is a pure inspection function. It checks the 12-record/six-per-segment manifest, identity, active project/home type/developer, source, approval and verification freshness in the selected phase scope. A named phase cannot pass using its parent project's source or checked date; launch prices cannot establish current quote readiness. Readiness is reported separately:
 
 - `readyForPriceComparison`: a correctly scoped, active record has a fresh supported unit-type starting price.
 - `completeCashPicture`: price, approved payment-plan summary, booking/construction/before-handover/handover stages and handover are supported. Stage amounts use `packPaymentStages`; a conflicting explicit initial amount prevents a complete cash picture. An explicit booking percentage can support a computed booking amount without a duplicate Airtable amount.
 - `availabilityStatus`: `verified`, `needs_verification` or `unavailable`, using the separate availability freshness limit. Unknown availability never supports a reservation or availability claim.
+- `areaRateStatus`: confirmed only for an explicitly matched current price and exact Saleable/BUA area with its own fresh source; source ranges and averages never establish a precise rate. This readiness is separate from ordinary starting-price/payment comparison.
 - `readyForRollout`: a complete cash picture and current available/limited status. Overall `ready` requires all 12 selected records to pass this stricter controlled-pilot gate.
 
 Incomplete facts remain useful as scoped information when the existing reply rules permit them; readiness does not grant any new permission to quote. Missing fees and instalment dates remain unknown. A complete cash picture means supported stage totals, not a verified dated instalment schedule or an all-in purchase quote.
