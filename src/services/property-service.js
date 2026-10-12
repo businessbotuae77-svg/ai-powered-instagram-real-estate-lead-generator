@@ -12,7 +12,7 @@ export class PropertyService {
     this.store = store;
   }
 
-  catalog() {
+  catalog({ suppressAvailability = true } = {}) {
     const developers = this.store.listDevelopers();
     const projects = this.store.listProjects();
     const liveProjectIds = new Set(projects.map((row) => row.id));
@@ -25,7 +25,7 @@ export class PropertyService {
     // A linked offer supersedes that unit's legacy quote. Quote-only scopes
     // remain separate so one offer cannot contaminate the whole project.
     const superseded = new Set(scopedOffers.map(unit => unit.inventoryUnitId).filter(Boolean));
-    return safeCatalog({ ...catalog, units: [...units.filter(unit => !superseded.has(unit.id)), ...scopedOffers] });
+    return safeCatalog({ ...catalog, units: [...units.filter(unit => !superseded.has(unit.id)), ...scopedOffers] }, { suppressAvailability });
   }
 
   async refresh() {

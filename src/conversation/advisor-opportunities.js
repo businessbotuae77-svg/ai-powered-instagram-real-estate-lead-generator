@@ -114,7 +114,8 @@ function dimensionDelta(code, field, reference, candidate, unit = null) {
 }
 
 function getCandidates(catalog, buyer, options) {
-  const safe = safeCatalog(catalog, options);
+  const suppressAvailability = !options.buyerDecisionsEnabled;
+  const safe = safeCatalog(catalog, { ...options, suppressAvailability });
   const result = [];
   for (const unit of safe.units) {
     const project = safe.projects.find(row => row.id === unit.projectId);

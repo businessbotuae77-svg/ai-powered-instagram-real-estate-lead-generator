@@ -16,9 +16,12 @@ export function approvedFresh(project, { now = Date.now(), maxAgeDays = factPoli
 }
 
 // Remove stale commercial values before scoring as well as before writing copy.
-export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy() } = {}) {
+// When suppressAvailability is true, availability is never surfaced regardless of
+// freshness. This prevents "available now" / sold-out claims in normal chat while
+// still allowing home-type pricing from Units.
+export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy(), suppressAvailability = false } = {}) {
   const projects = catalog.projects.filter(p => p.active && p.source && p.approved !== false).map(p => {
-    if (approvedFresh(p, { now, maxAgeDays: policy.commercialDays })) return { ...p };
+    if (approvedFresh(p, { now, maxAgeDays: policy.commercialDays })) return { ...p, availabilityNotes: suppressAvailability ? null : p.availabilityNotes };
     return { ...p, initialPaymentAed: null, paymentPlanAvailable: null,
       paymentPlanSummary: null, handover: null, availabilityNotes: null };
   });
@@ -29,12 +32,13 @@ export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy() }
       return { ...u, commercialGate: gate,
         startingPriceAed: gate.ok ? u.commercialOffer.price : null,
         initialPaymentAed: gate.ok ? u.commercialOffer.initialPaymentAed : null,
-        availability: gate.ok ? u.commercialOffer.availability : null };
+        availability: suppressAvailability ? null : (gate.ok ? u.commercialOffer.availability : null) };
     }
     const fresh = approvedFresh(p, { now, maxAgeDays: policy.commercialDays });
+    const availabilityFresh = !suppressAvailability && approvedFresh(p, { now, maxAgeDays: policy.availabilityDays });
     return { ...u, startingPriceAed: fresh ? u.startingPriceAed : null,
       initialPaymentAed: fresh ? u.initialPaymentAed : null,
-      availability: approvedFresh(p, { now, maxAgeDays: policy.availabilityDays }) ? u.availability : null };
+      availability: availabilityFresh ? u.availability : null };
   });
   return { ...catalog, projects, units };
 }

@@ -82,3 +82,17 @@ test("a priced project without unit rows is still recommendable at its starting 
   assert.deepEqual([listing.bedrooms, listing.bedroomsMax], [1, 3]);
   assert.equal(projectListings([project], [{ projectId: "p1" }]).length, 0, "unit rows take over once they exist");
 });
+
+test("home-type price and bedrooms from Units are surfaced; availability is suppressed by default", async () => {
+  const { store } = await seeded();
+  const properties = new PropertyService(store);
+  const catalog = properties.catalog();
+  const unit = catalog.units.find(u => u.bedrooms === 2 && u.projectId && u.startingPriceAed);
+  assert.ok(unit, "a 2BR unit exists in the catalog");
+  assert.ok(unit.startingPriceAed > 0, "unit price is surfaced");
+  assert.ok(typeof unit.bedrooms === "number", "unit bedrooms is surfaced");
+  assert.equal(unit.availability, null, "availability is suppressed when buyer decisions is off");
+  const catalogWithAvailability = properties.catalog({ suppressAvailability: false });
+  const unitWithAvailability = catalogWithAvailability.units.find(u => u.id === unit.id);
+  assert.ok(unitWithAvailability.availability, "availability is present when not suppressed");
+});
