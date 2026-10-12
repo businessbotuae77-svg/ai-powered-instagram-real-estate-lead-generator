@@ -4,6 +4,7 @@ import { safeCatalog } from "../src/facts/freshness.js";
 import { buildFactPack } from "../src/facts/retrieval.js";
 import { matchInventory } from "../src/matching/matcher.js";
 import { ConversationEngine } from "../src/conversation/engine.js";
+import { soldOutOfferUnitIds } from "../src/facts/commercial-offers.js";
 import { setupServices } from "./helpers.js";
 
 function fixture() {
@@ -81,6 +82,55 @@ test("normal chat recommends the available home rather than a cheaper sold-out s
   assert.match(result.reply, /1,900,000/);
   assert.doesNotMatch(result.reply, /1,500,000|sold out|available now/i);
   assert.equal(result.check.ok, true);
+});
+
+test("a fresh approved sold-out offer blocks legacy fallback even without a quoteable price", async () => {
+  const services = await setupServices();
+  services.store.projects = services.store.projects.filter(p => p.id === "prj_yas_park_views");
+  const legacy = services.store.units.find(u => u.id === "unt_ypv_2");
+  const sibling = { ...legacy, id: "available_sibling", startingPriceAed: 1_950_000 };
+  services.store.units = [legacy, sibling];
+  services.store.listIntelligence = () => ({ offers: [{ id: "soldout", projectId: legacy.projectId, unitId: legacy.id,
+    price: null, priceBasis: null, availability: "Sold out", checkedOn: new Date().toISOString(),
+    commercialSource: "Current approved stock sheet", approval: "Approved", botEnabled: true }] });
+  assert.deepEqual(services.properties.catalog().units.map(u => u.id), [sibling.id]);
+  const engine = new ConversationEngine({ buyers: services.buyers, properties: services.properties });
+  const result = await engine.handleMessage("soldout_offer", "Budget 2M, 2 bedroom in Yas", { useLlm: false });
+  assert.equal(result.advisor.primary.unitId, sibling.id);
+  assert.doesNotMatch(result.reply, /1,900,000|sold out/i);
+  assert.equal(result.check.ok, true);
+});
+
+test("sold-out offers require current manual approval and exact project, home type and phase scope", () => {
+  const { now, project, unit } = fixture();
+  const first = { ...unit, phase: "Phase 1" }, second = { ...unit, id: "phase2", phase: "Phase 2" };
+  const offer = { id: "soldout", projectId: project.id, unitType: unit.propertyType, bedrooms: unit.bedrooms,
+    phase: "Phase 2", price: null, availability: "Sold out", checkedOn: new Date(now).toISOString(),
+    commercialSource: "Current stock sheet", approval: "Approved", botEnabled: true };
+  const catalog = { projects: [project], units: [first, second], intelligence: { offers: [offer] } };
+  assert.deepEqual([...soldOutOfferUnitIds(catalog, { now })], [second.id]);
+  for (const patch of [{ approval: "Pending" }, { researchOnly: true }, { botEnabled: false }, { commercialSource: null },
+    { checkedOn: new Date(now - 2 * 86400000).toISOString() }, { projectId: "other" }, { phase: "Phase 3" },
+    { unitId: second.id, phase: "Phase 1" }, { validUntil: new Date(now - 86400000).toISOString() }]) {
+    assert.equal(soldOutOfferUnitIds({ ...catalog, intelligence: { offers: [{ ...offer, ...patch }] } }, { now }).size, 0, JSON.stringify(patch));
+  }
+});
+
+test("a sold-out home-type scope also blocks quote-only offers while retaining other phases and bedrooms", async () => {
+  const services = await setupServices();
+  services.store.projects = services.store.projects.filter(p => p.id === "prj_yas_park_views");
+  const legacy = services.store.units.find(u => u.id === "unt_ypv_2");
+  const checkedOn = new Date().toISOString();
+  const scoped = { ...legacy, source: "Phase sheet", lastVerified: checkedOn };
+  services.store.units = [{ ...scoped, id: "phase1", phase: "Phase 1" }, { ...scoped, id: "phase2", phase: "Phase 2" },
+    { ...scoped, id: "phase2_3br", phase: "Phase 2", bedrooms: 3 }];
+  const offer = { projectId: legacy.projectId, unitType: "apartment", bedrooms: 2, phase: "Phase 2", checkedOn,
+    commercialSource: "Current stock sheet", approval: "Approved", botEnabled: true };
+  services.store.listIntelligence = () => ({ offers: [
+    { ...offer, id: "soldout", availability: "Sold out", price: null },
+    { ...offer, id: "open", availability: "Available", price: 1_500_000, priceBasis: "unit_type_starting_price" }
+  ] });
+  assert.deepEqual(services.properties.catalog().units.map(u => u.id), ["phase1", "phase2_3br"]);
 });
 
 test("a home that becomes sold out cannot be selected from an earlier comparison", async () => {
