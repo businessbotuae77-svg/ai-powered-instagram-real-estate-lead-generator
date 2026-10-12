@@ -4,6 +4,8 @@ import { commercialEvidenceState, advisorBudgetPolicy } from "./advisor-opportun
 import { packPaymentStages } from "../facts/payment-stages.js";
 import { normalizeBuyerText } from "./text.js";
 import { parseMoney, normalizePropertyType } from "../matching/normalize.js";
+import { requestedPhases } from "./phase-request.js";
+import { normalizePhase } from "../facts/scoped-listing.js";
 
 export const listingKey = listing => `${listing.projectId}|${listing.unitId || ""}`;
 export const listingIdentity = candidate => ({ projectId: candidate.project?.id || candidate.projectId, unitId: candidate.unit?.id || candidate.unitId });
@@ -19,14 +21,14 @@ export function listingLabel(pack, language = "en") {
   const type = normalizePropertyType(value(pack, "propertyType") || "home");
   const size = beds === 0 ? (language === "ar" ? "استوديو" : "studio") : beds == null ? "" : language === "ar" ? `${beds} غرف نوم` : `${beds} bedroom`;
   const home = language === "ar" ? ({ apartment: "شقة", villa: "فيلا", townhouse: "تاون هاوس", studio: "" }[type] || "عقار") : type === "studio" ? "" : type;
-  return [pack.name?.value, size, home].filter(Boolean).join(" — ");
+  return [pack.projectName?.value || pack.name?.value, value(pack, "phase"), size, home].filter(Boolean).join(" — ");
 }
 
 export function decisionScope(buyer) {
   return hash([buyer.budgetAed, buyer.budgetFlexible, buyer.budgetStretchAed, buyer.budgetFlexibilityPct,
     buyer.cashAvailableAed, buyer.preferredAreas, buyer.areaFlexibility, buyer.propertyTypes,
     buyer.propertyTypeFlexibility, buyer.bedrooms, buyer.bedroomsRequired, buyer.financing,
-    buyer.financingRequired, buyer.moveInBy, buyer.investmentObjective, buyer.useType]);
+    buyer.financingRequired, buyer.moveInBy, buyer.investmentObjective, buyer.useType, buyer.phaseInterest || null]);
 }
 
 function fingerprint(candidate) {
@@ -59,7 +61,7 @@ export function decisionControlKind(message, state = null) {
   if (/\b(?:choose|pick|prefer)\b|أختار|اختر/.test(text) && /^(?:should|could|can|would|do|does|which|what|how|if)\b|\bif\s+(?:i|we)\s+(?:choose|pick|prefer)\b|^(?:هل|ماذا|إذا)/i.test(text)) return null;
   if (/^(?:choose this|choose (?:the )?(?:first|second|a|b)|pick (?:the )?(?:first|second|a|b)|اختر هذا|أختار (?:الأول|الثاني))\b/i.test(text) || /\b(?:i (?:choose|prefer|pick)|choose|pick)\b|أختار|اختر/.test(text)) return "choose";
   if (/^(?:show payments|show the payments|payments|عرض السداد|اعرض الدفعات)$/i.test(text) || (state && /\b(?:payment breakdown|break down (?:the )?payments|show (?:me )?(?:the )?payments)\b|تفاصيل السداد/.test(text))) return "payments";
-  if (/^(?:compare|قارن|مقارنة)$/i.test(text) || (/\bcompare\b|قارن/.test(text) && (state || bedroomMentions(text).length > 1))) return "compare";
+  if (/^(?:compare|قارن|مقارنة)$/i.test(text) || (/\bcompare\b|قارن/.test(text) && (state || bedroomMentions(text).length > 1 || requestedPhases(text).length > 1))) return "compare";
   return null;
 }
 
@@ -71,6 +73,14 @@ function bedroomMentions(text) {
 
 function referencedCandidate(message, candidates, state) {
   const text = normalizeBuyerText(message).toLowerCase().replace(/\b(?:choose|pick)\s+(?:option\s+)?a\b/g, "choose first").replace(/\b(?:choose|pick)\s+(?:option\s+)?b\b/g, "choose second");
+  const phases = requestedPhases(text);
+  if (phases.length > 1) return null;
+  if (phases.length === 1) {
+    const scoped = candidates.filter(candidate => normalizePhase(candidate.unit.phase) === phases[0]);
+    const beds = bedroomMentions(text);
+    const matches = beds.length === 1 ? scoped.filter(candidate => value(candidate.factPack, "bedrooms") === beds[0]) : scoped;
+    return matches.length === 1 ? matches[0] : null;
+  }
   if ((/\b(?:first|option a)\b|الأول/.test(text)) && (/\b(?:second|option b)\b|الثاني/.test(text))) return null;
   if (/\b(?:first|option a)\b|الأول/.test(text)) return candidates[0] || null;
   if (/\b(?:second|option b)\b|الثاني/.test(text)) return candidates[1] || null;
@@ -237,7 +247,14 @@ export function buildBuyerDecisionTurn({ message, buyer, advisor, pendingOffer =
   if (kind === "compare") {
     const named = advisor.candidates.filter(candidate => text.toLowerCase().includes(candidate.project.name.toLowerCase()));
     const beds = bedroomMentions(text);
-    if (named.length && beds.length >= 2) {
+    const phases = requestedPhases(text);
+    if (phases.length === 2) {
+      const available = named.length ? named : advisor.candidates;
+      const choices = phases.map(phase => available.filter(candidate => normalizePhase(candidate.unit.phase) === phase &&
+        (beds.length !== 1 || value(candidate.factPack, "bedrooms") === beds[0]) && eligible(advisor, candidate)));
+      if (choices.every(rows => rows.length === 1)) candidates = choices.map(rows => rows[0]);
+      else return draft(say(buyer, "I need a confirmed home type in each requested phase to compare. Please specify the bedroom count and home type.", "أحتاج نوع عقار مؤكدًا في كل مرحلة طلبتها للمقارنة. حدد عدد غرف النوم ونوع العقار."), buyer, [], null, { buyerPatch: invalidPatch });
+    } else if (named.length && beds.length >= 2) {
       const choices = beds.map(bed => named.filter(candidate => value(candidate.factPack, "bedrooms") === bed && eligible(advisor, candidate)));
       if (choices.length === 2 && choices.every(rows => rows.length === 1)) candidates = choices.map(rows => rows[0]);
       else return draft(say(buyer, "I need two confirmed home types within your requirements to compare. Please name each bedroom count and home type.", "أحتاج نوعين مؤكدين ضمن متطلباتك للمقارنة. حدد عدد الغرف ونوع كل عقار."), buyer, [], null, { buyerPatch: invalidPatch });

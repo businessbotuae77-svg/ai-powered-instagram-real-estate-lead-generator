@@ -301,6 +301,7 @@ export function buildCallRequestSummary(buyer, { matches = [], reason = "Request
   if (declined.length) lines.push(`Declined: ${declined.join(", ")}`);
   if (buyer.serviceRequest?.status === "requested") lines.push(`Service requested: ${buyer.serviceRequest.name || buyer.serviceRequest.serviceId}`);
   const selectedUnit = matches[0]?.unit;
+  if (selectedUnit?.phase) lines.push(`Selected phase: ${selectedUnit.phase}`);
   if (selectedUnit?.bedrooms != null || selectedUnit?.propertyType) lines.push(`Selected home: ${[selectedUnit.propertyType, selectedUnit.bedrooms != null ? `${selectedUnit.bedrooms} bedroom${selectedUnit.bedrooms === 1 ? "" : "s"}` : null].filter(Boolean).join(", ")}`);
   const project = matches[0]?.project?.name || buyer.projectInterest;
   if (project) lines.push(`Interested in: ${project}`);

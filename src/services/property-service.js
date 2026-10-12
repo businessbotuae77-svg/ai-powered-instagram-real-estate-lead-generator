@@ -4,7 +4,7 @@ import { retrieveFacts } from "../facts/retrieval.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
 import { renderSafeReply } from "../facts/safe-reply.js";
 import { emptyIntelligence } from "../facts/intelligence.js";
-import { offerUnits } from "../facts/commercial-offers.js";
+import { offerUnits, soldOutOfferUnitIds } from "../facts/commercial-offers.js";
 import { projectListings } from "../facts/project-listings.js";
 
 export class PropertyService {
@@ -17,15 +17,16 @@ export class PropertyService {
     const projects = this.store.listProjects();
     const liveProjectIds = new Set(projects.map((row) => row.id));
     const stored = this.store.listUnits().filter((row) => liveProjectIds.has(row.projectId));
-    // Production stores no units; each priced project is one project-level listing.
+    // Keep home types and add a project-level listing only where no home rows exist.
     const units = [...stored, ...projectListings(projects, stored)];
     const intelligence = this.store.listIntelligence ? this.store.listIntelligence() : emptyIntelligence();
     const catalog = { developers, projects, units, intelligence };
     const scopedOffers = offerUnits(catalog);
+    const blocked = soldOutOfferUnitIds({ ...catalog, units: [...units, ...scopedOffers] });
     // A linked offer supersedes that unit's legacy quote. Quote-only scopes
     // remain separate so one offer cannot contaminate the whole project.
     const superseded = new Set(scopedOffers.map(unit => unit.inventoryUnitId).filter(Boolean));
-    return safeCatalog({ ...catalog, units: [...units.filter(unit => !superseded.has(unit.id)), ...scopedOffers] }, { suppressAvailability });
+    return safeCatalog({ ...catalog, units: [...units.filter(unit => !superseded.has(unit.id) && !blocked.has(unit.id)), ...scopedOffers.filter(unit => !blocked.has(unit.id) && !blocked.has(unit.inventoryUnitId))] }, { suppressAvailability });
   }
 
   async refresh() {

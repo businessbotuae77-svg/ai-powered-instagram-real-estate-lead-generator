@@ -9,7 +9,7 @@ Milestone 3 connects that engine to Instagram Messaging and WhatsApp high-intent
 ## Milestone 1
 
 - Developer, project, and unit tables
-- Matching reads Airtable when keys are set
+- Matching reads the selected private catalogue: Airtable by default, or the reviewed Google Sheets replacement
 - Buyer record keyed by Instagram user id
 - Matching by budget, cash, area, developer, type, bedrooms, and payment plan
 - Replies use approved fields only
@@ -58,6 +58,7 @@ Docs:
 - Milestone 2: `docs/MILESTONE_2.md`
 - Milestone 3: `docs/MILESTONE_3.md`
 - [Off-plan research integration](docs/OFF-PLAN-RESEARCH-INTEGRATION.md): evidence boundaries, optional tables and rollout.
+- [Google Sheets catalogue and daily review](docs/GOOGLE-SHEETS-CATALOGUE.md): private access, manual developer approvals, phase terms and guarded area rates.
 - [Broker behaviour](docs/BROKER-BEHAVIOUR.md): your contact details, complementary services, upgrades and handoff rules.
 
 ## Sample listings

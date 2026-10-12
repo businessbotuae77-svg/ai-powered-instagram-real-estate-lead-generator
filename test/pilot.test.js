@@ -145,3 +145,36 @@ test("CLI requires explicit production/Airtable configuration and redacts raw fa
   assert.equal(code, 1);
   assert.deepEqual(errors, ["Pilot check failed: catalogue_unavailable_or_invalid. Review configuration and approved catalogue data."]);
 });
+
+
+test("named phases require their own terms and verification rather than fresh project data", () => {
+  const catalog = fixture();
+  catalog.units[0].phase = "Phase 2";
+  catalog.units[0].launchPriceAed = 800000;
+  let report = inspect(catalog);
+  assert.equal(report.units[0].readyForRollout, false);
+  for (const key of ["source", "last_verified", "starting_price", "payment_plan_summary", "handover"]) {
+    assert.ok(report.units[0].missingFields.includes(key), key);
+  }
+  assert.deepEqual(report.units[0].derivedPaymentStages, []);
+  assert.equal(report.units[1].readyForRollout, true);
+  Object.assign(catalog.units[0], { source: "https://developer.example/phase-2", lastVerified: new Date(NOW).toISOString(),
+    paymentPlanAvailable: "Yes", paymentPlanSummary: "25/75; 5% on booking; 20% during construction; 75% on handover",
+    handover: "Q1 2029" });
+  report = inspect(catalog);
+  assert.equal(report.units[0].readyForRollout, true);
+  assert.equal(report.units[0].phase, "Phase 2");
+  assert.equal(report.units[0].derivedPaymentStages.find(stage => stage.key === "booking").amountAed, 50000);
+  catalog.units[0].startingPriceAed = null;
+  assert.ok(inspect(catalog).units[0].missingFields.includes("starting_price"));
+  catalog.units[0].startingPriceAed = 1000000;
+  catalog.units[0].lastVerified = "2026-08-01";
+  assert.equal(inspect(catalog).units[0].availabilityStatus, "needs_verification");
+});
+
+test("a manifest with an explicit phase fails if the home type moves to another phase", () => {
+  const catalog = fixture();
+  const selected = structuredClone(manifest);
+  selected.units[0].phase = "Phase 2";
+  assert.ok(inspect(catalog, selected).units[0].missingFields.includes("home_type_identity"));
+});

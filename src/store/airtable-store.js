@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { unitLabel } from "./airtable-schema.js";
 import { RUNTIME_DIR } from "./local-store.js";
 import { sameText } from "../matching/normalize.js";
+import { normalizePhase, phasePlanAvailable } from "../facts/scoped-listing.js";
 import { emptyIntelligence, normalizeAreaIntelligence, normalizeInvestmentEvidence, normalizeMarketSnapshot, normalizePaymentSchedule, normalizePriceHistory, normalizeProjectRelationship } from "../facts/intelligence.js";
 import { normalizeCommercialOffer } from "../facts/commercial-offers.js";
 import { normalizeAreaGuideRecord } from "../facts/area-guide.js";
@@ -185,6 +186,16 @@ export class AirtableStore {
     return {
       id: record.id,
       name: f.Name || null,
+      phase: typeof f.Phase === "string" && f.Phase.trim() ? f.Phase.trim() : null,
+      phaseScoped: normalizePhase(f.Phase) !== null,
+      launchDate: f["Launch date"] || null,
+      launchPriceAed: typeof f["Launch price AED"] === "number" ? f["Launch price AED"] : null,
+      paymentPlanAvailable: phasePlanAvailable(f["Payment plan available"]),
+      paymentPlanSummary: f["Payment plan summary"] || null,
+      handover: f.Handover || null,
+      source: f.Source || null,
+      lastVerified: f["Last verified"] || null,
+      ...(typeof f.Approved === "boolean" ? { approved: f.Approved } : {}),
       projectId: Array.isArray(f.Project) ? f.Project[0] : null,
       propertyType: mapSelect(f["Property type"]),
       bedrooms: f.Bedrooms,

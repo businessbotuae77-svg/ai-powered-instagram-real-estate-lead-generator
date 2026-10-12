@@ -1,6 +1,7 @@
 import { approvedFresh, factPolicy } from "./freshness.js";
 import { formatAed } from "../matching/normalize.js";
 import { commercialOfferGate } from "./commercial-offers.js";
+import { hasPhase, projectForListing, offerMatchesPhase } from "./scoped-listing.js";
 import { analyzePaymentSchedule } from "../conversation/payment-analysis.js";
 import { confirmedEvidenceClass } from "./advisor-claims.js";
 
@@ -14,24 +15,29 @@ function field(value, provenance = {}) {
 }
 
 export function buildFactPack(match, options = {}) {
-  const { project, unit, downPaymentAed, bedroomLabel, fit = null } = match;
+  const { unit, downPaymentAed, bedroomLabel, fit = null } = match;
+  const project = projectForListing(match.project, unit);
+  const phased = hasPhase(unit);
   const policy = options.policy || factPolicy();
   const fresh = approvedFresh(project, { now: options.now, maxAgeDays: policy.commercialDays });
   const available = approvedFresh(project, { now: options.now, maxAgeDays: policy.availabilityDays });
   const offer = unit.commercialOffer || null;
-  const gate = offer ? commercialOfferGate(offer, { now: options.now, policy }) : null;
+  const observedGate = offer ? commercialOfferGate(offer, { now: options.now, policy }) : null;
+  const gate = offer && !offerMatchesPhase(unit) ? { ...observedGate, ok: false, reasons: [...observedGate.reasons, "phase_scope_mismatch"] } : observedGate;
   const quoteFresh = offer ? gate.ok : fresh;
-  const projectEvidence = { source: project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.lastVerified || null };
+  const projectEvidence = { source: project.projectSource ?? project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.projectLastVerified ?? project.lastVerified ?? null };
   Object.assign(projectEvidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
   const level = unit.projectLevel === true;
   const unitEvidence = level ? { ...projectEvidence, scope: "project_published_range" }
+    : phased ? { ...projectEvidence, source: unit.source || null, recordId: unit.inventoryUnitId || unit.id, scope: "phase_home_type", verifiedAt: unit.lastVerified || null, phase: unit.phase }
     : { ...projectEvidence, recordId: unit.inventoryUnitId || unit.id, scope: "unit_type" };
   const commercialEvidence = offer
     ? { source: offer.commercialSource, recordId: offer.sourceRecordId || offer.id, scope: offer.priceBasis, verifiedAt: offer.checkedOn, offerId: offer.offerId }
     : level ? { ...projectEvidence, scope: "project_starting_price" }
-    : { ...projectEvidence, recordId: unit.id, scope: "unit_type_starting_price" };
+    : { ...(phased ? unitEvidence : projectEvidence), recordId: unit.id, scope: phased ? { projectId: project.id, unitId: unit.inventoryUnitId || unit.id,
+      phase: unit.phase, bedrooms: unit.bedrooms, propertyType: unit.propertyType, priceBasis: "phase_home_type_starting_price" } : "unit_type_starting_price" };
   const commercial = value => field(quoteFresh ? value : null, commercialEvidence);
-  const initial = offer ? offer.initialPaymentAed : downPaymentAed;
+  const initial = offer ? offer.initialPaymentAed : phased ? unit.initialPaymentAed ?? null : downPaymentAed;
   const payment = offer && gate.ok ? analyzePaymentSchedule(unit.paymentSchedule, {
     priceAed: offer.price, projectId: project.id, offerId: offer.offerId, offerRecordId: offer.id || offer.sourceRecordId, planId: offer.planId, now: options.now
   }) : null;
@@ -42,7 +48,9 @@ export function buildFactPack(match, options = {}) {
     unitId: unit.id,
     projectLevel: level,
     propertyTypes: level ? [...unit.propertyTypes] : undefined,
-    name: field(project.name),
+    name: field(phased ? `${project.name} — ${unit.phase}` : project.name, phased ? unitEvidence : projectEvidence),
+    projectName: field(project.name, projectEvidence),
+    phase: field(phased ? unit.phase : null, unitEvidence),
     developer: field(project.developerName),
     emirate: field(project.emirate),
     area: field(project.area),
@@ -67,14 +75,14 @@ export function buildFactPack(match, options = {}) {
     handover: commercial(offer ? offer.handover : project.handover),
     status: field(project.status),
     availability: field(!level && (offer ? gate.ok : available) && unit.availability !== "Unknown" ? unit.availability : null, commercialEvidence),
-    availabilityNotes: field(!offer && available ? project.availabilityNotes : null, commercialEvidence),
+    availabilityNotes: field(!offer && available && !phased ? project.availabilityNotes : null, commercialEvidence),
     description: field(project.description),
     features: field(project.features),
-    source: field(offer ? offer.commercialSource : project.source),
-    lastVerified: field(offer ? offer.checkedOn : project.lastVerified)
+    source: field(offer ? offer.commercialSource : project.source, commercialEvidence),
+    lastVerified: field(offer ? offer.checkedOn : project.lastVerified, commercialEvidence)
   };
   for (const [key, fact] of Object.entries(pack)) {
-    if (!fact || typeof fact !== "object" || !("confirmed" in fact) || fact.source) continue;
+    if (!fact || typeof fact !== "object" || !("confirmed" in fact) || Object.prototype.hasOwnProperty.call(fact, "source")) continue;
     Object.assign(fact, ["propertyType", "bedrooms", "bedroomsFrom", "bedroomsTo", "bedroomLabel", "sizeSqftFrom", "sizeSqftTo"].includes(key) ? unitEvidence : projectEvidence);
   }
   if (payment?.status === "COMPLETE") {

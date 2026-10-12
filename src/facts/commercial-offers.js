@@ -1,5 +1,6 @@
 import { factPolicy } from "./freshness.js";
 import { selectValue } from "./intelligence.js";
+import { hasPhase, normalizePhase, offerMatchesPhase } from "./scoped-listing.js";
 
 function link(value) { return Array.isArray(value) ? value[0]?.id || value[0] || null : null; }
 function amount(value) { return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null; }
@@ -50,6 +51,27 @@ export function approvedCommercialOffers(offers, options) {
   return (offers || []).map(offer => ({ ...offer, commercialGate: commercialOfferGate(offer, options) })).filter(offer => offer.commercialGate.ok);
 }
 
+// A current approved sold-out observation prohibits its exact inventory scope
+// even when it cannot supply a usable quote. Dropping it must not reopen an older
+// legacy price. Quote fields remain governed by commercialOfferGate unchanged.
+export function soldOutOfferUnitIds(catalog, options) {
+  const blocked = new Set();
+  for (const offer of catalog.intelligence?.offers || []) {
+    if (!/^sold out$/i.test(String(offer.availability || "").trim())) continue;
+    const gate = commercialOfferGate(offer, options);
+    if (gate.reasons.some(reason => !["availability_unconfirmed", "unconfirmed_price"].includes(reason))) continue;
+    for (const unit of catalog.units) {
+      if (unit.projectId !== offer.projectId) continue;
+      if (offer.unitId) {
+        if (offer.unitId !== (unit.inventoryUnitId || unit.id) || !offerMatchesPhase({ ...unit, commercialOffer: offer })) continue;
+      } else if (normalizePhase(offer.phase) !== normalizePhase(unit.phase) || offer.bedrooms !== unit.bedrooms ||
+        String(offer.unitType || "").toLowerCase() !== String(unit.propertyType || "").toLowerCase()) continue;
+      blocked.add(unit.id);
+    }
+  }
+  return blocked;
+}
+
 // Preserve known units; an explicit offer is its own quote scope. It must not
 // inherit the project's old payment plan, initial commitment or handover.
 export function offerUnits(catalog, { now = Date.now(), policy = factPolicy() } = {}) {
@@ -58,12 +80,17 @@ export function offerUnits(catalog, { now = Date.now(), policy = factPolicy() } 
     const project = catalog.projects.find(p => p.id === offer.projectId);
     const linkedUnit = catalog.units.find(u => u.id === offer.unitId && u.projectId === offer.projectId);
     if (!project || (offer.unitId && !linkedUnit)) return [];
+    if (hasPhase(linkedUnit) && normalizePhase(offer.phase) !== normalizePhase(linkedUnit.phase)) return [];
     const paymentSchedule = offer.planId ? (catalog.intelligence?.paymentSchedules || []).find(schedule =>
       (schedule.planId === offer.planId || schedule.id === offer.planId) && schedule.projectId === offer.projectId &&
       (!schedule.unitId || schedule.unitId === offer.unitId) && (!schedule.offerId || [offer.id, offer.offerId].includes(schedule.offerId))) || null : null;
     return [{
       ...(linkedUnit || {}), id: `offer:${offer.id}`, inventoryUnitId: linkedUnit?.id || null,
-      projectId: offer.projectId, propertyType: linkedUnit?.propertyType || offer.unitType,
+      projectId: offer.projectId, phase: offer.phase || linkedUnit?.phase || null,
+      phaseScoped: normalizePhase(offer.phase || linkedUnit?.phase) !== null,
+      source: offer.commercialSource, lastVerified: offer.checkedOn,
+      handover: offer.handover || null,
+      propertyType: linkedUnit?.propertyType || offer.unitType,
       bedrooms: linkedUnit?.bedrooms ?? offer.bedrooms, startingPriceAed: offer.price,
       initialPaymentAed: offer.initialPaymentAed ?? null, availability: offer.availability,
       sizeSqftFrom: linkedUnit?.sizeSqftFrom ?? null, sizeSqftTo: linkedUnit?.sizeSqftTo ?? null,

@@ -8,13 +8,14 @@ import { parseMoney, normalizeArea, normalizeBedrooms, normalizePropertyType, no
 import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { ADVISORY_FACT_FIELDS, parseAdvisoryFacts, normalizeAdvisoryFacts } from "./advisory-memory.js";
 import { canonicalQuestionField, isPropertyFactUncertainty, parseFlexiblePreferences } from "./preference-state.js";
+import { phaseRequestFacts } from "./phase-request.js";
 
 /**
  * Local heuristics for imperfect phrasing.
  */
 export function understandMessageLocally(message, { buyer = null, lastAskedField = null } = {}) {
   const text = normalizeBuyerText(message).trim();
-  const facts = parseAdvisoryFacts(text, { buyer, lastAskedField });
+  const facts = { ...parseAdvisoryFacts(text, { buyer, lastAskedField }), ...phaseRequestFacts(text) };
   const unsure = [];
   const intents = [];
   const signals = [];
@@ -186,6 +187,7 @@ export function mergeUnderstanding(baseExtract, understanding) {
   if (rawFacts.propertyType) facts.propertyType = normalizePropertyType(rawFacts.propertyType);
   if (rawFacts.developer) facts.developer = normalizeDeveloper(rawFacts.developer);
   if (rawFacts.project) facts.project = rawFacts.project;
+  if (rawFacts.phaseInterest !== undefined) facts.phaseInterest = rawFacts.phaseInterest;
   if (rawFacts.financing && FINANCING_VALUES.includes(rawFacts.financing)) {
     facts.financing = rawFacts.financing;
   }
@@ -264,6 +266,7 @@ export function normalizeUnderstanding(raw, source = "none") {
   if (factsIn.propertyType) facts.propertyType = normalizePropertyType(factsIn.propertyType);
   if (factsIn.developer) facts.developer = normalizeDeveloper(factsIn.developer);
   if (factsIn.project) facts.project = String(factsIn.project).trim();
+  if (factsIn.phaseInterest !== undefined) facts.phaseInterest = factsIn.phaseInterest === null ? null : String(factsIn.phaseInterest).trim();
   if (factsIn.financing && FINANCING_VALUES.includes(factsIn.financing)) {
     facts.financing = factsIn.financing;
   }
