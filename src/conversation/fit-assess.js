@@ -299,6 +299,7 @@ export function candidateConstraintFailures(candidate, buyer) {
   const { unit } = candidate;
   const project = projectForListing(candidate.project, unit);
   const failures = [];
+  if (unit.availabilityBlocked === true) failures.push("sold_out");
   if (!phaseMatches(unit, buyer.phaseInterest)) failures.push("requested_phase");
   const price = hasPhase(unit) && !unit.commercialOffer && !approvedFresh(project) ? null : unit.startingPriceAed;
   const cash = hasPhase(unit) ? unit.initialPaymentAed ?? null : candidate.downPaymentAed;

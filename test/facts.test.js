@@ -50,3 +50,10 @@ test("no guaranteed return is promised", async () => {
   assert.match(last.reply, /wouldn't promise/);
   assert.doesNotMatch(last.reply, /guaranteed? (?:return|growth)/i);
 });
+
+test("availability claims are not surfaced in normal chat", async () => {
+  const { last } = await talk(["Budget 2M, 2 bedroom in Yas", "Is it available?"]);
+  assert.match(last.reply, /not confirmed/i);
+  assert.doesNotMatch(last.reply, /\bavailable\s+(right now|now)\b/i);
+  assert.doesNotMatch(last.reply, /\b(limited|sold out)\b/i);
+});

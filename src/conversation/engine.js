@@ -410,7 +410,7 @@ export class ConversationEngine {
     if (this.properties.refresh) {
       try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
     }
-    const allCatalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog();
+    const allCatalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog({ suppressAvailability: !this.buyerDecisions.enabled });
     const namedProjects = allCatalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
     if (!decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {

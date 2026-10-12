@@ -39,6 +39,7 @@ export function matchCriteria(project, unit, criteria = {}) {
   if (!project.active) return reject(unit, project, "project_inactive");
   if (!project.developerActive) return reject(unit, project, "developer_inactive");
   if (!unit.active) return reject(unit, project, "unit_inactive");
+  if (unit.availabilityBlocked === true) return reject(unit, project, "sold_out");
 
   if (criteria.emirate && !sameText(project.emirate, criteria.emirate)) {
     return reject(unit, project, "emirate");
