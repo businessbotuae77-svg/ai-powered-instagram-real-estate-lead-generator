@@ -3,6 +3,14 @@ import { isAffirmation } from "./affirmation.js";
 import { brokerLabel, brokerProfile, brokerShortName, directContactLine } from "./broker-profile.js";
 import { isIdentityQuestion } from "./sales-moments.js";
 
+export function declinesPersonalInformation(text) {
+  return /\b(?:don'?t|do not|won'?t|will not|prefer not to|rather not|refuse to|not comfortable)\b[^.!?؟]{0,45}\b(?:share|sharing|give|giving|provide|disclose)\b[^.!?؟]{0,35}\b(?:personal|details|information|info|nationality|phone|number)\b|(?:(?:ما|لا) (?:أبي|ابي|أبغي|ابغي|بغيت)|لا (?:أريد|اريد|أرغب|ارغب)|أفضل عدم|افضل عدم).{0,35}(?:بيانات|معلومات|جنسيتي|رقمي)|(?:بدون|لن أشارك|لن اعطي).{0,20}(?:بيانات|معلومات|رقم)/i.test(text);
+}
+
+export function declinesContact(message) {
+  return declinesPersonalInformation(message) || /\b(?:no|without)\s+(?:contact|whatsapp|follow[ -]?up)\b|\b(?:don'?t|do not|stop|won'?t)\s+(?:want\s+)?(?:contact|whatsapp|follow[ -]?up)\b|(?:ما (?:أبي|ابي|أبغي|ابغي)|لا أريد|لا اريد|بدون|لا)\s*(?:واتساب|تواصل|متابعة)/i.test(message);
+}
+
 /** An explicit request to talk to a person. Honored immediately, even after an earlier decline. */
 export function wantsHuman(message) {
   const text = normalizeBuyerText(message);
@@ -30,6 +38,7 @@ export function agentEducationReply(message, buyer = {}) {
 export function contactDecision({ message, buyer, pending, explicitCall = false, highIntent = false, phoneSubmitted = false, broker = brokerProfile() }) {
   const text = normalizeBuyerText(message);
   if (isAgentEducationQuestion(text) && !explicitCall && !phoneSubmitted) return null;
+  if (declinesContact(text) || buyer.salesPathStopped) return null;
   if (/\b(?:do not|don'?t|stop)\s+(?:want\s+(?:any\s+|a\s+)?|(?:to |please )?)(?:follow[ -]?up|contact(?:ing)?|messag(?:e|ing))\b|\bno\s+(?:unsolicited\s+)?follow[ -]?up\b/i.test(text)) return null;
   const follow = /follow[ -]?up|contact me|whatsapp me|message me on whatsapp|متابعة|واتساب/i.test(text);
   const human = wantsHuman(text);
@@ -38,8 +47,7 @@ export function contactDecision({ message, buyer, pending, explicitCall = false,
   const pendingPhone = pending?.type === "follow_up_phone" && Boolean(buyer.phone);
   // The buyer's own explicit words override an earlier decline or pause.
   const explicit = follow || human || explicitCall || acceptedOffer || phoneSubmitted || channelReply || pendingPhone;
-  if (!explicit && !highIntent) return null;
-  if (!explicit && (buyer.salesPathStopped || buyer.contactDeclined)) return null;
+  if (!explicit) return null;
   const ar = buyer.language === "ar";
   const label = brokerLabel(broker, buyer.language);
   const who = brokerShortName(broker, buyer.language);

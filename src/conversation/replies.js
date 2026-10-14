@@ -476,37 +476,23 @@ function finish(lines, stage, nextQuestion, pendingOffer, callRequest = null) {
   };
 }
 
-export function fallbackSafeText(packs) {
-  if (!packs.length) {
-    return "I'd rather not guess on that one. Tell me a rough budget, an area or a project name, and I'll show you what I can confirm.";
-  }
-  const commercialProjectIds = new Set(packs.filter(pack => !pack.knowledgeOnly && pack.unitId).map(pack => pack.projectId));
-  const seenCommercial = new Set();
-  const commercial = [];
-  for (const pack of packs) {
-    if (pack.knowledgeOnly || !pack.unitId || seenCommercial.has(`${pack.projectId}|${pack.unitId}`)) continue;
-    commercial.push(pack);
-    seenCommercial.add(`${pack.projectId}|${pack.unitId}`);
-  }
-  const projectOnly = packs.filter(pack => (pack.knowledgeOnly || !pack.unitId) && !commercialProjectIds.has(pack.projectId));
-  const projectRows = projectOnly.map(pack => {
-    const name = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null].filter(Boolean).join(" ");
-    const area = pack.area?.confirmed ? ` ${/\bisland$/i.test(pack.area.value) ? "on" : "in"} ${pack.area.value}` : "";
-    return name ? `${name}${area}.` : null;
-  }).filter(Boolean);
-  const listingRows = commercial.map((pack) => {
-    const name = [pack.name?.value, pack.developer?.value ? `by ${pack.developer.value}` : null].filter(Boolean).join(" ");
-    const area = pack.area?.confirmed ? ` ${/\bisland$/i.test(pack.area.value) ? "on" : "in"} ${pack.area.value}` : "";
-    const price = pack.startingPriceText?.confirmed ? `, from ${pack.startingPriceText.value}` : "";
-    return `${name}${area}${price}.`;
+export function fallbackSafeText(packs, { language = "en", topic = null } = {}) {
+  const ar = language === "ar";
+  const labels = ar
+    ? { availability: "التوفر الحالي", price: "السعر الحالي", initial: "الدفعة الأولى", paymentPlan: "خطة السداد", handover: "موعد التسليم", rent: "الإيجارات والتكاليف" }
+    : { availability: "Current availability", price: "The current price", initial: "The initial payment", paymentPlan: "The payment plan", handover: "The handover date", rent: "Rental figures and costs" };
+  const gap = labels[topic];
+  const rows = packs.map(pack => {
+    const beds = pack.bedrooms?.confirmed ? pack.bedrooms.value : null;
+    const unit = beds === 0 ? (ar ? "استوديو" : "studio") : beds != null ? (ar ? `${beds} غرف نوم` : `${beds} bedroom`) : null;
+    const price = pack.startingPriceText?.confirmed ? (ar ? `، يبدأ من ${pack.startingPriceText.value}` : `, from ${pack.startingPriceText.value}`) : "";
+    return `${pack.name.value}${unit ? ` (${unit})` : ""}${price}.`;
   });
-  const lines = [listingRows.length ? "Here's what I can confirm right now:" : "Here's what I can tell you so far:", ...projectRows, ...listingRows];
-  if (!commercial.length && projectRows.length) {
-    lines.push("Prices, payment terms and handover for these still need checking with the developer, so I won't quote them yet.");
-  } else if (commercial.length) {
-    lines.push("Want the payment plan, handover or availability for any of these?");
-  }
-  return lines.join("\n");
+  const notice = gap ? (ar ? `${gap} يحتاج تحققاً حديثاً قبل تأكيده.` : `${gap} needs a current check before I can confirm it.`)
+    : (ar ? "تفاصيل الإجابة تحتاج تحققاً إضافياً." : "The requested details need another check.");
+  const prompt = packs.length ? (ar ? "تبي نراجع تفاصيل الوحدة المؤكدة هنا؟" : "Want me to review the confirmed unit details here?")
+    : (ar ? "أي مشروع تبي أراجعه؟" : "Which project would you like me to check?");
+  return [...rows, notice, prompt].join("\n");
 }
 
 /** Natural offline composition of the same deterministic advisory strategy. */

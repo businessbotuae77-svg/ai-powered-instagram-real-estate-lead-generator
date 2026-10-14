@@ -5,7 +5,7 @@ import { confirmedEvidenceClass } from "../facts/advisor-claims.js";
 import { canonicalQuestionField, isFlexiblePreference } from "./preference-state.js";
 
 const INTERNAL_LANGUAGE = /\b(?:approved evidence|approved matrix|confirmed options|fact packs?|verified stock|matching engine|approved catalog(?:ue)?|approved inventory|commercial gate|verified inventory layer|database)\b/i;
-const QUESTION_START = /^(?:what|which|where|when|why|how|do you|would you|could you|can you|are you|is your|is AED|shall I|should I|can I|want (?:me|to)|هل|ما |أي |كم |متى |أين )/i;
+const QUESTION_START = /^(?:what|which|where|when|why|how|do you|would you|could you|can you|are you|is your|is AED|shall I|should I|can I|want (?:me|to)|هل|ما (?!عندي|عندنا|أقدر|اقدر)|أي |كم |متى |أين )/i;
 const CAPTURE_REQUEST = /^(?:please\s+)?(?:tell me|share|provide|let me know|give me|choose)\b[^.!?\n]{0,100}\b(?:budget|price range|area|bedrooms?|property type|cash|financing|phone|number|goal|objective|priority|priorities|risk|exit|channel)\b/i;
 
 export function sanitizeBuyerLanguage(message) {
@@ -40,6 +40,8 @@ export function inferQuestionField(question) {
   // Choosing an explanation topic is different from declaring a search area.
   if (/which (?:of these|area).*(?:hear|learn|sounds)|(?:أي|اي) منطقة تود التعرف عليها/i.test(question)) return "areaInterest";
   const text = normalizeBuyerText(question).toLowerCase();
+  if (/^(?:تبي|تبغى|هل تريد|هل تبي)\s+(?:أقارن|اقارن|نقارن|أراجع|اراجع|أشرح|اشرح)/.test(text)) return "advisoryNextAction";
+  if (/ready[^.!?؟]*off[- ]?plan|جاهز[^.!?؟]*على الخارطة/.test(text)) return "investmentRoute";
   // Comparing an option's cash requirements is a next step, not another
   // request for the buyer's personal available cash or investment preference.
   if (/^(?:want me to|would you like (?:me )?to|shall i|should i|can i|do you want (?:me )?to)\s+(?:compare|break down|show|check|explain|focus on (?:the (?:payment|cash)|how much cash))\b/.test(text)) return "advisoryNextAction";

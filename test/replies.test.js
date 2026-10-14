@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setupConversation, talk } from "./helpers.js";
+import { fallbackSafeText } from "../src/conversation/replies.js";
 
 // Replies follow the brand guide: answer first, at most one question, never a
 // generic budget prompt when the buyer asked something else, never filler.
@@ -78,4 +79,94 @@ test("internal words never reach buyers", async () => {
   engine.properties.refresh = async () => { throw new Error("timeout"); };
   const outage = await engine.handleMessage("outage", "Show me options in Yas", { useLlm: false });
   assert.doesNotMatch(outage.reply, /catalogue|fact pack|engine|CRM/i);
+});
+
+test("bare and explained payment splits explain percentages without inventing payment dates", async () => {
+  for (const message of ["20/80", "What does 20/80 mean?", "اشرح ٢٠/٨٠", "٢٠/٨٠ يعني شو؟"]) {
+    const { last } = await talk([message]);
+    assert.equal(last.stage, "education", message);
+    assert.match(last.reply, /20\/80/);
+    assert.match(last.reply, /20%.*80%/);
+    assert.doesNotMatch(last.reply, /20%[^.!؟]*construction|80%[^.!؟]*handover|20%[^.!؟]*البناء|80%[^.!؟]*التسليم|Q[1-4]|\b20\d{2}\b|AED/);
+    assert.doesNotMatch(last.reply, /budget|ميزاني/i);
+    assert.equal(last.check.ok, true);
+    assert.equal(last.nextQuestion.field, "factProject");
+  }
+});
+
+test("Arabic and English investment replies offer a useful route without personal questions", async () => {
+  for (const message of ["Investment", "استثمار"]) {
+    const { last } = await talk([message]);
+    assert.equal(last.nextQuestion.field, "investmentRoute");
+    assert.match(last.reply, /ready.*off-plan|جاهز.*على الخارطة/i);
+    assert.doesNotMatch(last.reply, /nationality|جنسي|phone|رقم|budget|ميزاني/i);
+    assert.equal(last.check.ok, true);
+  }
+  for (const [message, choice] of [["Investment", "Ready"], ["استثمار", "جاهز"]]) {
+    const { last } = await talk([message, choice]);
+    assert.equal(last.buyer.investmentStrategy, "READY_INCOME");
+    assert.match(last.reply, /completed homes|العقارات الجاهزة/);
+    assert.equal(last.nextQuestion.field, "budgetAed");
+    assert.equal(last.check.ok, true);
+  }
+});
+
+test("a nationality objection acknowledges the boundary and continues the investment discussion", async () => {
+  for (const message of ["شدخلك؟", "Why do you need my nationality?"]) {
+    const { engine } = await setupConversation();
+    engine.memory.setLastAskedField("privacy", "nationality");
+    await engine.buyers.remember("privacy", { useType: "investment" });
+    const last = await engine.handleMessage("privacy", message);
+    assert.equal(last.stage, "conversation_repair");
+    assert.match(last.reply, /Fair point|معك حق/);
+    assert.match(last.reply, /ready.*off-plan|جاهز.*على الخارطة/);
+    assert.equal(last.nextQuestion.field, "investmentRoute");
+    assert.equal(last.followUpSubmitted, false);
+    assert.equal(last.check.ok, true);
+  }
+});
+
+test("personal-information refusals are acknowledged and never repeated during property advice", async () => {
+  for (const refusal of ["I don't want to share personal information", "لا أبغي أشارك معلوماتي", "ما أبي أعطيك رقمي", "No WhatsApp", "ما أبي واتساب"]) {
+    const { engine, turns } = await talk(["Can I talk to someone?", refusal]);
+    const declined = turns.at(-1);
+    assert.equal(declined.buyer.contactDeclined, true, refusal);
+    assert.equal(declined.nextQuestion, null, refusal);
+    assert.equal(engine.memory.getPendingOffer("buyer"), null);
+    const last = await engine.handleMessage("buyer", "What is the price of Yas Studio One?");
+    assert.match(last.reply, /AED 850,000/);
+    assert.doesNotMatch(last.reply, /phone|nationality|number|connect you|رقم|جنسي/i);
+    assert.equal(last.buyer.contactDeclined, true);
+    assert.equal(last.check.ok, true);
+  }
+});
+
+test("a checked fallback names the missing fact in the buyer's language without budget capture", () => {
+  for (const language of ["en", "ar"]) {
+    const text = fallbackSafeText([], { language, topic: "availability" });
+    assert.match(text, /availability.*current check|التوفر الحالي.*تحقق/);
+    assert.doesNotMatch(text, /budget|ميزاني|AED|phone|رقم/i);
+    assert.equal((text.match(/[?؟]/g) || []).length, 1);
+  }
+});
+
+test("investment answers do not echo unsupported numeric ROI or appreciation promises", async () => {
+  for (const message of ["10% ROI for 10 years?", "Will it appreciate 20%?", "هل العائد ١٠٪ مضمون لعشر سنوات؟", "Can you guarantee a 10% return?"]) {
+    const { last } = await talk([message]);
+    assert.doesNotMatch(last.reply, /\d+(?:\.\d+)?\s*(?:%|٪|percent)|\bwill appreciate\b/i);
+    assert.equal(last.check.ok, true, message);
+    assert.doesNotMatch(last.reply, /budget|ميزاني/i);
+  }
+});
+
+test("accepting an availability check preserves the discussed unit in English and Arabic", async () => {
+  for (const [question, acceptance] of [["What is the payment plan?", "Yes"], ["ما خطة السداد؟", "نعم"]]) {
+    const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", question, acceptance]);
+    assert.equal(turns[1].stage, "fact_answer");
+    assert.equal((turns[1].reply.match(/[?؟]/g) || []).length, 1);
+    assert.equal(last.stage, "fact_answer");
+    assert.equal(last.packs[0].unitId, "unt_ypv_2");
+    assert.match(last.reply, /limited|محدود/i);
+    assert.equal(last.check.ok, true);
+  }
 });

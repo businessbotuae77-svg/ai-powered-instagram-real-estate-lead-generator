@@ -12,7 +12,7 @@ import { applyChoiceFacts } from "./choices.js";
 import { refineTurnIntent } from "./intent-policy.js";
 import { parseAdvisoryFacts } from "./advisory-memory.js";
 import { parseFlexiblePreferences } from "./preference-state.js";
-import { wantsHuman } from "./contact.js";
+import { wantsHuman, declinesContact } from "./contact.js";
 
 const AREA_LABELS = {
   ...CATALOG_AREA_ALIASES,
@@ -74,20 +74,22 @@ const PROJECT_HINTS = {
  */
 export const OTHER_OFFER = /\b(?:another|other|different|a different)\s+(?:broker|agent|agency|realtor)\b|\bsomeone else\s+(?:offered|quoted|said)\b|وسيط آخر/i;
 
-export function extractFactsFromMessage(message, { buyer = null, lastAskedField = null } = {}) {
+export function extractFactsFromMessage(message, { buyer = null, lastAskedField = null, projectNames = [] } = {}) {
   const text = normalizeBuyerText(message).trim();
   let facts = {};
   const signals = [];
   if (!text) return { facts, signals, intents: ["empty"] };
 
   const intents = detectIntents(text, { lastAskedField });
+  if (declinesContact(text)) intents.push("decline_contact");
   if (/سعر|تكلفة|تسليم|متاح|متوفر|خطة السداد|خطة سداد/.test(text)) intents.push("ask_facts");
 
-  const project = extractProject(text);
-  // A project name is a target, not new bedroom/type/area requirements. For
-  // example, "price of Yas Studio One" must not change a saved 1BR to a studio.
-  const namedProject = Object.values(PROJECT_HINTS).includes(project);
-  const criteriaText = namedProject ? text.replace(new RegExp(project.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig"), " ") : text;
+  const names = [...new Set([...projectNames, ...Object.values(PROJECT_HINTS)])]
+    .filter(name => text.toLowerCase().includes(name.toLowerCase())).sort((a, b) => b.length - a.length);
+  const project = names.length === 1 ? names[0] : names.length > 1 ? null : extractProject(text);
+  // Names describe subjects, not buyer requirements. Strip every named project,
+  // including both sides of a comparison, before reading type and bedrooms.
+  const criteriaText = names.reduce((value, name) => value.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig"), " "), text);
   // Editable quick-reply / choice aliases first, then free-text extractors.
   facts = applyChoiceFacts(criteriaText, facts, { buyer, lastAskedField });
 
@@ -419,6 +421,11 @@ export function extractArabicBedrooms(message) {
 }
 
 function extractPropertyType(text) {
+  if (/استوديو|ستوديو/.test(text)) return "studio";
+  if (/تاون\s*هاوس/.test(text)) return "townhouse";
+  if (/بنتهاوس/.test(text)) return "penthouse";
+  if (/فيلا|فلل/.test(text)) return "villa";
+  if (/شقة|شقق/.test(text)) return "apartment";
   const match = text.match(/\b(apartments?|flats?|villas?|townhouses?|penthouses?|studios?)\b/i);
   if (!match) return null;
   return normalizePropertyType(match[1]);

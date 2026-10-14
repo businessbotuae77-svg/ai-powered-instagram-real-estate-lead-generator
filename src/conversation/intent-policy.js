@@ -1,5 +1,5 @@
 import { normalizeBuyerText } from "./text.js";
-import { isAgentEducationQuestion, wantsHuman } from "./contact.js";
+import { isAgentEducationQuestion, wantsHuman, declinesContact } from "./contact.js";
 import { OUTCOME_LABELS, contactPermissions, permittedNextAction } from "./outcomes.js";
 /**
  * Buyer intent and call-request policy for Milestone 3.
@@ -41,7 +41,7 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextSignals.push("informational_eoi");
   }
 
-  if (/\b(stop contacting|stop messaging|stop asking|leave me alone|do not contact|don't contact)\b/i.test(text) || /^(i'm good|im good|i am good|all good|stop|that's all|no thanks|no thank you|(?:i(?:'m| am) )?not interested)[.!?]*$/i.test(text.trim())) {
+  if (/^(?:لا شكرا|لا شكراً|خلاص|ما قصرت|وقف|توقف)[.!?؟]*$/.test(text.trim()) || /لا تتواصل|لا تراسل/.test(text) || /\b(stop contacting|stop messaging|stop asking|leave me alone|do not contact|don't contact)\b/i.test(text) || /^(i'm good|im good|i am good|all good|stop|that's all|no thanks|no thank you|(?:i(?:'m| am) )?not interested)[.!?]*$/i.test(text.trim())) {
     nextIntents.push("stop");
     nextFacts.salesPathStopped = true;
   }
@@ -103,7 +103,7 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextFacts.preferredContactChannel = "whatsapp";
     nextFacts.noCalls = true;
   }
-  if (contactPrefs.whatsappOnly || contactPrefs.noCalls) {
+  if ((contactPrefs.whatsappOnly || contactPrefs.noCalls) && !declinesContact(text)) {
     nextIntents = without(nextIntents, ["decline_contact"]);
     nextSignals = without(nextSignals, ["contact_declined"]);
     delete nextFacts.contactDeclined;
@@ -117,6 +117,12 @@ export function refineTurnIntent({ intents = [], signals = [], facts = {}, messa
     nextIntents = without(nextIntents, ["viewing", "high_intent"]);
     nextSignals = without(nextSignals, ["viewing_request", "high_intent"]);
     nextIntents.push("decline_viewing");
+  }
+
+  if (declinesContact(text)) {
+    nextIntents = without(nextIntents, ["follow_up", "request_call", "callback", "agent", "high_intent"]);
+    nextSignals = without(nextSignals, ["callback_request", "agent_request", "request_call", "high_intent"]);
+    nextFacts.contactDeclined = true;
   }
 
   // Buying interest is conversational only. It never becomes an alert by itself.
@@ -255,6 +261,7 @@ export function rejectsCallsOnly(text) {
 }
 
 function explicitlyRejectsCalls(text) {
+  if (/(?:لا|ما)\s*(?:تتصل|تدق)|بدون\s*(?:اتصال|مكالمات)|ما (?:أبي|ابي|أبغي|ابغي)\s*(?:اتصال|مكالمات)/.test(text)) return true;
   return /\b(?:never|do not|don'?t|stop)\s+(?:(?:want|need)\s+(?:a\s+|any\s+)?|(?:ever |please |to )?)(?:call(?:ing|s)?|phone|ring|telephone)\b|\b(?:no|without)\s+(?:phone\s+|telephone\s+)?calls?\b|\b(?:do not|don'?t)\s+want\s+(?:you\s+)?to\s+(?:call|phone|ring)\b/i.test(normalizeBuyerText(text));
 }
 

@@ -1,4 +1,5 @@
 import { localizeDraft } from "./localize.js";
+import { asksAvailability, isListingRequest, acceptsListingComparison } from "./listing-answers.js";
 import { KeyedQueue } from "./keyed-queue.js";
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
 import { decideConversation, isClosingRemark } from "./decision.js";
@@ -60,7 +61,7 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
 
 /**
  * Conversation engine.
- * Claude understands natural messages into structured updates.
+ * Local parsing and checked templates handle every turn; no model is called.
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
@@ -69,7 +70,7 @@ export class ConversationEngine {
     this.buyers = buyers;
     this.properties = properties;
     this.memory = memory || new ConversationMemory();
-    // Claude composes replies directly from the catalogue unless BROKER_MODE=off.
+    // Advisor options affect deterministic ranking, never model/API calls.
     this.advisorOptions = advisorOptions;
     this.buyerDecisions = buyerDecisions || loadBuyerDecisionsConfig();
     // The human the bot hands off to, and the owner-approved complementary services.
@@ -90,7 +91,8 @@ export class ConversationEngine {
     const existingBuyer = await this.buyers.getOrCreate(instagramUserId);
     let recentTurns = this.memory.recentContext(instagramUserId, 6);
 
-    let base = extractFactsFromMessage(text, { buyer: existingBuyer, lastAskedField });
+    const projectNames = this.properties.catalog().projects.map(project => project.name);
+    let base = extractFactsFromMessage(text, { buyer: existingBuyer, lastAskedField, projectNames });
     const scope = conversationalScope(text);
 
     const localUnderstanding = understandMessageLocally(text, {
@@ -407,7 +409,11 @@ export class ConversationEngine {
     if (this.properties.refresh) {
       try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
     }
-    const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog({ suppressAvailability: !this.buyerDecisions.enabled });
+    const availabilityRequested = asksAvailability(text) || isListingRequest(text) || acceptsListingComparison(text, pendingAtStart) || (isAffirmation(text) &&
+      ["listing_comparison", "advisory_next_action"].includes(pendingAtStart?.type) &&
+      (pendingAtStart.type === "listing_comparison" || pendingAtStart.action === "availability"));
+    const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog({
+      suppressAvailability: !this.buyerDecisions.enabled && !availabilityRequested });
     const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
     if (!decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
@@ -476,6 +482,14 @@ export class ConversationEngine {
     // A fact question about a named project, or about the project just discussed
     // ("What's the payment plan?"), is answered from that project's listings.
     const factTopic = detectFactTopic(text);
+    if (availabilityRequested && factTopic === "availability") {
+      packs = packs.map(pack => {
+        const project = catalog.projects.find(row => row.id === pack.projectId);
+        const unit = catalog.units.find(row => row.id === pack.unitId && row.projectId === pack.projectId);
+        return project && unit ? buildFactPack({ project, unit,
+          downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }) : pack;
+      });
+    }
     const asksQuestion = /[?؟]\s*$/.test(text) || /^(?:what|what's|whats|how|when|is|are|does|do|tell|price|initial|payment|handover|any|can)\b/i.test(text);
     const newCriteria = ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
     if (factTopic && asksQuestion && !newCriteria && !/\bcompare\b/i.test(text)) {
@@ -508,21 +522,22 @@ export class ConversationEngine {
     const askedFields = new Set(this.memory.getTurns(instagramUserId).map(turn => turn.role === "assistant" && turn.questionField).filter(Boolean));
     const serviceDraft = routeServiceTurn({ message: text, buyer, services: this.services, pendingOffer: pendingAtStart });
     let draft = (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
-      askedFields });
+      askedFields, pendingOffer: pendingAtStart });
     if (!contact && !serviceDraft && isNegatedBuying(text) && !searchUpdateForDecision(facts)) draft = { text: buyer.language === "ar" ? "بالتأكيد. يمكنك تصفح المشاريع أو السؤال عنها متى أردت." : "Of course. You can browse or ask about a project whenever you’re ready.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
     // "Yes" to "Want me to break down the payment plan?" offered about a project
     // the engine has not picked: answer it from that project's listings.
-    const offered = pendingAtStart?.type === "advisory_next_action" && pendingAtStart.projectId && isAffirmation(text) && !contact ? pendingAtStart : null;
+    const offered = pendingAtStart?.type === "advisory_next_action" && isAffirmation(text) && !contact ? pendingAtStart : null;
     if (offered && ["payment_details", "availability"].includes(offered.action)) {
-      const project = catalog.projects.find(p => p.id === offered.projectId);
-      const units = project ? catalog.units.filter(unit => unit.projectId === project.id && unit.active !== false).slice(0, 3) : [];
+      const project = catalog.projects.find(p => p.id === (offered.projectId || buyer.activeRecommendationProjectId));
+      const unitId = offered.unitId || (project?.id === buyer.activeRecommendationProjectId ? buyer.activeRecommendationUnitId : null);
+      const units = project ? catalog.units.filter(unit => unit.projectId === project.id && unit.active !== false && (!unitId || unit.id === unitId)).slice(0, 3) : [];
       const unitPacks = units.map(unit => buildFactPack({ project, unit, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }));
-      const answer = unitPacks.length ? answerFactQuestion(offered.action === "availability" ? "availability" : "payment plan", unitPacks) : null;
+      const answer = unitPacks.length ? answerFactQuestion(offered.action === "availability" ? "availability" : "payment plan", unitPacks, { language: buyer.language }) : null;
       if (answer?.handled) {
-        const next = offered.action === "payment_details" ? "Want me to check current availability?" : null;
+        const next = offered.action === "payment_details" ? (buyer.language === "ar" ? "تبي أراجع التوفر الحالي؟" : "Want me to check current availability?") : null;
         draft = { text: [answer.text, next].filter(Boolean).join("\n"), stage: "fact_answer", factTopic: answer.topic, factMissing: answer.missing || [], factPacks: unitPacks,
           nextQuestion: next ? { field: "advisoryNextAction", prompt: next } : null,
-          pendingOffer: next ? { type: "advisory_next_action", action: "availability", projectId: project.id } : null, callRequest: null };
+          pendingOffer: next ? { type: "advisory_next_action", action: "availability", projectId: project.id, unitId } : null, callRequest: null };
         packs = unitPacks;
       }
     }
@@ -611,7 +626,7 @@ export class ConversationEngine {
     });
     // An unanswered connection offer lapses once the conversation moves on, so a
     // later "yes" to something else is never read as consent to be contacted.
-    if (pendingAtStart?.type === "handoff_offer" && !draft.pendingOffer && !contact) this.memory.setPendingOffer(instagramUserId, null);
+    if (["handoff_offer", "listing_comparison"].includes(pendingAtStart?.type) && !draft.pendingOffer && !contact) this.memory.setPendingOffer(instagramUserId, null);
     if (["paused", "paused_advice", "permissions_updated", "objection_unresolved", "trust_check", "handoff_declined"].includes(draft.stage) || contact?.submitted) {
       this.memory.setPendingOffer(instagramUserId, null);
     }
@@ -622,10 +637,11 @@ export class ConversationEngine {
       matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
     }
     if (draft.factPacks) packs = draft.factPacks;
-    if (draft.stage === "fact_answer" && ["paymentPlan", "initial"].includes(draft.factTopic) && buyer.activeRecommendationProjectId && !buyer.salesPathStopped) {
+    if (draft.listingMatches) matchResult = { ...matchResult, matches: draft.listingMatches, matchCount: draft.listingMatches.length };
+    if (draft.stage === "fact_answer" && ["paymentPlan", "initial"].includes(draft.factTopic) && buyer.activeRecommendationProjectId && !buyer.salesPathStopped && !draft.nextQuestion) {
       const prompt = buyer.language === "ar" ? "هل تريد التحقق من التوفر الحالي؟" : "Want me to check current availability?";
       draft = { ...draft, text: `${draft.text}\n${prompt}`, nextQuestion: { field: "advisoryNextAction", prompt },
-        pendingOffer: { type: "advisory_next_action", action: "availability" } };
+        pendingOffer: { type: "advisory_next_action", action: "availability", projectId: buyer.activeRecommendationProjectId, unitId: buyer.activeRecommendationUnitId } };
     }
     // Last-line protection also applies to deterministic and offline replies.
     // Rephrasing a closed qualification slot cannot restart the interview.
@@ -763,11 +779,7 @@ export class ConversationEngine {
     if (!check.ok) {
       this.logger?.({ event: "response_validation", rejectionReasons: check.violations.map(v => v.type) });
       const fallbackPacks = draft.advisoryExposure ? packs.filter(p => matchResult.matches.some(m => m.project.id === p.projectId && m.unit.id === p.unitId)).slice(0, 2) : packs.slice(0, 2);
-      replyText = fallbackPacks.length
-        ? fallbackSafeText(fallbackPacks)
-        : buyer.advisorLed
-          ? "You're open, so I'll do the filtering. I don't have a shortlist I'm confident in for that yet; tell me an area or a budget range and I'll narrow it down."
-          : "I'd rather not guess on that one. Tell me a rough budget, an area or a project name, and I'll show you what I can confirm.";
+      replyText = fallbackSafeText(fallbackPacks, { language: buyer.language, topic: draft.factTopic });
       check = validateBuyerResponse(replyText, {
         buyer, packs: fallbackPacks, allowedBuyerAmounts, permittedContacts,
         allowedActions: [], forbiddenActions

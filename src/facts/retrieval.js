@@ -1,4 +1,4 @@
-import { approvedFresh, factPolicy } from "./freshness.js";
+import { approvedFresh, approvedUnitFresh, factPolicy } from "./freshness.js";
 import { formatAed } from "../matching/normalize.js";
 import { commercialOfferGate } from "./commercial-offers.js";
 import { analyzePaymentSchedule } from "../conversation/payment-analysis.js";
@@ -17,10 +17,11 @@ export function buildFactPack(match, options = {}) {
   const { project, unit, downPaymentAed, bedroomLabel, fit = null } = match;
   const policy = options.policy || factPolicy();
   const fresh = approvedFresh(project, { now: options.now, maxAgeDays: policy.commercialDays });
-  const available = approvedFresh(project, { now: options.now, maxAgeDays: policy.availabilityDays });
+  const unitFresh = approvedUnitFresh(project, unit, { now: options.now, maxAgeDays: policy.commercialDays });
+  const available = approvedUnitFresh(project, unit, { now: options.now, maxAgeDays: policy.availabilityDays, availability: true });
   const offer = unit.commercialOffer || null;
   const gate = offer ? commercialOfferGate(offer, { now: options.now, policy }) : null;
-  const quoteFresh = offer ? gate.ok : fresh;
+  const quoteFresh = unit.active !== false && unit.approved !== false && (offer ? gate.ok : unitFresh);
   const projectEvidence = { source: project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.lastVerified || null };
   Object.assign(projectEvidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
   const level = unit.projectLevel === true;
@@ -58,14 +59,14 @@ export function buildFactPack(match, options = {}) {
     startingPriceAed: commercial(offer ? offer.price : unit.startingPriceAed),
     startingPriceText: commercial(formatAed(offer ? offer.price : unit.startingPriceAed)),
     startingPriceBasis: commercial(level ? unit.startingPriceBasis : null),
-    sizeSqftFrom: field(unit.sizeSqftFrom),
-    sizeSqftTo: field(unit.sizeSqftTo),
+    sizeSqftFrom: field(unitFresh ? unit.sizeSqftFrom : null),
+    sizeSqftTo: field(unitFresh ? unit.sizeSqftTo : null),
     downPaymentAed: commercial(initial),
     downPaymentText: commercial(formatAed(initial)),
     paymentPlanAvailable: commercial(offer ? (payment?.status === "COMPLETE" ? true : null) : project.paymentPlanAvailable),
     paymentPlanSummary: commercial(offer ? scheduleSummary : project.paymentPlanSummary),
     handover: commercial(offer ? offer.handover : project.handover),
-    status: field(project.status),
+    status: field(fresh ? project.status : null),
     availability: field(!level && (offer ? gate.ok : available) && unit.availability !== "Unknown" ? unit.availability : null, commercialEvidence),
     availabilityNotes: field(!offer && available ? project.availabilityNotes : null, commercialEvidence),
     description: field(project.description),
@@ -93,7 +94,7 @@ export function buildProjectKnowledgePack(project) {
   Object.assign(evidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
   const pack = { projectId: project.id, unitId: null, knowledgeOnly: true };
   const values = { name: project.name, developer: project.developerName, emirate: project.emirate,
-    area: project.area, status: project.status, description: project.description, features: project.features };
+    area: project.area, status: approvedFresh(project) ? project.status : null, description: project.description, features: project.features };
   for (const [key, value] of Object.entries(values)) pack[key] = field(value, evidence);
   for (const key of ["bedrooms", "bedroomLabel", "propertyType", "sizeSqftFrom", "sizeSqftTo", "startingPriceAed", "startingPriceText", "downPaymentAed", "downPaymentText", "paymentPlanAvailable", "paymentPlanSummary", "handover", "availability", "availabilityNotes"]) pack[key] = field(null);
   pack.source = field(project.source, evidence);
