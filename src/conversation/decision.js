@@ -1,6 +1,6 @@
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
+import { answerListingRequest, compareNamedListings, isListingRequest } from "./listing-answers.js";
 import { answerFactQuestion, detectFactTopic } from "./fact-answers.js";
-import { buildFactPack } from "../facts/retrieval.js";
 import { comparisonReply } from "./comparison-reply.js";
 import { compareProperties } from "./comparison.js";
 import { knowledgeAdvice } from "./knowledge-advice.js";
@@ -32,7 +32,7 @@ function response(text, stage, field = null, prompt = null) {
 
 // Answer-first decisions run before commercial qualification. Content comes from
 // the approved catalogue, or clearly identified general education.
-export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null, advisor = null, lastAskedField = null, askedFields = new Set(), broker = brokerProfile() }) {
+export function decideConversation({ message, buyer, catalog, packs = [], intents = [], catalogError = null, advisor = null, lastAskedField = null, askedFields = new Set(), pendingOffer = null, broker = brokerProfile() }) {
   const text = normalizeBuyerText(message);
   const ar = buyer.language === "ar" || buyerLanguage(message) === "ar";
   const say = (en, arabic) => ar ? arabic : en;
@@ -41,8 +41,18 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     if (isClosingRemark(text)) return response(say("Of course. I'm here whenever you need me.", "بكل سرور. أنا هنا متى احتجت إليّ."), "paused");
     return response(say("Understood. I'll leave it there. Message me whenever you need help.", "تمام، سأترك الأمر هنا. راسلني متى احتجت للمساعدة."), "paused");
   }
-  if (intents.includes("decline_call") || intents.includes("no_calls")) {
+  if ((intents.includes("decline_call") || intents.includes("no_calls")) && !detectFactTopic(text) && !isListingRequest(text)) {
     return response(say("Understood — no calls. We can continue here whenever you need help.", "تمام، بدون مكالمات. يمكننا المتابعة هنا متى احتجت للمساعدة."), "permissions_updated");
+  }
+  if (intents.includes("decline_contact") && !detectFactTopic(text) && !isListingRequest(text)) {
+    return { ...response(say("Of course. You can keep asking about properties here without sharing personal details.",
+      "أكيد، نقدر نكمل هنا بدون بيانات شخصية. اسألني عن أي مشروع أو منطقة تهمك."), "permissions_updated"), suppressCommercial: true };
+  }
+  const nationalityObjection = /شدخلك|ش\s*دخلك|وش دخلك|شو دخلك|ليش.*جنسي|لماذا.*جنسي|why.*nationality|nationality.*(?:necessary|relevant)|none of your business/i.test(text);
+  if (nationalityObjection) {
+    const prompt = say("Would you prefer a ready home, or an off-plan project?", "تفضّل عقاراً جاهزاً، ولا مشروعاً على الخارطة؟");
+    return { ...response(say(`Fair point. I don't need your nationality to help with property comparisons. ${prompt}`,
+      `معك حق، الجنسية ما كانت ضرورية لسؤالك. نكمل على الخيارات العقارية: ${prompt}`), "conversation_repair", "investmentRoute", prompt), suppressCommercial: true };
   }
   if (intents.includes("eoi_info")) {
     return response(say("EOI means expression of interest. It records interest in a property; it is not a confirmed reservation. Any deposit, refund terms, or allocation must be checked for the specific project.", "EOI تعني إبداء الاهتمام بالعقار، وليست حجزاً مؤكداً. يجب التحقق من مبلغ الإيداع وشروط الاسترداد والتخصيص للمشروع المحدد."), "education");
@@ -134,11 +144,30 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
     return response(say("Understood. We can discuss general property questions here, whenever you're ready.", "تمام. يمكننا مناقشة الأسئلة العقارية العامة هنا متى أردت."), "conversation_repair");
   }
   const split = text.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
-  if (split && /mean|explain|what|يعني|معنى/i.test(text) && Number(split[1]) + Number(split[2]) === 100) {
+  if (split && (/mean|explain|what|اشرح|يعني|معنى/i.test(text) || /^\s*\d{1,2}\s*\/\s*\d{1,2}[.!?؟]*\s*$/.test(text)) && Number(split[1]) + Number(split[2]) === 100) {
     // No project numbers in this educational draft; the checker remains strict.
     const before = Number(split[1]);
     const after = Number(split[2]);
-    return { ...response(say(`In a ${before}/${after} plan, ${before} percent of the price is generally paid during construction and ${after} percent at handover. The booking amount and instalment dates depend on the project; this is an explanation, not confirmation of a project's terms.`, `في خطة ${before}/${after}، يُدفع عادة ${before} بالمئة أثناء البناء و${after} بالمئة عند التسليم. مبلغ الحجز ومواعيد الأقساط تعتمد على المشروع؛ هذا شرح عام وليس تأكيداً لشروط مشروع معين.`), "education"), educationalSplit: `${before}/${after}` };
+    const named = catalog.projects.find(project => text.toLowerCase().includes(project.name.toLowerCase()));
+    const prompt = named ? say(`Want me to check the actual payment plan for ${named.name}?`, `تبي أراجع خطة السداد الفعلية لـ${named.name}؟`) : say("Which project is the plan for?", "الخطة لأي مشروع؟");
+    return { ...response(say(`A ${before}/${after} plan splits the price into ${before}% and ${after}%. Payment dates and stages depend on the project's actual plan. ${prompt}`,
+      `خطة ${before}/${after} تقسّم سعر العقار إلى ${before}% و${after}%. مواعيد الدفعات ومراحلها تعتمد على خطة المشروع. ${prompt}`), "education", named ? "advisoryNextAction" : "factProject", prompt), educationalSplit: `${before}/${after}`, suppressCommercial: true,
+      pendingOffer: named ? { type: "advisory_next_action", action: "payment_details", projectId: named.id } : null };
+  }
+  const listing = answerListingRequest({ message: text, catalog, buyer, pendingOffer });
+  if (listing && !catalogError) return listing;
+  if (/^(?:investment|investing|استثمار|للاستثمار)[.!?؟]*$/i.test(text.trim()) && (!buyer.investmentStrategy || buyer.investmentStrategy === "UNDECIDED") && !buyer.incomeRequirement) {
+    const prompt = say("Would you prefer a ready home to rent now, or an off-plan project where we can assess the area and delivery timeline?",
+      "تفضّل عقاراً جاهزاً للتأجير الآن، ولا مشروعاً على الخارطة نقارن فيه المنطقة وموعد التسليم؟");
+    return { ...response(say(`I can help you compare the options as an investment. ${prompt}`,
+      `أقدر أساعدك تقارن الخيارات كاستثمار. ${prompt}`), "exploring", "investmentRoute", prompt), suppressCommercial: true };
+  }
+  if (lastAskedField === "investmentRoute" && /^(?:ready(?: property| home)?|جاهز|عقار جاهز|off[- ]?plan|على الخارطة|مشروع على الخارطة)[.!?؟]*$/i.test(text.trim())) {
+    const readyChoice = buyer.investmentStrategy === "READY_INCOME";
+    const lead = readyChoice ? say("I'll focus on completed homes, with current availability checked separately.", "تمام، نركز على العقارات الجاهزة، ونتحقق من التوفر الحالي بشكل منفصل.")
+      : say("I'll compare off-plan entry prices, the area and delivery timeline; future resale prices need their own evidence.", "تمام، نقارن سعر الدخول والمنطقة وموعد التسليم. سعر إعادة البيع المستقبلي يحتاج أدلة مستقلة.");
+    const prompt = buyer.budgetAed ? say("Is there an area you'd like to start with?", "في منطقة تبي نبدأ فيها؟") : say("What budget would you like me to work within?", "كم الميزانية اللي تبي نبحث ضمنها؟");
+    return { ...response(`${lead} ${prompt}`, "exploring", buyer.budgetAed ? "preferredAreas" : "budgetAed", prompt), suppressCommercial: true };
   }
   const area = areaAnswer({ text, buyer, catalog, lastAskedField, ar, askedFields });
   if (area) return area;
@@ -183,22 +212,12 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
         factPacks: packs.slice(0, 2), comparisonFacts };
     }
     if (selected.length !== 2) return response(say("Which two projects would you like to compare?", "أي مشروعين تريد مقارنتهما؟"), "comparison", "comparisonProjects", "Which two projects?");
-    const candidates = selected.map(project => {
-      const unit = catalog.units.find(u => u.projectId === project.id && u.active);
-      if (!unit) return null;
-      const candidate = { project, unit };
-      candidate.factPack = buildFactPack({ ...candidate, downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) });
-      return candidate;
-    });
-    if (candidates.some(c => !c)) return knowledgeAdvice({ buyer, catalog, message: text, advisor });
-    const comparisonFacts = compareProperties(candidates[0], candidates[1], buyer);
-    return { ...response(comparisonReply(comparisonFacts, { language: buyer.language }), "comparison"),
-      factPacks: candidates.map(c => c.factPack), comparisonFacts };
+    return compareNamedListings(selected, catalog, buyer);
   }
   // "I want to sell at handover" is a plan, not a question about the handover date.
   const statesPlan = /\b(sell|exit|flip|resell)\b/i.test(text) && !/[?؟]|\b(what|when|how)\b/i.test(text);
   if (!statesPlan && detectFactTopic(text) && (intents.includes("ask_facts") || /is it available|متاح/i.test(text))) {
-    const answer = answerFactQuestion(text, packs);
+    const answer = answerFactQuestion(text, packs, { language: buyer.language });
     const prompt = say("Which project would you like me to check?", "أي مشروع تريد أن أتحقق منه؟");
     return { ...response(answer.handled ? answer.text : prompt, "fact_answer", answer.handled ? null : "factProject", answer.handled ? null : prompt), factTopic: answer.topic, factMissing: answer.missing || [] };
   }

@@ -2,7 +2,7 @@ import { packPaymentStages } from "../facts/payment-stages.js";
 /**
  * Answer a specific commercial question from confirmed fact packs only.
  */
-export function answerFactQuestion(message, packs = []) {
+export function answerFactQuestion(message, packs = [], { language = "en" } = {}) {
   if (!packs.length) {
     return {
       handled: false,
@@ -23,7 +23,10 @@ export function answerFactQuestion(message, packs = []) {
     if (seen.has(pack.projectId)) continue;
     seen.add(pack.projectId);
     const units = packs.filter(row => row.projectId === pack.projectId);
-    lines.push(["paymentPlan", "handover", "rent"].includes(topic) || units.length === 1 ? formatTopicLine(pack, topic) : formatUnitList(units, topic));
+    const shared = ["paymentPlan", "handover", "rent"].includes(topic) && units.every(row => !row.offerId);
+    lines.push(language === "ar" ? arabicTopic(units, topic) : shared || units.length === 1
+      ? formatTopicLine(pack, topic) : ["paymentPlan", "handover"].includes(topic)
+        ? units.map(row => formatTopicLine(row, topic)).join(" ") : formatUnitList(units, topic));
     if (!units.some(unit => topicConfirmed(unit, topic))) missing.push({ projectId: pack.projectId, project: pack.name?.value || null, topic });
   }
   return {
@@ -53,8 +56,39 @@ export function detectFactTopic(message) {
   if (/سعر|السعر|تكلفة|price|cost|how much|starting/i.test(text)) return "price";
   if (/دفعة أولى|الدفعة الأولى|initial|down\s*payment|booking\s*amount|deposit|upfront/i.test(text)) return "initial";
   if (/إيجار|\brent|rental|yield/i.test(text)) return "rent";
-  if (/متاح|متوفر|availab|sold out|units left|remaining/i.test(text)) return "availability";
+  if (/متاح|متوفر|availab|\bstock\b|sold out|units left|remaining/i.test(text)) return "availability";
   return null;
+}
+
+function arabicTopic(units, topic) {
+  return units.map(pack => {
+    const beds = pack.bedrooms?.confirmed ? pack.bedrooms.value : null;
+    const label = beds === 0 ? "استوديو" : beds === 1 ? "غرفة نوم" : beds === 2 ? "غرفتين" : beds != null ? `${beds} غرف نوم` : null;
+    const name = `${pack.name?.value || "المشروع"}${label ? ` (${label})` : ""}`;
+    if (topic === "rent") return `ما عندي أرقام إيجار حديثة ومؤكدة لـ${name}. نحتاج إيجارات لعقارات مشابهة وتكاليف الملكية قبل حساب صافي العائد.`;
+    if (topic === "price") return pack.startingPriceText?.confirmed ? `${name}: السعر يبدأ من ${pack.startingPriceText.value}.` : `${name}: سعر البداية غير مؤكد بعد.`;
+    if (topic === "availability") {
+      const status = { Available: "متاح حسب آخر تحقق", Limited: "التوفر محدود حسب آخر تحقق", "Sold out": "غير متاح حسب آخر تحقق", "On request": "التوفر يحتاج طلب تحقق" }[pack.availability?.value];
+      return pack.availability?.confirmed && status ? `${name}: ${status}.` : `${name}: التوفر غير مؤكد بعد ويحتاج تحققاً حديثاً.`;
+    }
+    if (topic === "initial") {
+      if (pack.downPaymentText?.confirmed) return `${name}: الدفعة الأولى ${pack.downPaymentText.value}.`;
+      const booking = packPaymentStages(pack).find(stage => stage.key === "booking");
+      return booking ? `${name}: دفعة الحجز ${booking.percent}%، أي AED ${booking.amountAed.toLocaleString("en-US")} على سعر البداية.` : `${name}: الدفعة الأولى غير مؤكدة بعد.`;
+    }
+    if (topic === "handover") {
+      if (!pack.handover?.confirmed) return `${name}: موعد التسليم غير مؤكد بعد.`;
+      if (/^ready$/i.test(pack.handover.value)) return pack.status?.confirmed && /^ready$/i.test(pack.status.value) ? `${name}: جاهز حسب آخر تحقق.` : `${name}: الجاهزية تحتاج تأكيداً.`;
+      return `${name}: موعد التسليم ${pack.handover.value}.`;
+    }
+    if (topic === "paymentPlan") {
+      if (!pack.paymentPlanSummary?.confirmed) return `${name}: خطة السداد غير مؤكدة بعد.`;
+      const labels = { booking: "عند الحجز", construction: "أثناء الإنشاء", beforeHandover: "قبل التسليم", handover: "عند التسليم" };
+      const stages = packPaymentStages(pack);
+      return `${name}: خطة السداد ${pack.paymentPlanSummary.value}${stages.length ? ` على سعر البداية ${pack.startingPriceText.value}: ${stages.map(stage => `${labels[stage.key] || stage.label} ${stage.percent}%، أي AED ${stage.amountAed.toLocaleString("en-US")}`).join("؛ ")}` : ""}.`;
+    }
+    return `${name}: هذه المعلومة تحتاج تأكيداً.`;
+  }).join("\n");
 }
 
 // Several units of one project: one sentence listing each unit's figure.
@@ -88,7 +122,7 @@ function formatTopicLine(pack, topic) {
     if (pack.paymentPlanSummary?.confirmed) {
       const plan = String(pack.paymentPlanSummary.value).replace(/\s*\([^)]*\)/g, "").trim().replace(/[.;,]$/, "");
       const stages = packPaymentStages(pack);
-      const lines = [`The payment plan for ${name} is ${plan}.`];
+      const lines = [`The payment plan for ${name}${pack.offerId && unit ? ` (${unit})` : ""} is ${plan}.`];
       if (stages.length) lines.push(`On the ${pack.startingPriceText.value} starting price${unit ? ` (${unit})` : ""}: ${stages.map(stage => `${stage.label.toLowerCase()} ${stage.percent}% is AED ${stage.amountAed.toLocaleString("en-US")}`).join(", ")}.`);
       if (pack.handover?.confirmed) lines.push(`Handover is ${pack.handover.value}.`);
       return lines.join(" ");
@@ -100,7 +134,8 @@ function formatTopicLine(pack, topic) {
   }
   if (topic === "handover") {
     if (!pack.handover?.confirmed) return `${name}: handover is not confirmed yet.`;
-    if (/ready/i.test(String(pack.handover.value))) return `${name} is ready now.`;
+    if (/^ready$/i.test(String(pack.handover.value))) return pack.status?.confirmed && /^ready$/i.test(pack.status.value)
+      ? `${name} is ready.` : `${name}: completed status needs confirming.`;
     // What the buyer pays at handover is the useful part of "what happens at handover".
     const due = packPaymentStages(pack).find(stage => stage.key === "handover");
     return due
@@ -121,7 +156,7 @@ function formatTopicLine(pack, topic) {
     return `${name}: initial payment is not confirmed yet.`;
   }
   if (topic === "availability") {
-    if (pack.availability?.confirmed) return /available/i.test(String(pack.availability.value))
+    if (pack.availability?.confirmed) return /^available$/i.test(String(pack.availability.value))
       ? `Good news: ${name}${unit ? ` (${unit})` : ""} is showing as available right now.`
       : `${name}${unit ? ` (${unit})` : ""} is showing availability as ${String(pack.availability.value).toLowerCase()}.`;
     return `${name}: availability is not confirmed yet.`;

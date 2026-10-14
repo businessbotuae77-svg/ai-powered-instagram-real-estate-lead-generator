@@ -53,7 +53,7 @@ export function parseInvestmentFacts(message, { buyer = null, lastAskedField = n
   const investment = roi || /\b(?:invest(?:ment|ing|or)?|rental (?:income|yield)|capital growth|appreciation)\b/.test(positive) || /استثمار|عائد|دخل (?:الإيجار|الايجار)|نمو رأس المال/.test(positive);
   const factQuestion = /\b(?:will|does|can|could|how much|what is|what are)\b.{0,60}\b(?:appreciat|growth|yield|rent|return)/.test(text) || /\bwhat (?:does|is).{0,30}(?:growth|income|roi)/.test(text);
   const explicitHolding = /\b(?:hold|keep)(?:ing)?\b.{0,30}\b\d+(?:\.\d+)?\s*years?\b|\b(?:sell|exit|flip)\b.{0,40}\b(?:handover|completion)\b|\blong[- ]term\s+hold\b/.test(text);
-  const investmentContext = investment || explicitHolding || buyer?.useType === "investment" || ["investmentObjective", "exitHorizon", "holdingPeriod", "investmentStrategy", "handoverStrategy", "incomeRequirement"].includes(lastAskedField);
+  const investmentContext = investment || explicitHolding || buyer?.useType === "investment" || ["investmentObjective", "exitHorizon", "holdingPeriod", "investmentStrategy", "handoverStrategy", "incomeRequirement", "investmentRoute"].includes(lastAskedField);
   if (!investmentContext) return facts;
   if (investment && (!factQuestion || roi)) facts.useType = "investment";
   if (roi) facts.investmentGoal = "total_return";
@@ -72,6 +72,13 @@ export function parseInvestmentFacts(message, { buyer = null, lastAskedField = n
     }
   }
 
+  if (lastAskedField === "investmentRoute") {
+    if (/^(?:ready(?: property| home)?|جاهز|عقار جاهز)[.!?؟]*$/i.test(text)) {
+      Object.assign(facts, { useType: "investment", investmentStrategy: "READY_INCOME", incomeRequirement: "immediate" });
+    } else if (/^(?:off[- ]?plan|على الخارطة|مشروع على الخارطة)[.!?؟]*$/i.test(text)) {
+      Object.assign(facts, { useType: "investment", investmentStrategy: "OFF_PLAN_APPRECIATION", incomeRequirement: "none" });
+    }
+  }
   const horizonText = text.replace(/\b(?:don'?t|do not|not|won'?t|will not)\s+(?:want to\s+)?(?:hold|keep)(?:ing)?\b[^,.;]*(?=[,.;]|$)/g, " ");
   const holding = horizonText.match(/\b(?:hold(?:ing)?(?: it| the property)?(?: for)?|holding period(?: of| is)?|keep(?: it| the property)?(?: for)?)\s*(\d+(?:\.\d+)?)\s*years?\b/)
     || (lastAskedField === "holdingPeriod" ? text.match(/^(\d+(?:\.\d+)?)\s*(?:years?)?[.!?]*$/) : null)

@@ -15,6 +15,14 @@ export function approvedFresh(project, { now = Date.now(), maxAgeDays = factPoli
     Number.isFinite(verified) && age >= 0 && age <= maxAgeDays * 86400000);
 }
 
+// Units inherit the project's verification in the current schema. If a unit has
+// its own verification date, both records must be current; never ignore a stale row.
+export function approvedUnitFresh(project, unit, { now = Date.now(), maxAgeDays = factPolicy().commercialDays, availability = false } = {}) {
+  if (unit.active === false || unit.approved === false || !approvedFresh(project, { now, maxAgeDays })) return false;
+  const dates = [unit.lastVerified, ...(availability ? [unit.availabilityVerifiedAt] : [])].filter(value => value != null && value !== "");
+  return dates.every(lastVerified => approvedFresh({ active: true, source: unit.source || project.source, lastVerified }, { now, maxAgeDays }));
+}
+
 // Remove stale commercial values before scoring as well as before writing copy.
 // When suppressAvailability is true, availability is never surfaced regardless of
 // freshness. This prevents "available now" / sold-out claims in normal chat while
@@ -25,7 +33,7 @@ export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy(), 
     return { ...p, initialPaymentAed: null, paymentPlanAvailable: null,
       paymentPlanSummary: null, handover: null, availabilityNotes: null };
   });
-  const units = catalog.units.filter(u => projects.some(p => p.id === u.projectId)).map(u => {
+  const units = catalog.units.filter(u => u.active !== false && u.approved !== false && projects.some(p => p.id === u.projectId)).map(u => {
     const p = projects.find(p => p.id === u.projectId);
     if (u.commercialOffer) {
       const gate = commercialOfferGate(u.commercialOffer, { now, policy });
@@ -34,8 +42,8 @@ export function safeCatalog(catalog, { now = Date.now(), policy = factPolicy(), 
         initialPaymentAed: gate.ok ? u.commercialOffer.initialPaymentAed : null,
         availability: suppressAvailability ? null : (gate.ok ? u.commercialOffer.availability : null) };
     }
-    const fresh = approvedFresh(p, { now, maxAgeDays: policy.commercialDays });
-    const availabilityFresh = !suppressAvailability && approvedFresh(p, { now, maxAgeDays: policy.availabilityDays });
+    const fresh = approvedUnitFresh(p, u, { now, maxAgeDays: policy.commercialDays });
+    const availabilityFresh = !suppressAvailability && approvedUnitFresh(p, u, { now, maxAgeDays: policy.availabilityDays, availability: true });
     return { ...u, startingPriceAed: fresh ? u.startingPriceAed : null,
       initialPaymentAed: fresh ? u.initialPaymentAed : null,
       availability: availabilityFresh ? u.availability : null };

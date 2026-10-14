@@ -84,6 +84,44 @@ test("opting out stops lead alerts", async () => {
   assert.equal(sent("whatsapp").length, before);
 });
 
+test("interest with a previously preferred contact channel never starts phone collection", async () => {
+  const { send, buyers, sent } = await setupOrchestrator();
+  await buyers.patchBuyer("interest-only", { preferredContactChannel: "whatsapp" });
+  await send("interest-only", "Budget 2M, 2 bedroom in Yas");
+  await send("interest-only", "I want to buy this");
+  const buyer = await buyers.getOrCreate("interest-only");
+  assert.equal(buyer.phone, null);
+  assert.notEqual(buyer.handoff.status, "requested");
+  assert.doesNotMatch(sent("instagram").at(-1).body.message.text, /phone number|WhatsApp number|what number/i);
+});
+
+test("English and Gulf Arabic stops cancel pending handoff and qualification", async () => {
+  for (const refusal of ["I'm good", "no thanks", "لا شكراً", "خلاص"]) {
+    const { send, sent, buyers, engine } = await setupOrchestrator();
+    await send("decline", "Call me");
+    const before = sent("whatsapp").length;
+    await send("decline", refusal);
+    const buyer = await buyers.getOrCreate("decline");
+    assert.equal(engine.memory.getPendingOffer("decline"), null, refusal);
+    assert.equal(buyer.phone, null);
+    assert.equal(sent("whatsapp").length, before, refusal);
+    assert.doesNotMatch(sent("instagram").at(-1).body.message.text, /[?؟]|phone number|budget|ميزاني|رقم/i);
+  }
+});
+
+test("no-call preferences cancel a pending call and persist during later advice", async () => {
+  for (const refusal of ["No calls please", "لا تتصل علي", "ما أبي مكالمات"]) {
+    const { send, sent, buyers, engine } = await setupOrchestrator();
+    await send("no-calls", "Call me");
+    await send("no-calls", refusal);
+    assert.equal((await buyers.getOrCreate("no-calls")).noCalls, true, refusal);
+    assert.equal(engine.memory.getPendingOffer("no-calls"), null);
+    await send("no-calls", "What is the price of Yas Studio One?");
+    assert.equal((await buyers.getOrCreate("no-calls")).noCalls, true);
+    assert.doesNotMatch(sent("instagram").at(-1).body.message.text, /call you|phone number|arrange a call|موعد|رقم/i);
+  }
+});
+
 // Email delivery (Resend) for alerts and the daily report.
 const EMAIL_ENV = { RESEND_API_KEY: "re_test", ALERT_EMAIL_TO: "broker@example.com" };
 function memoryLedger() {

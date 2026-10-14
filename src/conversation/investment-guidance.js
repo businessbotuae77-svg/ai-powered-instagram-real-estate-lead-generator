@@ -77,10 +77,10 @@ export function investmentGuidance({ buyer, message = "", hasCommercialOptions =
 }
 
 export function performanceQuestion(message, buyer) {
-  if (!/\b(?:will|expect|guarantee|promise|could)\b.{0,65}\b(?:appreciat|grow|return)|\bappreciat\w*\b.{0,30}\d|(?:سيرتفع|مضمون|تتوقع).*\d/i.test(message)) return null;
+  if (!/\b(?:will|expect|guarantee|promise|could)\b.{0,65}\b(?:appreciat|grow|return)|\bappreciat\w*\b.{0,30}\d|\d+(?:\.\d+)?\s*%[^.!?؟]{0,45}\b(?:roi|returns?|yield)\b|(?:roi|returns?|yield)[^.!?؟]{0,45}\d+(?:\.\d+)?\s*%|(?:سيرتفع|مضمون|تتوقع|عائد|ربح|نمو).*\d/i.test(message)) return null;
   return draft(buyer.language === "ar"
     ? "لا أستطيع وعدك بزيادة مستقبلية. أسعار الإطلاق والمراحل اللاحقة الموثقة تصف ما حدث؛ سيناريو بيع افتراضي يحتاج افتراضات واضحة ولا يمثل توقعاً. أراجع سعر الدخول والتكاليف والتوقيت والسيولة قبل الحكم على الفرصة."
-    : "I wouldn't promise a future increase. Sourced launch and later-release prices describe historical observations; a hypothetical resale calculation needs explicit assumptions and is not a forecast. I'd assess entry price, costs, timing and liquidity before judging the opportunity.", "investment_risk");
+    : "I wouldn't promise a return or future increase. Sourced launch and later-release prices describe historical observations; a hypothetical resale calculation needs explicit assumptions and is not a forecast. I'd assess entry price, costs, timing and liquidity before judging the opportunity.", "investment_risk");
 }
 
 export function investmentRiskReply({ buyer, thesis = null }) {
