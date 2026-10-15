@@ -59,7 +59,8 @@ test("price answers preserve primary versus resale and ready versus off-plan sco
   const data = fixture([line(100000), line(900000, { "Sale Sequence": "Secondary", "Sale Application Type": "ready" })]);
   const reply = registeredSalesAnswer({ message: "Cove Test secondary ready 2 bedroom price", catalog: { registeredSales: data } });
   assert.match(reply.text, /AED 900,000/);
-  assert.match(reply.text, /Secondary, ready/);
+  assert.equal(reply.recordedSales.observations[0].stats.saleSequence, "Secondary");
+  assert.equal(reply.recordedSales.observations[0].stats.saleApplicationType, "ready");
   assert.doesNotMatch(reply.text, /AED 100,000/);
   assert.equal(reply.suppressCommercial, true);
   assert.equal(reply.factPacks.length, 0);
@@ -132,4 +133,88 @@ test("the production Airtable store exposes inactive research through the privat
   assert.equal(store.listUnits().length, 0);
   assert.equal(store.listRegisteredSales().projects.length, 1);
   assert.equal(store.listRegisteredSales().projects[0].name, "Cove Test");
+});
+
+test("ordinary sales replies stay short while dates and samples remain available on request", () => {
+  const catalog = { registeredSales: fixture() };
+  const short = registeredSalesAnswer({ message: "Cove Test 2 bedroom price", catalog });
+  assert.match(short.text, /2-bedroom apartments: recent sales around AED 300,000/);
+  assert.doesNotMatch(short.text, /median|rows|export|2026|transaction ID|not current/i);
+  const detail = registeredSalesAnswer({ message: "Cove Test price source and sample dates", catalog });
+  assert.match(detail.text, /recorded median AED 300,000 across 3 rows/);
+  assert.match(detail.text, /2026-10-10/);
+  assert.equal(short.recordedSales.observations[0].stats.rows, 3);
+});
+
+test("transaction evidence can shortlist a budget fit without fabricating current inventory", () => {
+  const catalog = { registeredSales: fixture() };
+  const found = registeredSalesAnswer({ message: "Find a 2 bedroom apartment within my budget", buyer: { budgetAed: 400000, preferredAreas: ["Al Reem Island"] }, catalog });
+  assert.match(found.text, /^I found a project that fits your budget: Cove Test/);
+  assert.match(found.text, /Recent sales of 2-bedroom apartments are around AED 300,000/);
+  assert.equal(found.recordedSales.budgetFit, true);
+  assert.equal(found.recordedSales.recommendedProjectName, "Cove Test");
+  const allowedClaims = thesisClaims(found.investmentTheses);
+  assert.equal(validateMessage(found.text, [], { allowedClaims }).ok, true);
+  assert.equal(validateMessage(found.text.replace("AED 300,000", "AED 999,999"), [], { allowedClaims }).ok, false);
+  assert.equal(registeredSalesAnswer({ message: "Find a 2 bedroom apartment", buyer: { budgetAed: 200000 }, catalog }), null);
+  assert.equal(registeredSalesAnswer({ message: "Find a villa", buyer: { budgetAed: 400000 }, catalog }), null);
+  assert.equal(registeredSalesAnswer({ message: "Find a project", buyer: { budgetAed: 400000, preferredAreas: ["Yas Island"] }, catalog }), null);
+  assert.equal(registeredSalesAnswer({ message: "Find a project", buyer: { budgetAed: 400000, preferredAreas: ["Masdar City"] }, catalog }), null);
+  assert.equal(registeredSalesAnswer({ message: "Find a project", buyer: { budgetAed: 400000, bedrooms: [3] }, catalog }), null);
+  assert.equal(registeredSalesAnswer({ message: "Find a project", buyer: { budgetAed: 400000, salesPathStopped: true }, catalog }), null);
+  assert.equal(registeredSalesAnswer({ message: "Find a project", buyer: { budgetAed: 400000 }, catalog, commercialRecommendation: true }), null);
+});
+
+test("old transaction scopes do not become recent budget recommendations", () => {
+  const data = fixture([line(300000, { "Sale Application Date": "2024-01-01" })]);
+  assert.equal(registeredSalesAnswer({ message: "Find a project", buyer: { budgetAed: 400000 }, catalog: { registeredSales: data } }), null);
+  const named = registeredSalesAnswer({ message: "Cove Test price", catalog: { registeredSales: data } });
+  assert.match(named.text, /past sales/);
+  assert.doesNotMatch(named.text, /recent sales/);
+});
+
+test("budget-first English and Gulf Arabic turns give a recommendation instead of a statistics report", async () => {
+  for (const [id, message] of [["budget-en", "I have a budget of 400k for a 2 bedroom apartment in Al Reem Island"], ["budget-ar", "ميزانيتي 400 ألف، أريد شقة غرفتين في الريم"]]) {
+    const { engine, store } = await setupConversation(); store.registeredSales = fixture();
+    const result = await engine.handleMessage(id, message);
+    assert.equal(result.stage, "recorded_sales");
+    assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
+    assert.match(result.reply, /Cove Test/);
+    assert.match(result.reply, /AED 300,000/);
+    assert.doesNotMatch(result.reply, /median|rows|2026|transaction ID|غير مؤكد|غير متاح/);
+    assert.equal(result.buyer.projectInterest, "Cove Test");
+    assert.equal(result.reply.split("\n").length, 2);
+    const proof = await engine.handleMessage(id, id.endsWith("ar") ? "ما مصدر السعر وتاريخ المبيعات؟" : "What is the source and sample period?");
+    assert.equal(proof.stage, "recorded_sales");
+    assert.equal(proof.check.ok, true);
+    assert.match(proof.reply, /2026-10-10/);
+  }
+});
+
+test("invest then budget shows one priced project without a strategy menu in English and Arabic", async () => {
+  for (const messages of [["Hi", "Invest", "Around AED 2M"], ["مرحبا", "استثمار", "ميزانيتي 2 مليون"]]) {
+    for (const historicalOnly of [false, true]) {
+      const { engine, store } = await setupConversation();
+      store.registeredSales = fixture();
+      if (historicalOnly) { store.projects = []; store.units = []; }
+      let result;
+      for (const message of messages) result = await engine.handleMessage("invest-budget", message);
+      assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
+      assert.match(result.reply, /I found a project that fits your budget|لقيت لك مشروع يناسب ميزانيتك/);
+      assert.match(result.reply, /AED [\d,]+/);
+      assert.equal(result.reply.split("\n").length, 2);
+      assert.equal(result.nextQuestion, null);
+      assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة/);
+      assert.equal(result.callRequestSubmitted, false);
+      if (historicalOnly) {
+        assert.equal(result.stage, "recorded_sales");
+        assert.match(result.reply, /Cove Test/);
+        assert.match(result.reply, /AED 300,000/);
+      } else {
+        assert.equal(result.stage, "matched");
+        assert.equal(result.packs.length, 1);
+        assert.equal(result.buyer.shownProjects.length, 1);
+      }
+    }
+  }
 });

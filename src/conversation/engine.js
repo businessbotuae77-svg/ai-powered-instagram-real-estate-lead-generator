@@ -606,8 +606,9 @@ export class ConversationEngine {
     }
     if (!contact && !buyer.salesPathStopped && !draft?.suppressCommercial && !draft?.buyerDecision &&
         !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "welcome_back", "identity", "handoff_declined", "transaction_next_step"].includes(draft?.stage)) {
-      const recorded = registeredSalesAnswer({ message: text, buyer, catalog, draft });
+      const recorded = registeredSalesAnswer({ message: text, buyer, catalog, draft, commercialRecommendation: Boolean(advisor.primary) });
       if (recorded) {
+        if (recorded.recordedSales?.recommendedProjectName) buyer = await this.buyers.remember(instagramUserId, { project: recorded.recordedSales.recommendedProjectName });
         draft = recorded;
         packs = [];
         matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
