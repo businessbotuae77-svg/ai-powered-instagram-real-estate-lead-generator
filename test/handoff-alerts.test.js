@@ -14,7 +14,7 @@ test("an Instagram follow-up is confirmed only after the broker alert is deliver
   const outcome = await send("ig_ok", "Here on Instagram");
   assert.equal(outcome.pending, false);
   const replies = sent("instagram").map(call => call.body.message.text);
-  assert.match(replies.at(-1), /^Your request has reached our team\. We'll follow up here on Instagram\.$/);
+  assert.match(replies.at(-1), /^Done ✅ Your request has reached our team\. We'll follow up here on Instagram\.$/);
   const alert = alertText(sent("whatsapp").at(-1));
   assert.match(alert, /^FOLLOW-UP REQUEST/);
   assert.match(alert, /Contact requested: yes/);

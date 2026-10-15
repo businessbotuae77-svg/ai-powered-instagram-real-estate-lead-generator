@@ -94,7 +94,9 @@ export class JsonFileStore {
     this.writes += 1;
     await mkdir(path.dirname(this.filePath), { recursive: true });
     const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    // Compact JSON: several of these files are rewritten on every buyer message,
+    // and indentation made each write larger and slower for no reader.
+    await writeFile(tempPath, `${JSON.stringify(value)}\n`, "utf8");
     await rename(tempPath, this.filePath);
   }
 }

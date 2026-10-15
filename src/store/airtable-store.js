@@ -34,7 +34,8 @@ function chunk(rows, size = 10) {
 
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  // Compact: every buyer's record is rewritten on each message.
+  await writeFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
 }
 
 export class AirtableStore {
@@ -74,6 +75,9 @@ export class AirtableStore {
     };
     const ttl = Number(env.RESEARCH_CACHE_MS || 900000);
     this.researchCacheMs = Number.isFinite(ttl) && ttl >= 60000 ? ttl : 900000;
+    // How old an in-memory catalogue may be and still answer a buyer while it refreshes.
+    const stale = Number(env.CATALOG_STALE_SERVE_MS || 86400000);
+    this.staleServeMs = Number.isFinite(stale) && stale >= 60000 ? stale : 86400000;
     this.intelligence = emptyIntelligence();
     this.optionalState = {};
     this.buyers = new Map();
@@ -238,6 +242,17 @@ export class AirtableStore {
   async refreshCatalog(force = false) {
     const age = Date.now() - (this.catalogLoadedAt || 0);
     if (!force && age < 60000) return;
+    // A buyer never waits for Airtable while a catalogue is in memory: this turn
+    // uses it and the refresh runs in the background. Reading Price History
+    // page by page made the first reply after a quiet spell take 10-20 seconds.
+    if (!force && this.catalogLoadedAt && age < this.staleServeMs) {
+      this.startCatalogRefresh(force).catch(error => console.warn(`[store] background catalogue refresh failed (${error.status || error.name || "error"})`));
+      return;
+    }
+    await this.startCatalogRefresh(force);
+  }
+
+  startCatalogRefresh(force = false) {
     if (this.catalogRefresh) return this.catalogRefresh;
     this.catalogRefresh = (async () => {
       await this.loadRepoData();
@@ -251,8 +266,8 @@ export class AirtableStore {
       this.units = unitRecords.map((row) => this.mapUnit(row));
       this.catalogLoadedAt = Date.now();
       await this.refreshIntelligence(force);
-    })();
-    try { await this.catalogRefresh; } finally { this.catalogRefresh = null; }
+    })().finally(() => { this.catalogRefresh = null; });
+    return this.catalogRefresh;
   }
 
   async readOptionalTable(key) {

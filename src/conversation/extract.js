@@ -178,13 +178,13 @@ export function detectIntents(message, { lastAskedField = null } = {}) {
   if (/^\s*(hi|hello|hey|good\s+(morning|afternoon|evening)|salam|assalam)/i.test(message)) {
     intents.push("greet");
   }
-  if (/\b(start\s+fresh|start\s+over|new\s+search|reset\s+(my\s+)?search|start\s+again)\b/i.test(text)) {
+  if (/\b(start\s+fresh|start\s+over|new\s+search|reset\s+(my\s+)?search|start\s+again)\b|^(?:بداية جديدة|نبدأ من جديد|نبدا من جديد|من جديد|بحث جديد)[.!؟]*$/i.test(text)) {
     intents.push("start_fresh");
   }
   if (/^\s*(?:(?:let'?s\s+)?restart|fresh)(\s+please)?[.!?]?\s*$/i.test(text)) {
     intents.push("start_fresh");
   }
-  if (/^(continue|continue\s+please|pick\s+up|keep\s+going)([.!]?)$/i.test(text.trim())) {
+  if (/^(continue|continue\s+please|pick\s+up|keep\s+going|نكمل|كمل|خلنا نكمل)([.!]?)$/i.test(text.trim())) {
     intents.push("continue");
   }
   if (/\b(thank|thanks|thx)\b/i.test(text)) intents.push("thanks");

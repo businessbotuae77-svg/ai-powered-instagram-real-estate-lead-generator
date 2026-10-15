@@ -10,7 +10,8 @@ import { isFlexiblePreference } from "./preference-state.js";
 import { areaPitchSentence, findAreaEntry, loadAreaGuide } from "../facts/area-guide.js";
 import { packPaymentStages } from "../facts/payment-stages.js";
 import { isAdvisorLedDiscovery } from "./investment-strategy.js";
-import { WELCOME_CHOICES } from "./welcome.js";
+import { welcomeChoices } from "./welcome.js";
+import { budgetChoices, budgetPrompt, cardChoices, cardReason, comparablePacks, compactLine, NEXT_PROMPT, projectCard, welcomeText, WELCOME_PROMPT } from "./concierge.js";
 
 /** Pure greeting with no other request in the same message. */
 export function isGreetingOnly(message) {
@@ -41,13 +42,10 @@ export function buildConversationReply({
   let nextQuestion = null;
   let callRequest = null;
 
+  const ar = buyer.language === "ar";
   if (intents.includes("start_fresh")) {
-    lines.push("Fresh start 👋 I'm The Sustainable Bot, your AI guide to UAE property. What would you like to explore?");
-    nextQuestion = {
-      field: "explorationTopic",
-      prompt: "What would you like to explore?",
-      choices: WELCOME_CHOICES
-    };
+    lines.push(welcomeText({ ar, fresh: true }));
+    nextQuestion = { field: "explorationTopic", prompt: ar ? WELCOME_PROMPT.ar : WELCOME_PROMPT.en, choices: welcomeChoices(ar) };
     return finish(lines, "exploring", nextQuestion, null);
   }
 
@@ -64,7 +62,7 @@ export function buildConversationReply({
   if (intents.includes("decline_contact") && !intents.includes("decline_call")) {
     lines.push(/\b(phone|number|whatsapp|call)\b/i.test(message) ? "No problem. We can keep looking without a phone number." : "No problem. We can keep going without that.");
   }
-  if (ack) {
+  if (ack && !ar) {
     lines.push(ack);
   }
   if (intents.includes("decline_reserve")) {
@@ -110,21 +108,24 @@ export function buildConversationReply({
   // "Hi" alone must not dump a soft match from an earlier test session.
   if (isGreetingOnly(message) && intents.includes("greet") && !intents.includes("continue")) {
     if (canPitchBuyer(buyer) || Boolean(buyer.projectInterest)) {
-      lines.push("Want to continue with your last search, or start fresh?");
+      const prompt = ar ? "تبي نكمل من وين وقفنا، ولا نبدأ من جديد؟" : "Want to pick up where we left off, or start fresh?";
+      const name = buyer.firstName ? ` ${buyer.firstName}` : "";
+      lines.length = 0;
+      lines.push(ar ? `هلا فيك من جديد${name} 👋 ${prompt}` : `Welcome back${name} 👋 ${prompt}`);
       nextQuestion = {
         field: "session_choice",
-        prompt: "Want to continue with your last search, or start fresh?",
+        prompt,
         choices: [
-          { id: "continue", label: "Continue", value: "Continue" },
-          { id: "start_fresh", label: "Start fresh", value: "Start fresh" }
+          { id: "continue", label: ar ? "نكمل" : "Continue", value: "Continue" },
+          { id: "start_fresh", label: ar ? "بداية جديدة" : "Start fresh", value: "Start fresh" }
         ]
       };
       nextPending = { type: "session_choice" };
       return finish(lines, "welcome_back", nextQuestion, nextPending);
     }
-    const prompt = "What would you like to explore?";
-    lines.push(`Hi 👋 I'm The Sustainable Bot, your AI guide to UAE property. ${prompt}`);
-    nextQuestion = { field: "explorationTopic", prompt, choices: WELCOME_CHOICES };
+    lines.length = 0;
+    lines.push(welcomeText({ name: buyer.firstName || null, ar }));
+    nextQuestion = { field: "explorationTopic", prompt: ar ? WELCOME_PROMPT.ar : WELCOME_PROMPT.en, choices: welcomeChoices(ar) };
     return finish(lines, "qualifying", nextQuestion, null);
   }
 
@@ -208,31 +209,33 @@ export function buildConversationReply({
     return finish(lines, "no_match", nextQuestion, null);
   }
 
-  // Not enough to pitch yet: ask one natural question, no "I have noted"
+  // Not enough to pitch yet: one short question with buttons, in the buyer's language.
   const question = nextQualificationQuestion(buyer, {
     includeCash: false,
     includeFinancing: false
   });
-  if (!buyer.budgetAed && !isFlexiblePreference(buyer, "budgetAed")) {
-    lines.push("What budget are you working with?");
-    nextQuestion = question || {
-      field: "budgetAed",
-      prompt: "What budget are you working with?",
-      choices: budgetRangeChoices()
-    };
-    if (!nextQuestion.choices) nextQuestion = { ...nextQuestion, choices: budgetRangeChoices() };
+  if (ar) lines.length = 0;
+  const answered = lastAskedField === "useType" ? USE_ACK[buyer.useType] : null;
+  if (answered) lines.push(ar ? answered[1] : answered[0]);
+  // A home to live in starts with the size the family needs, then the budget.
+  const needsSize = buyer.useType === "end_use" && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && lastAskedField !== "bedrooms" &&
+    !isFlexiblePreference(buyer, "bedrooms") && !isFlexiblePreference(buyer, "propertyTypes");
+  if (needsSize) {
+    const prompt = ar ? "كم غرفة نوم تحتاج؟" : "How many bedrooms do you need?";
+    lines.push(prompt);
+    nextQuestion = { field: "bedrooms", prompt, choices: choicesForField("bedrooms", ar ? "ar" : "en")?.choices || null };
+  } else if (!buyer.budgetAed && !isFlexiblePreference(buyer, "budgetAed")) {
+    const prompt = budgetPrompt(ar);
+    lines.push(prompt);
+    nextQuestion = { field: "budgetAed", prompt, choices: budgetChoices(ar) };
   } else if (!(buyer.preferredAreas?.length || buyer.projectInterest) && !isFlexiblePreference(buyer, "preferredAreas")) {
-    const areaGroup = choicesForField("preferredAreas");
-    lines.push(
-      buyer.openToOtherAreas || buyer.intentSignals?.includes("area_flexible")
-        ? question?.prompt || "What size works best for you?"
-        : "Which area are you leaning toward?"
-    );
-    nextQuestion = question || {
-      field: "preferredAreas",
-      prompt: "Which area are you leaning toward?",
-      choices: areaGroup?.choices || null
-    };
+    const areaGroup = choicesForField("preferredAreas", ar ? "ar" : "en");
+    const flexible = buyer.openToOtherAreas || buyer.intentSignals?.includes("area_flexible");
+    const prompt = flexible ? (ar ? "كم غرفة نوم تناسبك؟" : question?.prompt || "What size works best for you?")
+      : (ar ? "أي منطقة تفضّل؟" : "Which area are you leaning toward?");
+    lines.push(prompt);
+    nextQuestion = flexible && question ? { ...question, prompt, choices: choicesForField(question.field, ar ? "ar" : "en")?.choices || question.choices }
+      : { field: "preferredAreas", prompt, choices: areaGroup?.choices || null };
   } else {
     lines.push(question?.prompt || "I'll work with the preferences you've shared and keep the remaining choices open.");
     nextQuestion = question;
@@ -240,6 +243,13 @@ export function buildConversationReply({
 
   return finish(lines, "qualifying", nextQuestion, null);
 }
+
+// "To live in", "Investment", "Not sure yet": a word back before the next question.
+const USE_ACK = {
+  investment: ["Investment, got it 👍", "للاستثمار، تمام 👍"],
+  end_use: ["A home to live in, lovely 🏡", "للسكن، حلو 🏡"],
+  unknown: ["No problem, we'll work it out together.", "ولا يهمك، نحددها مع بعض."]
+};
 
 export function budgetRangeChoices() {
   return [
@@ -558,13 +568,10 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
         pack.bedroomLabel?.confirmed && pack.propertyType?.confirmed && pack.area?.confirmed &&
         !advisor.primary.tradeoffs?.length) {
       const ar = buyer.language === "ar";
-      const home = ar ? (pack.projectLevel ? pack.bedroomLabel.value : arabicBedrooms(pack.bedrooms.value))
-        : pack.bedrooms?.value === 0 ? "Studio" : `${pack.bedroomLabel.value} ${pack.propertyType.value}`;
-      const text = ar
-        ? `لقيت لك مشروع يناسب ميزانيتك: ${pack.name.value} في ${pack.area.value}.\n${home}، بأسعار تبدأ من ${pack.startingPriceText.value}.`
-        : `I found a project that fits your budget: ${pack.name.value} in ${pack.area.value}.\n${home}, from ${pack.startingPriceText.value}.`;
+      const reason = cardReason({ pack, comparable: comparablePacks(advisor), buyer, ar });
+      const text = `${ar ? "لقيت لك مشروع يناسب ميزانيتك 👇" : "I found a project that fits your budget 👇"}\n\n${projectCard(pack, { ar, reason, units: advisorUnits(advisor) })}`;
       const single = { ...advisor, challenger: null, matches: advisor.matches.filter(m => m.project.id === pack.projectId && m.unit.id === pack.unitId) };
-      return advisorDraft(text, single, null, null, [pack]);
+      return cardDraft(text, single, [pack], ar);
     }
   }
   if (buyer.language === "ar") return buildArabicAdvisorReply({ buyer, advisor, strategy, message });
@@ -605,20 +612,16 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   }
   const lines = [];
   const advisorLed = isAdvisorLedDiscovery(buyer);
-  // "Best overall" and "you choose" both land here; neither means "open".
-  if (advisorLed && /\b(?:idk|don'?t know|do not know|not sure|unsure|no idea|you (?:choose|decide|pick)|up to you|either|anything)\b/i.test(message)) {
-    lines.push("That's fine — you're open, so I'll do the filtering for you.");
-  }
   // Acknowledge a concern only in the turn it is raised, not on every later turn.
   const raised = turnObjections.find(category => OBJECTION_LEADS[category]);
-  if (raised) lines.push(objectionLead(raised, message));
-  const reason = raised === "too_expensive" && primary.priceDifferenceAed < 0 ? "it keeps the entry price lower"
-    : raised === "initial_payment_too_high" && primary.cashDifferenceAed < 0 ? "it needs less cash upfront"
-      : primaryReason(primary.reasonCodes, buyer, primaryPack);
+  const reason = raised === "too_expensive" && primary.priceDifferenceAed < 0 ? "it keeps the entry price lower."
+    : raised === "initial_payment_too_high" && primary.cashDifferenceAed < 0 ? "it needs less cash upfront."
+      : cardReason({ pack: primaryPack, comparable: comparablePacks(advisor), buyer }) || legacyReason(primary.reasonCodes);
   const challenger = advisor.challenger;
   if (!raised && strategy.type === "recommend" && WHY_QUESTION.test(message)) {
     // Explain the reasoning; the cards were already shown.
-    lines.push(`I lean towards ${name}${reason ? ` because ${reason}` : " because it is the cleaner fit for what you've told me"}.`);
+    const why = cardReason({ pack: primaryPack, comparable: comparablePacks(advisor), buyer }) || legacyReason(primary.reasonCodes) || primaryReason(primary.reasonCodes, buyer, primaryPack);
+    lines.push(`I lean towards ${name} because ${String(why).replace(/\.$/, "")}.`);
     const tradeoff = opportunityTradeoffs(primary, buyer);
     if (tradeoff) lines.push(tradeoff);
     const challengerPack = challenger && advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
@@ -630,47 +633,60 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
   }
   // Asked for more space but nothing larger fits: say so instead of ignoring it.
   const largerShown = challenger?.buyerBenefit?.some(b => ["additional_bedroom", "larger_supported_size_range"].includes(b.code));
-  if (!raised && MORE_SPACE.test(message) && !largerShown) lines.push("I don't have a larger option that fits your budget and other requirements right now.");
-  lines.push(advisorLed
-    ? `My best overall pick for you is ${name}${reason ? `, because ${reason}` : ""}.`
-    : `For your priorities, I prefer ${name}${reason ? ` because ${reason}` : " as the cleaner fit"}.`);
-  lines.push(renderProjectCard(primaryPack));
-  const areaLine = areaPitch(advisor.areaGuide || loadAreaGuide(), primaryPack.area?.value);
-  if (areaLine) lines.push(areaLine);
+  let lead = advisorLed && /\b(?:idk|don'?t know|do not know|not sure|unsure|no idea|you (?:choose|decide|pick)|up to you|either|anything)\b/i.test(message)
+    ? "No problem, I'll pick for you 👇" : "Here's my top pick for you 👇";
+  if (raised) lead = `${objectionLead(raised, message)} Here's what I'd suggest 👇`;
+  else if (MORE_SPACE.test(message) && !largerShown) lead = "I don't have a larger option that fits your budget and other requirements right now. Here's the closest fit 👇";
+  lines.push(lead, "", projectCard(primaryPack, { reason, units: advisorUnits(advisor) }));
+  const notes = [];
   if (primary.comparedTo) {
     const benefit = opportunityBenefit(primary);
-    if (benefit) lines.push(benefit);
+    if (benefit) notes.push(benefit);
   }
   const primaryTradeoff = opportunityTradeoffs(primary, buyer);
-  if (primaryTradeoff) lines.push(primaryTradeoff);
+  if (primaryTradeoff) notes.push(primaryTradeoff);
   if (challenger) {
     const pack = advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
     if (pack) {
-      lines.push(`${ALTERNATIVE_LEADS[challenger.type] || "Also worth a look"}: ${renderProjectCard(pack)}`);
+      notes.push(`${ALTERNATIVE_LEADS[challenger.type] || "Also worth a look"}: ${compactLine(pack)}.`);
       const benefit = opportunityBenefit(challenger);
-      if (benefit) lines.push(benefit);
+      if (benefit) notes.push(benefit);
       const tradeoffs = opportunityTradeoffs(challenger, buyer);
-      if (tradeoffs) lines.push(tradeoffs);
+      if (tradeoffs) notes.push(tradeoffs);
     }
   }
-  if (advisor.upgradeAssessment?.reasonCodes?.includes("no_material_buyer_benefit_for_extra_price") &&
-      (/\b(upgrade|extra|more expensive|worth|better)\b/i.test(message) || !buyer.shownProjects?.includes(primary.projectId))) {
-    const assessment = advisor.upgradeAssessment.opportunities?.find(o => o.priceDifferenceAed > 0);
-    lines.push(assessment ? `There's also a pricier option at AED ${assessment.priceDifferenceAed.toLocaleString("en-US")} more, but for what you've told me it doesn't give you enough extra to be worth it.` : "Paying more here wouldn't get you anything that matters for what you've told me.");
-  }
-  // An unanswered strategy question is not asked again; the buyer can raise it.
-  const horizon = buyer.useType === "investment" && lastAskedField !== "exitHorizon" && !askedFields.has("exitHorizon") ? exitQuestion(buyer) : null;
-  // A complementary service may accompany a plain recommendation, never an
-  // objection answer or a buyer who asked for a low-pressure conversation.
-  // A reply that already weighs two options is long enough without it.
+  if (notes.length) lines.push("", ...notes);
+  // A plain recommendation may carry one complementary service; never an objection answer.
   const allowsServiceSuggestion = strategy.type === "recommend" && !raised && !strategy.lowPressure && !challenger;
-  if (horizon && !strategy.lowPressure) {
-    const result = advisorDraft(lines.join("\n"), advisor, null, null);
-    return { ...result, text: `${result.text}\n${horizon.prompt}`, nextQuestion: horizon, allowsServiceSuggestion };
+  if (strategy.lowPressure || isFlexiblePreference(buyer, "advisoryNextAction")) {
+    return { ...advisorDraft(lines.join("\n"), advisor, null, null), allowsServiceSuggestion };
   }
-  const prompt = strategy.lowPressure || isFlexiblePreference(buyer, "advisoryNextAction") ? null
-    : challenger ? "Want me to put these side by side, or show the cash each one needs before handover?" : "Want me to break down the payments for you?";
-  return { ...advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt), allowsServiceSuggestion };
+  return { ...cardDraft(lines.join("\n"), advisor, advisor.packs, false), allowsServiceSuggestion };
+}
+
+/** A card reply: one open question with buttons for the next step. */
+function cardDraft(text, advisor, packs, ar) {
+  const prompt = ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en;
+  const draft = advisorDraft(text, advisor, null, null, packs);
+  const shown = packs.find(pack => pack.projectId === advisor.primary?.projectId && pack.unitId === advisor.primary?.unitId) || packs[0];
+  // "Yes" or "I like it" next means this home: the concierge offers the team that can reserve it.
+  return { ...draft, text: `${text}\n\n${prompt}`, nextQuestion: { field: "conciergeNext", prompt, choices: cardChoices(ar) },
+    pendingOffer: shown ? { type: "concierge_card", projectId: shown.projectId, unitId: shown.unitId } : null };
+}
+
+function advisorUnits(advisor) {
+  return (advisor.candidates || []).map(row => row.unit).filter(Boolean);
+}
+
+// The advisor's own reason codes, when the listings give no clearer comparison.
+function legacyReason(codes = []) {
+  if (codes.includes("lower_initial_commitment_priority")) return "it needs the least cash upfront.";
+  if (codes.includes("ready_income_route")) return "it's already completed, so you could rent it out sooner (check current rents first).";
+  if (codes.includes("ready_move_in_route")) return "it's ready, which suits your move-in plans.";
+  if (codes.includes("more_space_priority")) return "it gives your family more space.";
+  if (codes.includes("off_plan_growth_route")) return "you buy at today's price and spread the payments until handover.";
+  if (codes.includes("lower_entry_price_priority")) return "it keeps the entry price lower.";
+  return null;
 }
 
 // "Break down the payment terms": every confirmed payment figure in one place,
@@ -806,23 +822,24 @@ function buildArabicAdvisorReply({ buyer, advisor, strategy, message }) {
     return advisorDraft(text, advisor, action, action ? "هل تريد التحقق من التوفر الحالي؟" : null);
   }
   const advisorLed = isAdvisorLedDiscovery(buyer);
-  const lines = advisorLed
-    ? ["لا بأس — أنت منفتح على الخيارات، وسأتولى التصفية لك.", "سأقارن سعر الدخول ومرحلة المشروع ونضج المنطقة والمحركات الموثقة وجودة المنتج وخطة السداد والمبالغ المدفوعة وتوقيت التسليم والمعروض المنافس وأدلة إعادة البيع وخيار الإيجار والمخاطر المدعومة بالأدلة.", `الخيار الأساسي: ${pack.name.value} ضمن ميزانيتك ووفقاً للتفاصيل المتاحة.`, card(pack)]
-    : [`أفضل ${pack.name.value} وفقاً لأولوياتك وسعر الدخول والتزامات السداد؛ هذا ترجيح للملاءمة وليس توقعاً للعائد.`, card(pack)];
+  const lead = advisorLed && /اختار|اختر|انت اختار|أنت اختار|على راحتك|ما ادري|ما أدري|you choose|up to you/i.test(message)
+    ? "ولا يهمك، أنا أختار لك 👇" : "هذا أفضل خيار لك 👇";
+  const reason = cardReason({ pack, comparable: comparablePacks(advisor), buyer, ar: true });
+  const lines = [lead, "", projectCard(pack, { ar: true, reason, units: advisorUnits(advisor) })];
+  const notes = [];
   const challenger = advisor.challenger;
   if (challenger) {
     const other = advisor.packs.find(p => p.projectId === challenger.projectId && p.unitId === challenger.unitId);
-    lines.push(`الخيار البديل: ${card(other)}`);
-    if (challenger.priceDifferenceAed > 0) lines.push(`فرق سعر البداية AED ${challenger.priceDifferenceAed.toLocaleString("en-US")}.`);
+    if (other) notes.push(`خيار بديل: ${compactLine(other, true)}.`);
+    if (challenger.priceDifferenceAed > 0) notes.push(`فرق سعر البداية ${challenger.priceDifferenceAed.toLocaleString("en-US")} درهم.`);
     const beds = challenger.buyerBenefit.find(b => b.code === "additional_bedroom");
-    if (beds) lines.push(`تحصل على ${arabicBedrooms(beds.to)} بدلاً من ${arabicBedrooms(beds.from)}.`);
-    if (challenger.cashDifferenceAed < 0) lines.push(`تنخفض الدفعة الأولى بمقدار AED ${Math.abs(challenger.cashDifferenceAed).toLocaleString("en-US")}.`);
-    if (challenger.cashDifferenceAed > 0) lines.push(`تزداد الدفعة الأولى بمقدار AED ${challenger.cashDifferenceAed.toLocaleString("en-US")}.`);
-    if (challenger.budgetStatus === "above_original_with_permission") lines.push(`هذا أعلى من ميزانيتك الأصلية AED ${buyer.budgetAed.toLocaleString("en-US")}.`);
-    if (buyer.preferredAreas?.length && challenger.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) lines.push(`خارج منطقتك المفضلة؛ تبقى ${buyer.preferredAreas.join(" أو ")} الأولوية.`);
+    if (beds) notes.push(`تحصل على ${arabicBedrooms(beds.to)} بدلاً من ${arabicBedrooms(beds.from)}.`);
+    if (challenger.cashDifferenceAed < 0) notes.push(`تنخفض الدفعة الأولى بمقدار ${Math.abs(challenger.cashDifferenceAed).toLocaleString("en-US")} درهم.`);
+    if (challenger.cashDifferenceAed > 0) notes.push(`تزيد الدفعة الأولى بمقدار ${challenger.cashDifferenceAed.toLocaleString("en-US")} درهم.`);
+    if (challenger.budgetStatus === "above_original_with_permission") notes.push(`هذا أعلى من ميزانيتك الأصلية ${buyer.budgetAed.toLocaleString("en-US")} درهم.`);
+    if (buyer.preferredAreas?.length && challenger.tradeoffs.some(t => ["different_area", "outside_preferred_area"].includes(t.code))) notes.push(`خارج منطقتك المفضلة؛ تبقى ${buyer.preferredAreas.join(" أو ")} الأولوية.`);
   }
-  if (advisor.upgradeAssessment.reasonCodes.includes("no_material_buyer_benefit_for_extra_price") && (/upgrade|extra|worth|better|أغلى|زيادة/.test(message) || !buyer.shownProjects?.includes(advisor.primary.projectId))) lines.push("لا أنصح بدفع الزيادة دون فائدة ملموسة تناسب أولوياتك.");
-  if (advisorLed) lines.push("أدلة الاستثمار الناقصة تحتاج إلى تحقق؛ لا أعتبرها دليلاً على ارتفاع السعر أو سهولة إعادة البيع.");
-  const prompt = strategy.lowPressure || isFlexiblePreference(buyer, "advisoryNextAction") ? null : challenger ? "هل تريد مقارنة الخيارين جنباً إلى جنب؟" : "هل تريد شرح تفاصيل السداد؟";
-  return advisorDraft(lines.join("\n"), advisor, prompt ? strategy.nextAction : null, prompt);
+  if (notes.length) lines.push("", ...notes);
+  if (strategy.lowPressure || isFlexiblePreference(buyer, "advisoryNextAction")) return advisorDraft(lines.join("\n"), advisor, null, null);
+  return cardDraft(lines.join("\n"), advisor, advisor.packs, true);
 }

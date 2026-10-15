@@ -303,6 +303,8 @@ export class BuyerService {
     const next = {
       ...blank,
       name: existing.name,
+      firstName: existing.firstName,
+      profileCheckedAt: existing.profileCheckedAt,
       phone: existing.phone,
       contactDeclined: existing.contactDeclined,
       preferredContactChannel: existing.preferredContactChannel,

@@ -9,7 +9,7 @@ import { buildFactPack } from "../src/facts/retrieval.js";
 test("a shortlist quotes only confirmed figures and passes the fact check", async () => {
   const { last } = await talk(["Budget 2M, 2 bedroom in Yas"]);
   assert.equal(last.stage, "matched");
-  assert.match(last.reply, /from AED 1,900,000/);
+  assert.match(last.reply, /From AED 1,900,000/);
   assert.equal(last.check.ok, true);
 });
 
@@ -101,8 +101,8 @@ test("lowest ready match scans all eligible listings and preserves market, area,
   assert.equal(last.packs[0].unitId, "unit-lowest");
   assert.equal(last.packs[0].bedrooms.value, 2);
   assert.equal(last.packs[0].availability.confirmed, false, "availability should be suppressed");
-  assert.match(last.reply, /lowest-priced ready match I can confirm within Al Reem Island/);
-  assert.match(last.reply, /Test lowest.*AED 1,200,000.*2 bedroom apartment.*900–950 sqft/);
+  assert.match(last.reply, /lowest-priced ready home I can confirm in Al Reem Island/);
+  assert.match(last.reply, /Test lowest[\s\S]*2-bedroom apartment · 900–950 sq ft[\s\S]*From AED 1,200,000/);
   assert.doesNotMatch(last.reply, /Test outside|Test dubai|Test old|Test unapproved|Test not-ready|studio/);
   assert.doesNotMatch(last.reply, /\bavailable\b/i);
   assert.equal(last.nextQuestion.field, "advisoryNextAction");
@@ -171,7 +171,7 @@ test("Arabic ready selection and its comparison stay in Gulf Arabic with unit-sc
   const { send } = await readyListings();
   const first = await send("أرخص شقة غرفتين جاهزة ومتاحة في الريم");
   assert.equal(first.packs[0]?.unitId, "unit-lowest");
-  assert.match(first.reply, /أقدر أؤكده.*AED 1,200,000.*بغرفتين/);
+  assert.match(first.reply, /أقدر أؤكده[\s\S]*شقة غرفتين[\s\S]*1,200,000 درهم/);
   const last = await send("نعم");
   assert.equal(last.stage, "comparison");
   assert.match(last.reply, /المفاضلة/);

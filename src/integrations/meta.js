@@ -162,6 +162,48 @@ export async function sendInstagramText({
   };
 }
 
+/**
+ * "Seen" and "typing…" for the buyer, sent the moment a message arrives so the
+ * conversation feels instant while the reply is prepared. Best effort only.
+ */
+export async function sendInstagramSenderAction({ recipientId, action, env = process.env, fetchImpl = fetch, timeoutMs = 4000 } = {}) {
+  const config = metaConfig(env);
+  const igToken = isInstagramUserToken(config.pageAccessToken);
+  if (!recipientId || !["typing_on", "typing_off", "mark_seen"].includes(action)) return { skipped: true, reason: "invalid" };
+  if (!config.pageAccessToken || (!igToken && !config.pageId)) return { skipped: true, reason: "not_configured" };
+  const response = await fetchImpl(instagramSendUrl(env), {
+    method: "POST",
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { "content-type": "application/json", authorization: `Bearer ${config.pageAccessToken}` },
+    body: JSON.stringify({ recipient: { id: String(recipientId) }, sender_action: action })
+  });
+  if (!response.ok) return { skipped: true, reason: `status_${response.status}` };
+  return { ok: true };
+}
+
+/**
+ * The buyer's display name from the Instagram User Profile API (allowed once
+ * they have messaged the account). Null when unavailable; never blocks long.
+ */
+export async function fetchInstagramProfileName({ userId, env = process.env, fetchImpl = fetch, timeoutMs = 1200 } = {}) {
+  const config = metaConfig(env);
+  if (!userId || !config.pageAccessToken) return null;
+  const base = isInstagramUserToken(config.pageAccessToken)
+    ? `${env.META_IG_GRAPH_BASE_URL || "https://graph.instagram.com"}/${config.graphVersion}`
+    : `${config.graphBaseUrl}/${config.graphVersion}`;
+  try {
+    const response = await fetchImpl(`${base}/${encodeURIComponent(String(userId))}?fields=name`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { authorization: `Bearer ${config.pageAccessToken}` }
+    });
+    if (!response.ok) return null;
+    const body = await response.json().catch(() => ({}));
+    return typeof body?.name === "string" && body.name.trim() ? body.name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function boundedTextEnd(text, start, limit) {
   let end = Math.min(start + limit, text.length);
   if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end--;

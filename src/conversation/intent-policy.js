@@ -192,7 +192,8 @@ export function isProcessQuestionOnly(text) {
  */
 export function intentAlertFor({ message = "", intents = [], moment = null, buyer = {}, followUpSubmitted = false, sessionId = null } = {}) {
   if (followUpSubmitted || buyer.salesPathStopped) return null;
-  const kind = intents.includes("request_call") ? "call" : wantsHuman(message) ? "human" : moment === "buying" ? "purchase" : null;
+  const kind = intents.includes("request_call") ? "call" : wantsHuman(message) ? "human" : moment === "buying" ? "purchase"
+    : moment === "viewing" ? "viewing" : moment === "meeting" ? "meeting" : null;
   if (!kind) return null;
   if (sessionId && buyer.intentAlert?.sessionId === sessionId) return null;
   return { kind, evidence: String(message).trim().slice(0, 160) };

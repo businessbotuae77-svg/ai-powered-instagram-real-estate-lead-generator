@@ -6,7 +6,7 @@ import { KeyedQueue } from "./keyed-queue.js";
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
 import { decideConversation, isClosingRemark } from "./decision.js";
 import { conversationalScope } from "./question-scope.js";
-import { contactDecision, wantsHuman, agentEducationReply } from "./contact.js";
+import { contactDecision, wantsHuman, agentEducationReply, suggestsTime } from "./contact.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
 import { extractFactsFromMessage } from "./extract.js";
 import { ConversationMemory } from "./memory.js";
@@ -37,6 +37,7 @@ import { brokerProfile, directContactLine, permittedContactDetails } from "./bro
 import { declinesOffer, isBareDecline, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
 import { routeServiceTurn } from "./service-flow.js";
+import { conciergeTurn } from "./concierge.js";
 import { loadBuyerDecisionsConfig } from "./buyer-decisions-config.js";
 import { buildBuyerDecisionTurn, decorateBuyerDecisionDraft, decisionControlKind, budgetPermissionFacts, decisionScope, inspectDecisionComparison } from "./buyer-decision-flow.js";
 import {
@@ -238,8 +239,10 @@ export class ConversationEngine {
       facts.contactDeclined = true;
       facts.declinedSuggestions = ["handoff"];
     }
-    if (pendingAtStart?.type === "handoff_offer" && isAffirmation(text)) {
+    if (pendingAtStart?.type === "handoff_offer" && (isAffirmation(text) || suggestsTime(text))) {
       facts.requestedAction = existingBuyer.handoffTopics?.at(-1) || "Accepted an offer to connect";
+      // "Tomorrow 5pm" answers the offer and tells the team when.
+      if (suggestsTime(text) && !isAffirmation(text)) facts.requestedAction = `${facts.requestedAction} (preferred time: ${text.slice(0, 60)})`;
     }
     if (humanRequest) {
       intents = [...new Set([...intents.filter(i => !["stop", "decline_contact"].includes(i)), "agent"])];
@@ -513,7 +516,11 @@ export class ConversationEngine {
     const turnObjections = (facts.objections || []).map(o => o.category);
     const askedFields = new Set(this.memory.getTurns(instagramUserId).map(turn => turn.role === "assistant" && turn.questionField).filter(Boolean));
     const serviceDraft = routeServiceTurn({ message: text, buyer, services: this.services, pendingOffer: pendingAtStart });
-    let draft = (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
+    // The concierge answers the turns buyers ask most (cheapest, more options,
+    // why we ask, how buying works, fees, an area) before anything else.
+    const conciergeDraft = !contact && !serviceDraft && !catalogError ? conciergeTurn({ message: text, buyer, catalog, advisor,
+      pendingOffer: pendingAtStart, lastAskedField, intents }) : null;
+    let draft = conciergeDraft || (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
       askedFields, pendingOffer: pendingAtStart });
     if (!contact && !serviceDraft && isNegatedBuying(text) && !searchUpdateForDecision(facts)) draft = { text: buyer.language === "ar" ? "بالتأكيد. يمكنك تصفح المشاريع أو السؤال عنها متى أردت." : "Of course. You can browse or ask about a project whenever you’re ready.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
     // "Yes" to "Want me to break down the payment plan?" offered about a project
@@ -686,7 +693,8 @@ export class ConversationEngine {
       else if (step) draft = { ...draft, handoffReason: step.handoffReason, handoffTopic: draft.handoffTopic || step.handoffTopic };
     }
     if (draft.handoffReason) {
-      const offer = handoffOffer({ buyer, broker: this.broker, reason: draft.handoffReason, lastAskedField });
+      const offer = handoffOffer({ buyer, broker: this.broker, reason: draft.handoffReason, lastAskedField,
+        brief: draft.stage === "transaction_next_step" && ["buying", "viewing", "meeting"].includes(draft.handoffReason) });
       if (offer) draft = { ...draft, text: `${draft.text}\n${offer.line}`, nextQuestion: offer.nextQuestion, pendingOffer: offer.pendingOffer };
       else if (draft.handoffReason === "buying" && !buyer.salesPathStopped) {
         // The buyer declined a follow-up earlier: give direct details instead of asking again.

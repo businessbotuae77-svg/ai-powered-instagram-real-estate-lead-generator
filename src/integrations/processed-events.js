@@ -112,9 +112,26 @@ function prune(data, max = 2000, slack = 200) {
 }
 
 // Completed events only need their id and outcome for duplicate detection.
+// The buyer's raw message and full record are dropped: the whole file is
+// rewritten several times per message, and they made it megabytes long.
 function compactCompleted(data) {
   for (const row of Object.values(data.events || {})) {
-    if (row?.status === "completed" && row.result && !row.result.compact) delete row.result;
+    if (row?.status !== "completed" || row.slim) continue;
+    if (row.result && !row.result.compact) delete row.result;
+    else if (row.result) row.result = slimResult(row.result);
+    delete row.event;
+    delete row.text;
+    row.slim = true;
   }
   return data;
+}
+
+// What a repeated call request (same request id) still reports back.
+function slimResult(result) {
+  const buyer = result.buyer || {};
+  return { reply: result.reply, stage: result.stage, alertRecommended: result.alertRecommended, callRequestSubmitted: result.callRequestSubmitted,
+    followUpSubmitted: result.followUpSubmitted, callSummary: result.callSummary || null, compact: true,
+    buyer: { instagramUserId: buyer.instagramUserId, language: buyer.language, phone: buyer.phone, budgetAed: buyer.budgetAed,
+      preferredAreas: buyer.preferredAreas, bedrooms: buyer.bedrooms, financing: buyer.financing, cashAvailableAed: buyer.cashAvailableAed,
+      leadStatus: buyer.leadStatus, followUpStatus: buyer.followUpStatus } };
 }

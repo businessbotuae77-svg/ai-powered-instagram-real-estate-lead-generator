@@ -5,7 +5,8 @@ import { IntegrationLog } from "./integration-log.js";
 import { ProcessedEventStore } from "./processed-events.js";
 import { AlertLedger, CallRequestStore } from "./whatsapp.js";
 import { sendAdvisorAlert } from "./alerts.js";
-import { parseInstagramMessages, sendInstagramText, verifySignature, verifyWebhookChallenge } from "./meta.js";
+import { fetchInstagramProfileName, parseInstagramMessages, sendInstagramSenderAction, sendInstagramText, verifySignature, verifyWebhookChallenge } from "./meta.js";
+import { firstNameFrom } from "../conversation/names.js";
 import { runtimeRoot } from "./json-store.js";
 import { KeyedQueue } from "../conversation/keyed-queue.js";
 import { handoffConfirmation, handoffFailureNotice } from "../conversation/contact.js";
@@ -202,7 +203,10 @@ export class IntegrationOrchestrator {
       return { duplicate: false, skipped: true, reason: "stale_message", mid, ageMs };
     }
 
+    // "Seen" and "typing…" straight away, so the buyer sees the reply coming.
+    const presence = !event.callRequest && !previous.send ? this.#presence(event.senderId) : Promise.resolve();
     try {
+      if (!previous.result && !event.callRequest) await this.#rememberProfileName(event.senderId);
       const result = previous.result || (event.callRequest
         ? await this.engine.submitCallRequest(event.senderId, event.phone, { useLlm: false })
         : await this.engine.handleMessage(event.senderId, event.text, { useLlm: options.useLlm }));
@@ -226,10 +230,9 @@ export class IntegrationOrchestrator {
           await this.#recordCommercial(result, event, "service_request_delivered", { serviceId: serviceRequest.serviceId, deliveryKey: alert.key, at: alert.deliveredAt || undefined });
         }
       }
-      // The internal lead alert is retried like any delivery; it never changes the buyer's reply.
-      const intentAlert = previous.intentAlert?.ok ? previous.intentAlert : await this.#safeIntentAlert(result, event);
-      if (intentAlert.ok) await this.events.save(mid, { intentAlert });
       let send = previous.send;
+      // Typing indicators must land before the reply, never after it.
+      await presence;
       // Never leave the buyer in silence: if the alert failed, say so once and
       // keep retrying. A confirmation is sent only after delivery succeeds.
       let notice = previous.notice;
@@ -250,6 +253,11 @@ export class IntegrationOrchestrator {
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
         if (needsAlert && alertOk) result.reply = reply;
       }
+      // The internal lead alert goes after the buyer's reply, so a slow email or
+      // WhatsApp provider never delays it. It is retried like any delivery and
+      // never changes the reply.
+      const intentAlert = previous.intentAlert?.ok ? previous.intentAlert : await this.#safeIntentAlert(result, event);
+      if (intentAlert.ok) await this.events.save(mid, { intentAlert });
       const failed = (needsAlert && !alertOk) || Boolean(intentAlert.error) || !send || send.error || send.skipped;
       if (send && !send.error && !send.skipped && !send.uiOnly && result.commercialDecision?.comparisonId) {
         await this.#recordCommercial(result, event, "comparison_delivered", {
@@ -346,6 +354,26 @@ export class IntegrationOrchestrator {
         meta: { recipientId }
       });
       return { skipped: true, error: error.message };
+    }
+  }
+
+  #presence(recipientId) {
+    if (String(this.env.INSTAGRAM_TYPING_INDICATOR || "true").toLowerCase() === "false") return Promise.resolve();
+    const act = action => sendInstagramSenderAction({ recipientId, action, env: this.env, fetchImpl: this.fetchImpl }).catch(() => null);
+    return Promise.all([act("mark_seen"), act("typing_on")]);
+  }
+
+  // A first name lets the welcome greet the buyer personally. Looked up once.
+  async #rememberProfileName(senderId) {
+    if (!this.buyers?.getOrCreate || !this.buyers.patchBuyer) return;
+    if (String(this.env.INSTAGRAM_PROFILE_NAMES || "true").toLowerCase() === "false") return;
+    try {
+      const buyer = await this.buyers.getOrCreate(senderId);
+      if (buyer?.profileCheckedAt) return;
+      const firstName = firstNameFrom(await fetchInstagramProfileName({ userId: senderId, env: this.env, fetchImpl: this.fetchImpl }));
+      await this.buyers.patchBuyer(senderId, { profileCheckedAt: new Date().toISOString(), ...(firstName ? { firstName } : {}) });
+    } catch {
+      // A name is a nicety; the reply goes out without it.
     }
   }
 
