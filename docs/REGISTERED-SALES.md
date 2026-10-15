@@ -17,7 +17,7 @@ The private Airtable research fields contain 352 exact district/community/projec
 
 Only residential apartments, villas, townhouses/attached villas, duplexes and penthouses are included. Land, whole residential complexes, other asset classes and blank/Private project identities are excluded. Original registry labels and community codes are preserved. `unclassified`, `5+ beds` and `6+ beds` never become guessed exact bedroom counts.
 
-Prices require a positive amount, a full sold share and an explicit Primary/Secondary plus ready/off-plan classification. Partial interests and court-mandated rows do not supply price benchmarks. Each sale category uses the trailing 365 days ending at its own latest eligible recorded sale. Answers select the latest qualifying category and state that category, period and sample count. They never blend primary and resale or ready and off-plan prices. A small sample remains explicitly counted; it is not a market-wide valuation.
+Prices require a positive amount, a full sold share and an explicit Primary/Secondary plus ready/off-plan classification. Partial interests and court-mandated rows do not supply price benchmarks. Each sale category uses the trailing 365 days ending at its own latest eligible recorded sale. Answers select the latest qualifying category; category, period, sample and source stay in the evidence metadata and are shown when the buyer asks for the source or detail. They never blend primary and resale or ready and off-plan prices.
 
 `mixedSales` is an audit aggregate in the private import, not the source for a buyer price answer. Per-square-foot observations use the recorded sold area; no built-up-area or floor-plan equivalence is inferred.
 
@@ -38,7 +38,11 @@ The production Airtable store parses the private Recorded home types and prices,
 
 The parser requires a valid export hash, the recorded government source URL, a nonfuture registry check date, official-name confirmation and structurally valid price scopes. It reads one export version at a time and prefers active catalogue aliases over their separate registry identities. Complete an export refresh before switching versions; do not blend unrelated partial imports.
 
-Current confirmed commercial prices retain priority. The registered-sales path cannot create an active listing, current availability, payment plan, handover date or human-contact permission. Its exact deterministic reply is passed through the existing sourced research claim allowlist and both existing validators; the checker is unchanged. Multi-project/phase comparisons are left to the existing comparison path rather than silently substituting one scope.
+Buyer-facing replies are concise. A budget-first enquiry can get: “I found a project that fits your budget: [project] in [district]. Recent sales of [home type] are around AED [computed price].” The recommendation uses the recorded price, respects the buyer's budget, bedrooms, type and location, and only uses scopes whose latest sale is within the past year. A sub-community preference is not silently broadened to its whole government district. It keeps the chosen project in conversation context for follow-ups.
+
+Ordinary project-price questions get a short price reference. Export terminology, sample counts, date windows and repeated-row notes are kept out of ordinary chat. Explicit source/detail questions can show them. A project shortlist based on real transaction prices does not require a current inventory record.
+
+Current confirmed commercial prices retain priority. The registered-sales path cannot create an active listing, current availability, payment plan, handover date or human-contact permission. Computed observed-price claims and the exact deterministic wording pass through the existing sourced research allowlist and both existing validators; the checker is unchanged. Multi-project/phase comparisons are left to the existing comparison path rather than silently substituting one scope.
 
 ## Refresh
 

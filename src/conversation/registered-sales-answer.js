@@ -4,15 +4,60 @@ const HOME_QUESTION = /home types?|unit types?|property types?|bedroom|layouts?|
 const PRICE_QUESTION = /prices?|pricing|how much|cost|historical|recorded|transactions?|sold|اسعار|أسعار|سعر|بكم|مبيعات|بيع|تاريخي/i;
 const OTHER_QUESTION = /payment\s*plan|handover|availability|available|reserve|viewing|\beoi\b|mortgage|rent|yield|سداد|تسليم|متاح|متوفر|حجز|معاينة|إيجار|ايجار/i;
 const DISCOVERY = /projects?|developments?|مشاريع|مشروعات/i;
-const TYPE_AR = { apartment: "شقة", villa: "فيلا", "townhouse / attached villa": "تاونهاوس / فيلا متصلة", duplex: "دوبلكس", penthouse: "بنتهاوس" };
+const TYPE_AR = { apartment: "شقق", villa: "فلل", "townhouse / attached villa": "تاونهاوس / فلل متصلة", duplex: "دوبلكس", penthouse: "بنتهاوس" };
 const amount = value => `AED ${Math.round(value).toLocaleString("en-US")}`;
+const DETAIL_QUESTION = /how many|sample|dates?|period|median|source|evidence|basis|كم (?:معاملة|صفقة)|مصدر|فترة|تاريخ|وسيط/i;
+const SEARCH = /budget|\b[\d,.]+\s*[mk]\b|recommend|find|show|options?|projects?|buy|looking|ميزاني|مليون|الف|ألف|رشح|اقترح|ابحث|مشروع|اشتري|أشتري/i;
+const SUBAREAS = /^(?:masdar city|yas bay|yas canal|al raha beach)$/i;
+
+function homeLabel(home, ar) {
+  const beds = home.bedrooms;
+  if (ar) {
+    const layout = beds === 0 ? "استوديو" : beds === 1 ? "غرفة نوم" : beds === 2 ? "غرفتين" : beds !== null ? `${beds} غرف نوم` : home.layout === "unclassified" ? "" : home.layout;
+    return `${TYPE_AR[home.propertyType]}${layout ? ` ${layout}` : ""}`;
+  }
+  const types = { apartment: "apartments", villa: "villas", "townhouse / attached villa": "townhouses / attached villas", duplex: "duplexes", penthouse: "penthouses" };
+  return beds === 0 ? "studios" : beds !== null ? `${beds}-bedroom ${types[home.propertyType]}` : home.minimumBedrooms > 0 ? `${home.minimumBedrooms}+-bedroom ${types[home.propertyType]}` : types[home.propertyType];
+}
+
+function latestStats(home, message, now, recentOnly = false) {
+  const primary = /primary|developer sales|مطور|أولي|اولي/i.test(message), secondary = /secondary|resale|إعادة بيع|اعادة بيع/i.test(message);
+  const ready = /\bready\b|جاهز/i.test(message), offplan = /off[- ]?plan|على الخارطة/i.test(message);
+  return home.segments.filter(s => (!primary || s.saleSequence === "Primary") && (!secondary || s.saleSequence === "Secondary") &&
+    (!ready || s.saleApplicationType === "ready") && (!offplan || s.saleApplicationType === "off-plan") &&
+    (!recentOnly || now - Date.parse(s.periodEnd) <= 365 * 86400000))
+    .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd) || b.rows - a.rows)[0] || null;
+}
+
+function budgetProspect(message, buyer, catalog, now) {
+  const budget = buyer.budgetAed;
+  if (!(typeof budget === "number" && budget > 0) || !SEARCH.test(message)) return null;
+  const data = catalog.registeredSales, filter = homeFilter(message, buyer);
+  const explicitDistrict = registeredDistrictInMessage(message, data);
+  const areas = buyer.preferredAreas?.length ? buyer.preferredAreas : explicitDistrict ? [explicitDistrict] : [];
+  const same = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
+  const candidates = [];
+  for (const project of data.projects.filter(p => p.governmentNameConfirmed)) {
+    const catalogue = (catalog.projects || []).find(p => p.name === project.catalogName);
+    if ((buyer.rejectedProjectIds || []).some(id => id === project.id || id === catalogue?.id)) continue;
+    if (areas.length && !areas.some(area => same(catalogue?.area, area) || (!SUBAREAS.test(area) && same(project.district, registeredDistrictInMessage(area, data))))) continue;
+    for (const home of project.homeTypes.filter(filter)) {
+      if (home.bedrooms === null && !(home.minimumBedrooms > 0)) continue;
+      const stats = latestStats(home, message, now, true);
+      if (stats && stats.medianPriceAed <= budget) candidates.push({ project, home, stats });
+    }
+  }
+  return candidates.sort((a, b) => b.stats.medianPriceAed - a.stats.medianPriceAed || b.stats.periodEnd.localeCompare(a.stats.periodEnd))[0] || null;
+}
 
 function homeFilter(message, buyer) {
   const exact = message.match(/\b(\d+)\s*(?:[- ]?bed(?:room)?s?|br)\b/i) || message.match(/(\d+)\s*غرف/);
   const beds = /studio|استوديو/i.test(message) ? 0 : exact ? Number(exact[1]) : /غرفتين|غرفتان/.test(message) ? 2 : /غرفة(?: نوم)?(?: واحدة)?/.test(message) ? 1 : null;
   const type = /townhouse|townhome|تاون/i.test(message) ? "townhouse / attached villa" : /duplex|دوبلكس/i.test(message) ? "duplex"
     : /penthouse|بنتهاوس/i.test(message) ? "penthouse" : /villa|فلل|فيلا/i.test(message) ? "villa" : /apartment|شقق|شقة|studio|استوديو/i.test(message) ? "apartment" : null;
-  return home => (beds === null || home.bedrooms === beds) && (!type || home.propertyType === type);
+  const wantedBeds = beds !== null ? [beds] : buyer.bedrooms || [];
+  const wantedTypes = type ? [type] : (buyer.propertyTypes || []).map(t => t === "townhouse" ? "townhouse / attached villa" : t === "studio" ? "apartment" : t);
+  return home => (!wantedBeds.length || wantedBeds.includes(home.bedrooms)) && (!wantedTypes.length || wantedTypes.includes(home.propertyType));
 }
 
 function evidenceDraft(text, projects, data, details = {}) {
@@ -21,30 +66,44 @@ function evidenceDraft(text, projects, data, details = {}) {
     sourceRecordId: `csv-${data.source.sha256}`, verifiedOn: data.source.checkedOn,
     scope: { projectIds: projects.map(p => p.id), exportSha256: data.source.sha256, basis: "historical_sales_export" },
     evidenceClass: "CALCULATION", usable: true, commercialQuote: false, confidence: "Medium" };
+  const prices = (details.observations || []).map(({ project, home, stats }) => ({ ...evidence,
+    sourceRecordId: `${project.id}:${home.propertyType}:${home.layout}:${stats.saleSequence}:${stats.saleApplicationType}`,
+    scope: { projectId: project.id, propertyType: home.propertyType, layout: home.layout, saleSequence: stats.saleSequence, saleApplicationType: stats.saleApplicationType,
+      periodStart: stats.periodStart, periodEnd: stats.periodEnd, sampleRows: stats.rows, exportSha256: data.source.sha256 },
+    field: "observedPriceAed", value: Math.round(stats.medianPriceAed) }));
   return { text, stage: "recorded_sales", nextQuestion: null, pendingOffer: null, callRequest: null,
-    suppressCommercial: true, factPacks: [], investmentTheses: [{ projectId, evidenceRegistry: [evidence] }],
+    suppressCommercial: true, factPacks: [], investmentTheses: [{ projectId, evidenceRegistry: [evidence, ...prices] }],
     recordedSales: { projectIds: projects.map(p => p.id), sourceSha256: data.source.sha256, ...details } };
 }
 
 /** Observed homes and prices are historical evidence, never active inventory. */
-export function registeredSalesAnswer({ message, buyer = {}, catalog = {}, draft = null, now = Date.now() }) {
+export function registeredSalesAnswer({ message, buyer = {}, catalog = {}, draft = null, commercialRecommendation = false, now = Date.now() }) {
   const data = catalog.registeredSales;
   if (!data?.source?.sha256 || !data.source.namesCheckedOn || Date.parse(data.source.checkedOn) > now ||
-      !Number.isFinite(Date.parse(data.source.checkedOn)) || OTHER_QUESTION.test(message) || /\bcompare|\bversus\b|\bvs\b|قارن|مقارن/i.test(message)) return null;
+      !Number.isFinite(Date.parse(data.source.checkedOn)) || buyer.salesPathStopped || OTHER_QUESTION.test(message) || /\bcompare|\bversus\b|\bvs\b|قارن|مقارن/i.test(message)) return null;
   const ar = buyer.language === "ar";
   let selected = registeredProjectsInMessage(message, data);
   const explicit = selected.length > 0;
-  const detailQuestion = HOME_QUESTION.test(message) || PRICE_QUESTION.test(message);
+  const detailQuestion = HOME_QUESTION.test(message) || PRICE_QUESTION.test(message) || DETAIL_QUESTION.test(message);
   const freshSubject = !explicit && DISCOVERY.test(message);
+  if (!explicit && !commercialRecommendation && !DETAIL_QUESTION.test(message) && !["matched", "soft_match", "comparison", "fact_answer", "area_guide"].includes(draft?.stage)) {
+    const candidate = budgetProspect(message, buyer, catalog, now);
+    if (candidate) {
+      const { project, home, stats } = candidate;
+      const text = ar ? `لقيت لك مشروع يناسب ميزانيتك: ${project.catalogName} في ${project.district}.\nمبيعات ${homeLabel(home, true)} الأخيرة حول ${amount(stats.medianPriceAed)}.`
+        : `I found a project that fits your budget: ${project.catalogName} in ${project.district}.\nRecent sales of ${homeLabel(home, false)} are around ${amount(stats.medianPriceAed)}.`;
+      return evidenceDraft(text, [project], data, { budgetFit: true, recommendedProjectName: project.catalogName, observations: [candidate] });
+    }
+  }
   if (!explicit && !freshSubject && detailQuestion && buyer.projectInterest) selected = registeredProjectsInMessage(buyer.projectInterest, data);
   if (!selected.length && freshSubject) {
     const district = registeredDistrictInMessage(message, data);
     if (!district) return null;
     const all = data.projects.filter(p => p.governmentNameConfirmed && p.district === district).sort((a, b) => b.observedRows - a.observedRows);
     if (!all.length) return null;
-    const displayed = [...new Map(all.map(p => [p.name, p])).values()].slice(0, 8);
-    const text = ar ? `ADREC recorded sales — ${district}:\n${displayed.map(p => p.name).join("؛ ")}.\nهذه أسماء مشاريع وردت في سجل المبيعات، والتوفر الحالي يحتاج تأكيد.`
-      : `Recorded sales in ${district} include ${displayed.map(p => p.name).join("; ")}.\nThese are recorded project names; current availability needs a separate check.`;
+    const displayed = [...new Map(all.map(p => [p.name, p])).values()].slice(0, 3);
+    const text = ar ? `في ${district} عندك ${displayed.map(p => p.catalogName).join("؛ ")}.`
+      : `Projects to explore in ${district} include ${displayed.map(p => p.catalogName).join("; ")}.`;
     return evidenceDraft(text, displayed, data, { district, discovery: true });
   }
   if (!selected.length) return null;
@@ -61,29 +120,31 @@ export function registeredSalesAnswer({ message, buyer = {}, catalog = {}, draft
   const filter = homeFilter(message, buyer);
   const choices = selected.flatMap(project => project.homeTypes.filter(filter).map(home => ({ project, home })));
   if (!choices.length) {
-    const text = ar ? `ADREC recorded sales — ${[...canonical][0]}: ما عندي سجل يثبت نوع المنزل وعدد الغرف المطلوبين. هذا لا يعني أنه غير موجود.`
-      : `Recorded sales for ${[...canonical][0]} do not confirm that exact home type and bedroom layout. That does not establish that it does not exist.`;
+    const text = ar ? `ما عندي سعر لنوع المنزل وعدد الغرف المطلوبين في ${[...canonical][0]}. أقدر أبحث عن خيار مشابه في مشروع آخر.`
+      : `I don't have a price for that exact home type and bedroom layout at ${[...canonical][0]}. I can look for a similar option in another project.`;
     return evidenceDraft(text, selected, data, { missingScope: true });
   }
-  const primary = /primary|developer sales|مطور|أولي|اولي/i.test(message), secondary = /secondary|resale|إعادة بيع|اعادة بيع/i.test(message);
-  const ready = /\bready\b|جاهز/i.test(message), offplan = /off[- ]?plan|على الخارطة/i.test(message);
-  const shown = choices.slice(0, 6);
+  const detailed = DETAIL_QUESTION.test(message);
+  const shown = choices.slice(0, detailed ? 6 : 3), observations = [];
   const lines = shown.map(({ project, home }) => {
-    const label = ar ? `${TYPE_AR[home.propertyType]} — ${home.layout === "studio" ? "استوديو" : home.layout === "unclassified" ? "عدد الغرف غير مصنف" : home.layout}` : `${home.propertyType} — ${home.layout}`;
-    const segments = home.segments.filter(s => (!primary || s.saleSequence === "Primary") && (!secondary || s.saleSequence === "Secondary") && (!ready || s.saleApplicationType === "ready") && (!offplan || s.saleApplicationType === "off-plan"));
-    // Never blend developer/resale or ready/off-plan prices in a buyer answer.
-    const stats = [...segments].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd) || b.rows - a.rows)[0];
+    const label = homeLabel(home, ar);
+    const stats = latestStats(home, message, now);
     if (!stats) return ar ? `${project.name}: ${label}؛ السعر غير متاح للنطاق المطلوب.` : `${project.name}: ${label}; no price for this exact requested scope.`;
+    observations.push({ project, home, stats });
     const basis = `${stats.saleSequence}, ${stats.saleApplicationType}`;
+    if (!detailed) {
+      const recent = now - Date.parse(stats.periodEnd) <= 365 * 86400000;
+      return ar ? `${label}: المبيعات ${recent ? "الأخيرة" : "السابقة"} حول ${amount(stats.medianPriceAed)}.`
+        : `${label}: ${recent ? "recent" : "past"} sales around ${amount(stats.medianPriceAed)}.`;
+    }
     return ar ? `${project.name}: ${label}؛ وسيط السعر المسجل ${amount(stats.medianPriceAed)}؛ ${stats.rows} سجل، ${stats.periodStart} إلى ${stats.periodEnd} (${basis}).`
       : `${project.name}: ${label}; recorded median ${amount(stats.medianPriceAed)} across ${stats.rows} rows, ${stats.periodStart} to ${stats.periodEnd} (${basis}).`;
   });
   const location = [...new Set(selected.map(p => p.district))].join(" / ");
-  const repeated = shown.some(({ home }) => home.mixedSales && home.mixedSales.rows !== home.mixedSales.distinctRows);
-  const caveat = ar ? "هذه أسعار مبيعات تاريخية، وليست أسعار عرض حالية. عدد السجلات لا يثبت عدد الوحدات الفريدة."
-    : "These are historical sale prices, not current asking prices. Row counts do not establish unique homes sold.";
-  const footer = choices.length > shown.length ? (ar ? "لدي سجلات لأنواع أخرى أيضاً؛ حدد نوع المنزل وعدد الغرف لأفصلها." : "There are more recorded layouts; name a home type and bedroom count for the detail.") : null;
-  const text = [ar ? `ADREC recorded sales — المنطقة الرسمية: ${location}.` : `Recorded sales export — official district: ${location}.`, ...lines, caveat,
-    repeated ? (ar ? "يتضمن الملف سجلات متطابقة الحقول، وقد أُبقيت إلى حين توفر معرفات المعاملات." : "Identical rows are retained because transaction IDs are absent.") : null, footer].filter(Boolean).join("\n");
-  return evidenceDraft(text, selected, data, { displayedScopes: shown.length });
+  const header = detailed ? (ar ? `ADREC recorded sales — ${location}.` : `Recorded sales — ${location}.`)
+    : (ar ? `${[...canonical][0]} في ${location}.` : `${[...canonical][0]} is in ${location}.`);
+  const footer = detailed && observations.some(({ stats }) => stats.rows !== stats.distinctRows)
+    ? (ar ? "عدد السجلات لا يثبت عدد الصفقات الفريدة؛ لا يتضمن الملف معرفات المعاملات." : "Rows are not certified unique transactions; the export contains no transaction IDs.") : null;
+  const text = [header, ...lines, footer].filter(Boolean).join("\n");
+  return evidenceDraft(text, selected, data, { displayedScopes: shown.length, observations });
 }
