@@ -114,8 +114,7 @@ function dimensionDelta(code, field, reference, candidate, unit = null) {
 }
 
 function getCandidates(catalog, buyer, options) {
-  const suppressAvailability = !options.buyerDecisionsEnabled;
-  const safe = safeCatalog(catalog, { ...options, suppressAvailability });
+  const safe = safeCatalog(catalog, { ...options, suppressAvailability: true });
   const result = [];
   for (const unit of safe.units) {
     const project = safe.projects.find(row => row.id === unit.projectId);
@@ -217,7 +216,6 @@ function eligibility(candidate, buyer, ceiling, options) {
   if (!wantedBedroomsMatch(candidate, buyer) && buyer.bedroomsRequired === true) reasons.push("required_bedrooms");
   if (deriveInvestmentStrategy(buyer) === "READY_INCOME" && !(sameText(value(pack, "status"), "Ready") && handoverRange(pack)?.end === 0)) reasons.push("ready_income_required");
   if (buyer.preferredEmirate && !sameText(candidate.project.emirate, buyer.preferredEmirate)) reasons.push("wrong_emirate");
-  if (sameText(value(pack, "availability"), "Sold out")) reasons.push("sold_out");
   if (isRejected(candidate, buyer, options)) reasons.push("previously_rejected");
   if (numeric(buyer.cashAvailableAed) && buyer.cashAvailableAed >= 0) {
     if (!numeric(initial) || initial < 0) reasons.push("initial_payment_unknown");

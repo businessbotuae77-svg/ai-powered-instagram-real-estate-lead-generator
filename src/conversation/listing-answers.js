@@ -98,7 +98,7 @@ export function answerListingRequest({ message, catalog, buyer, pendingOffer = n
   const accepted = acceptsListingComparison(message, pendingOffer);
   if (!isListingRequest(message) && !accepted) return null;
   const ar = buyer.language === "ar", scope = scopeFor(buyer);
-  const filters = accepted ? pendingOffer.filters : { readyOnly: ready(message), availableOnly: true };
+  const filters = accepted ? pendingOffer.filters : { readyOnly: ready(message), availableOnly: false };
   const rows = candidates(catalog, scope, filters);
   if (accepted) {
     const pair = pendingOffer.pair.map(id => rows.find(row => row.project.id === id.projectId && row.unit.id === id.unitId));
@@ -129,8 +129,8 @@ export function answerListingRequest({ message, catalog, buyer, pendingOffer = n
   const first = rows[0], pack = first.factPack;
   const second = rows.find(row => sameHome(first, row) && row.factPack.startingPriceAed.value > pack.startingPriceAed.value);
   const text = ar
-    ? `أقل خيار${filters.readyOnly ? " جاهز" : ""} ومتاح أقدر أؤكده ضمن ${scopeLabel} هو ${first.project.name} في ${pack.area.value}، بسعر يبدأ من ${pack.startingPriceText.value} لـ${listingLabel(pack, "ar")}؛ ${sizeText(pack, true)}.`
-    : `The lowest-priced ${filters.readyOnly ? "ready, " : ""}available match I can confirm within ${scopeLabel} is ${first.project.name} in ${pack.area.value}, from ${pack.startingPriceText.value} for a ${listingLabel(pack)}; ${sizeText(pack, false)}.`;
+    ? `أقل خيار${filters.readyOnly ? " جاهز" : ""} أقدر أؤكده ضمن ${scopeLabel} هو ${first.project.name} في ${pack.area.value}، بسعر يبدأ من ${pack.startingPriceText.value} لـ${listingLabel(pack, "ar")}؛ ${sizeText(pack, true)}.`
+    : `The lowest-priced ${filters.readyOnly ? "ready " : ""}match I can confirm within ${scopeLabel} is ${first.project.name} in ${pack.area.value}, from ${pack.startingPriceText.value} for a ${listingLabel(pack)}; ${sizeText(pack, false)}.`;
   const prompt = second ? (ar ? "تبي أقارنه بأقرب خيار أعلى سعراً من نفس نوع الوحدة وعدد الغرف؟" : "Want me to compare it with the next-priced option of the same home type and bedroom count?") : null;
   return { text: [text, prompt].filter(Boolean).join("\n"), stage: "matched", factPacks: [pack], listingMatches: [first], suppressCommercial: true,
     buyerPatch: { activeRecommendationProjectId: first.project.id, activeRecommendationUnitId: first.unit.id },

@@ -226,19 +226,16 @@ test("negative and ambiguous choices do not select a home type", async () => {
   assert.equal(negative.commercialDecision, null);
 });
 
-test("stale or sold-out listings invalidate a choice, and changing requirements clears the pair", async () => {
-  for (const change of ["stale", "sold_out"]) {
-    const fixture = await setup();
-    await fixture.send("Budget 2.1M, 2 bedroom in Yas, more space");
-    if (change === "stale") fixture.store.projects = fixture.store.projects.map(project => ({ ...project, lastVerified: "2020-01-01" }));
-    else fixture.store.units = fixture.store.units.map(unit => unit.id === "unt_ypv_3" ? { ...unit, availability: "Sold out" } : unit);
-    const result = await fixture.send("Choose second");
-    assert.equal(result.buyer.selectedListing, null, change);
-    assert.equal(result.commercialDecision, null, change);
-  }
+test("stale listings invalidate a choice, and changing requirements clears the pair", async () => {
   const fixture = await setup();
   await fixture.send("Budget 2.1M, 2 bedroom in Yas, more space");
-  const changed = await fixture.send("Only Saadiyat now");
+  fixture.store.projects = fixture.store.projects.map(project => ({ ...project, lastVerified: "2020-01-01" }));
+  const result = await fixture.send("Choose second");
+  assert.equal(result.buyer.selectedListing, null);
+  assert.equal(result.commercialDecision, null);
+  const fresh = await setup();
+  await fresh.send("Budget 2.1M, 2 bedroom in Yas, more space");
+  const changed = await fresh.send("Only Saadiyat now");
   assert.equal(changed.buyer.decisionComparison, null);
   assert.equal(changed.buyer.selectedListing, null);
 });

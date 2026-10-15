@@ -52,12 +52,13 @@ test("no guaranteed return is promised", async () => {
   assert.doesNotMatch(last.reply, /guaranteed? (?:return|growth)/i);
 });
 
-test("availability is withheld in ordinary recommendations, then checked on explicit request", async () => {
+test("availability is withheld in all recommendations including explicit requests", async () => {
   const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", "Is it available?"]);
   assert.doesNotMatch(turns[0].reply, /\b(limited|sold out|available now)\b/i);
-  assert.match(last.reply, /limited/i);
+  assert.doesNotMatch(last.reply, /\blimited\b/i);
   assert.doesNotMatch(last.reply, /\bavailable\s+(right now|now)\b/i);
   assert.doesNotMatch(last.reply, /\bsold out\b/i);
+  assert.match(last.reply, /availability is not confirmed|availability needs|check this with the developer/i);
   assert.equal(last.check.ok, true);
 });
 
@@ -68,15 +69,14 @@ async function readyListings() {
   const records = [
     ["higher", 1700000, 1300], ["outside", 200000, 400, { area: "Yas Island" }],
     ["dubai", 100000, 400, { emirate: "Dubai", area: "Dubai Marina" }],
-    ["sold", 300000, 400, {}, { availability: "Sold out" }],
     ["unapproved", 400000, 400, { approved: false }],
-    ["old", 500000, 400, { lastVerified: new Date(Date.now() - 2 * 86400000).toISOString() }],
+    ["old", 500000, 400, { lastVerified: new Date(Date.now() - 35 * 86400000).toISOString() }],
     ["not-ready", 600000, 400, { status: "Off-plan", handover: "Q4 2028" }],
     ["wrong-type", 700000, 400, {}, { propertyType: "villa" }],
     ["next", 1400000, 1200], ["lowest", 1200000, 900]
   ];
   setup.store.projects = records.map(([id, price, size, project = {}]) => ({
-    id, name: `Test ${id}`, developerId: "dev_aldar", emirate: "Abu Dhabi", area: "Al Reem Island",
+    id, name: `Test ${id}`, developerId: "dev_aldar", developerActive: true, emirate: "Abu Dhabi", area: "Al Reem Island",
     propertyTypes: ["apartment"], status: "Ready", handover: "Ready", active: true, approved: true,
     source: "Synthetic test source", lastVerified: now, ...project
   }));
@@ -100,10 +100,11 @@ test("lowest ready match scans all eligible listings and preserves market, area,
   assert.equal(last.packs.length, 1);
   assert.equal(last.packs[0].unitId, "unit-lowest");
   assert.equal(last.packs[0].bedrooms.value, 2);
-  assert.equal(last.packs[0].availability.value, "Available");
-  assert.match(last.reply, /lowest-priced ready, available match I can confirm within Al Reem Island/);
+  assert.equal(last.packs[0].availability.confirmed, false, "availability should be suppressed");
+  assert.match(last.reply, /lowest-priced ready match I can confirm within Al Reem Island/);
   assert.match(last.reply, /Test lowest.*AED 1,200,000.*2 bedroom apartment.*900–950 sqft/);
-  assert.doesNotMatch(last.reply, /Test outside|Test dubai|Test sold|Test old|Test unapproved|Test not-ready|studio/);
+  assert.doesNotMatch(last.reply, /Test outside|Test dubai|Test old|Test unapproved|Test not-ready|studio/);
+  assert.doesNotMatch(last.reply, /\bavailable\b/i);
   assert.equal(last.nextQuestion.field, "advisoryNextAction");
   assert.equal(last.followUpSubmitted, false);
   assert.equal(last.check.ok, true);
@@ -127,7 +128,7 @@ test("accepting the relevant comparison uses the exact fresh pair and a factual 
 test("a pending comparison is rechecked when stock changes and never substitutes another unit", async () => {
   const { send, store } = await readyListings();
   await send(READY_REQUEST);
-  store.units.find(unit => unit.id === "unit-lowest").availability = "Sold out";
+  store.projects.find(project => project.id === "lowest").lastVerified = new Date(Date.now() - 35 * 86400000).toISOString();
   const last = await send("Yes");
   assert.notEqual(last.stage, "comparison");
   assert.match(last.reply, /needs refreshing/);
@@ -136,22 +137,16 @@ test("a pending comparison is rechecked when stock changes and never substitutes
   assert.equal(last.check.ok, true);
 });
 
-test("missing and stale availability preserve confirmed price and identify the missing check", async () => {
-  for (const state of ["missing", "stale"]) {
-    const { store, send } = await readyListings();
-    store.projects = store.projects.filter(project => ["lowest", "next", "higher"].includes(project.id));
-    store.units = store.units.filter(unit => store.projects.some(project => project.id === unit.projectId));
-    for (const unit of store.units) unit.availability = state === "missing" ? null : "Available";
-    if (state === "stale") for (const project of store.projects) project.lastVerified = new Date(Date.now() - 2 * 86400000).toISOString();
-    const last = await send(READY_REQUEST);
-    assert.equal(last.stage, "fact_answer");
-    assert.match(last.reply, /can't confirm a ready, available match/);
-    assert.match(last.reply, /Test lowest: from AED 1,200,000.*2 bedroom apartment/);
-    assert.match(last.reply, /Current availability needs a fresh check/);
-    assert.doesNotMatch(last.reply, /budget|is available|showing as available|available right now/i);
-    assert.equal(last.packs[0].availability.confirmed, false);
-    assert.equal(last.check.ok, true);
-  }
+test("ready match returns availability as not confirmed since availability is always suppressed", async () => {
+  const { store, send } = await readyListings();
+  store.projects = store.projects.filter(project => ["lowest", "next", "higher"].includes(project.id));
+  store.units = store.units.filter(unit => store.projects.some(project => project.id === unit.projectId));
+  const last = await send(READY_REQUEST);
+  assert.equal(last.stage, "matched");
+  assert.match(last.reply, /Test lowest/);
+  assert.doesNotMatch(last.reply, /is available|showing as available|available right now/i);
+  assert.equal(last.packs[0].availability.confirmed, false);
+  assert.equal(last.check.ok, true);
 });
 
 test("stale project or unit records cannot authorize a price, size, ready or available claim", async () => {
