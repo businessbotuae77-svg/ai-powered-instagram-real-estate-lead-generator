@@ -549,6 +549,24 @@ export function buildAdvisorReply({ buyer, advisor, strategy, message = "", turn
       : "That's a fair question. I'm an automated property guide, the figures I share come from our current listings, and nothing is reserved or paid through this chat.";
     return { text: `${answer} ${prompt}`, stage: "trust_check", nextQuestion: { field: "trustConcern", prompt }, pendingOffer: null, callRequest: null };
   }
+  // A budget is enough to show a first option; strategy can follow the project.
+  if (strategy.type === "recommend" && buyer.budgetAed && !buyer.shownProjects?.length &&
+      !buyer.investmentGoal && !buyer.investmentObjective && !buyer.preferredAreas?.length &&
+      !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length) {
+    const pack = advisor.packs.find(p => p.projectId === advisor.primary?.projectId && p.unitId === advisor.primary?.unitId);
+    if (pack?.startingPriceAed?.confirmed && pack.startingPriceAed.value <= buyer.budgetAed &&
+        pack.bedroomLabel?.confirmed && pack.propertyType?.confirmed && pack.area?.confirmed &&
+        !advisor.primary.tradeoffs?.length) {
+      const ar = buyer.language === "ar";
+      const home = ar ? (pack.projectLevel ? pack.bedroomLabel.value : arabicBedrooms(pack.bedrooms.value))
+        : pack.bedrooms?.value === 0 ? "Studio" : `${pack.bedroomLabel.value} ${pack.propertyType.value}`;
+      const text = ar
+        ? `لقيت لك مشروع يناسب ميزانيتك: ${pack.name.value} في ${pack.area.value}.\n${home}، بأسعار تبدأ من ${pack.startingPriceText.value}.`
+        : `I found a project that fits your budget: ${pack.name.value} in ${pack.area.value}.\n${home}, from ${pack.startingPriceText.value}.`;
+      const single = { ...advisor, challenger: null, matches: advisor.matches.filter(m => m.project.id === pack.projectId && m.unit.id === pack.unitId) };
+      return advisorDraft(text, single, null, null, [pack]);
+    }
+  }
   if (buyer.language === "ar") return buildArabicAdvisorReply({ buyer, advisor, strategy, message });
   if (strategy.type === "no_push") return {
     text: "Take your time. We can pick this up whenever you're ready.", stage: "paused_advice",

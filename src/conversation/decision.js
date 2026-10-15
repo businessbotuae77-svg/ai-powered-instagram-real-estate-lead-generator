@@ -244,11 +244,6 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
       /^(?:i (?:don't|do not) know|not sure|unsure|idk|no preference|whatever you think|you choose)[.!?]*$/i.test(text.trim())) {
     return response(say("No problem. I'll keep the shortlist balanced and compare confirmed prices, payment commitments and handover; rental or resale outcomes need project-specific evidence.", "لا مشكلة. سأوازن الخيارات وأقارن الأسعار والتزامات السداد ومواعيد التسليم المؤكدة؛ أما دخل الإيجار أو إعادة البيع فيحتاج إلى أدلة خاصة بكل مشروع."), "exploring");
   }
-  if (buyer.budgetAed && !buyer.investmentGoal && !buyer.investmentObjective && !buyer.cashDeploymentPreference && !buyer.liquidityPriority && !isFlexiblePreference(buyer, "priorities") && !buyer.advisorLed && !buyer.preferredAreas?.length && !buyer.projectInterest && !buyer.bedrooms?.length && !buyer.propertyTypes?.length && buyer.useType !== "end_use") {
-    const prompt = say("Should I start with a balanced shortlist, lower upfront cash, growth potential, or evidence for an easier resale?", "هل أبدأ بقائمة متوازنة أم بدفعة أولى أقل أم بفرص النمو أم بأدلة تسهّل إعادة البيع؟");
-    const result = response(say(`Good, that gives me a range to work with. ${prompt}`, `ممتاز، هذا يعطيني نطاقاً واضحاً. ${prompt}`), "exploring", "investmentObjective", prompt);
-    return { ...result, nextQuestion: { ...result.nextQuestion, choices: choicesForField("investmentObjective")?.choices || null } };
-  }
   if (/^(i (don't|do not) know|not sure|unsure|idk|ما أعرف|لا أعرف)[.!?]*$/i.test(text.trim()) && !buyer.budgetAed) {
     if (lastAskedField === "explorationTopic") {
       const overview = areaAnswer({ text: "areas", buyer, catalog, lastAskedField, ar, askedFields });

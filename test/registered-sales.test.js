@@ -190,3 +190,31 @@ test("budget-first English and Gulf Arabic turns give a recommendation instead o
     assert.match(proof.reply, /2026-10-10/);
   }
 });
+
+test("invest then budget shows one priced project without a strategy menu in English and Arabic", async () => {
+  for (const messages of [["Hi", "Invest", "Around AED 2M"], ["مرحبا", "استثمار", "ميزانيتي 2 مليون"]]) {
+    for (const historicalOnly of [false, true]) {
+      const { engine, store } = await setupConversation();
+      store.registeredSales = fixture();
+      if (historicalOnly) { store.projects = []; store.units = []; }
+      let result;
+      for (const message of messages) result = await engine.handleMessage("invest-budget", message);
+      assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
+      assert.match(result.reply, /I found a project that fits your budget|لقيت لك مشروع يناسب ميزانيتك/);
+      assert.match(result.reply, /AED [\d,]+/);
+      assert.equal(result.reply.split("\n").length, 2);
+      assert.equal(result.nextQuestion, null);
+      assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة/);
+      assert.equal(result.callRequestSubmitted, false);
+      if (historicalOnly) {
+        assert.equal(result.stage, "recorded_sales");
+        assert.match(result.reply, /Cove Test/);
+        assert.match(result.reply, /AED 300,000/);
+      } else {
+        assert.equal(result.stage, "matched");
+        assert.equal(result.packs.length, 1);
+        assert.equal(result.buyer.shownProjects.length, 1);
+      }
+    }
+  }
+});

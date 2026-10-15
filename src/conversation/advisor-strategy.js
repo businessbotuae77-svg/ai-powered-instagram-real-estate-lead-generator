@@ -46,7 +46,7 @@ export function determineAdvisorStrategy({ buyer, advisor, message = "", pending
 export function advisoryReady(buyer) {
   if (isInvestmentDiscoveryReady(buyer)) return true;
   return Boolean(buyer.budgetAed && (
-    buyer.investmentGoal || buyer.investmentObjective || buyer.exitHorizon || buyer.useType === "end_use" ||
+    buyer.investmentGoal || buyer.investmentObjective || buyer.exitHorizon || ["end_use", "investment"].includes(buyer.useType) ||
     ((buyer.preferredAreas?.length || buyer.projectInterest || buyer.openToOtherAreas) &&
       (buyer.bedrooms?.length || buyer.propertyTypes?.length))
   ));
