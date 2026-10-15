@@ -159,14 +159,15 @@ test("investment answers do not echo unsupported numeric ROI or appreciation pro
   }
 });
 
-test("accepting an availability check preserves the discussed unit in English and Arabic", async () => {
+test("accepting an availability check preserves the discussed unit but availability is suppressed", async () => {
   for (const [question, acceptance] of [["What is the payment plan?", "Yes"], ["ما خطة السداد؟", "نعم"]]) {
     const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", question, acceptance]);
     assert.equal(turns[1].stage, "fact_answer");
     assert.equal((turns[1].reply.match(/[?؟]/g) || []).length, 1);
     assert.equal(last.stage, "fact_answer");
     assert.equal(last.packs[0].unitId, "unt_ypv_2");
-    assert.match(last.reply, /limited|محدود/i);
+    assert.doesNotMatch(last.reply, /\blimited\b|\bمحدود\b/i);
+    assert.match(last.reply, /availability is not confirmed|التوفر.*غير مؤكد|check this with|تحقق/i);
     assert.equal(last.check.ok, true);
   }
 });

@@ -412,11 +412,8 @@ export class ConversationEngine {
     if (this.properties.refresh) {
       try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
     }
-    const availabilityRequested = asksAvailability(text) || isListingRequest(text) || acceptsListingComparison(text, pendingAtStart) || (isAffirmation(text) &&
-      ["listing_comparison", "advisory_next_action"].includes(pendingAtStart?.type) &&
-      (pendingAtStart.type === "listing_comparison" || pendingAtStart.action === "availability"));
     const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog({
-      suppressAvailability: !this.buyerDecisions.enabled && !availabilityRequested });
+      suppressAvailability: true });
     const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
     if (!decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
@@ -485,14 +482,6 @@ export class ConversationEngine {
     // A fact question about a named project, or about the project just discussed
     // ("What's the payment plan?"), is answered from that project's listings.
     const factTopic = detectFactTopic(text);
-    if (availabilityRequested && factTopic === "availability") {
-      packs = packs.map(pack => {
-        const project = catalog.projects.find(row => row.id === pack.projectId);
-        const unit = catalog.units.find(row => row.id === pack.unitId && row.projectId === pack.projectId);
-        return project && unit ? buildFactPack({ project, unit,
-          downPaymentAed: unit.initialPaymentAed ?? project.initialPaymentAed, bedroomLabel: String(unit.bedrooms) }) : pack;
-      });
-    }
     const asksQuestion = /[?؟]\s*$/.test(text) || /^(?:what|what's|whats|how|when|is|are|does|do|tell|price|initial|payment|handover|any|can)\b/i.test(text);
     const newCriteria = ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
     if (factTopic && asksQuestion && !newCriteria && !/\bcompare\b/i.test(text)) {

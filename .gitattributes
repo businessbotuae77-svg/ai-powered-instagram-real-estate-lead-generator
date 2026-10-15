@@ -1,0 +1,2 @@
+# Preserve existing line endings (mixed CRLF/LF in some files)
+* -text
