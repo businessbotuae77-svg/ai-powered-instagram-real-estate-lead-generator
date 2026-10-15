@@ -82,11 +82,12 @@ function checkedRows(rows, quarterly) {
       if (!Number.isFinite(row[field]) || row[field] < 0 || (["Sales", "Cheapest rank"].includes(field) && (!Number.isSafeInteger(row[field]) || row[field] < 1))) throw new Error("Invalid market row number");
     }
     if (quarterly && !/^\d{4}-Q[1-4]$/.test(row.Quarter)) throw new Error("Invalid market quarter");
-    if (!quarterly && !["Last 3 months", "Last 12 months", "Last 2 years", "Last 3 years", "All data"].includes(row.Period)) throw new Error("Invalid market period");
+    if (!quarterly && !["This year", "Last 3 months", "Last 12 months", "Last 2 years", "Last 3 years", "All data"].includes(row.Period)) throw new Error("Invalid market period");
     for (const field of ["First sale", "Last sale", ...(!quarterly ? ["Data up to"] : [])]) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(row[field]) || !Number.isFinite(Date.parse(row[field])) || new Date(row[field]).toISOString().slice(0, 10) !== row[field]) throw new Error("Invalid market row date");
     }
     if (row["First sale"] > row["Last sale"] || (!quarterly && row["Last sale"] > row["Data up to"])) throw new Error("Invalid market row dates");
+    if (!quarterly && row.Period === "This year" && row["First sale"] < `${row["Data up to"].slice(0, 4)}-01-01`) throw new Error("Invalid current-year market row dates");
     return Object.freeze(row);
   }));
 }
@@ -123,10 +124,16 @@ export function createMarketPrices({ periodRows = [], quarterRows = [], report =
   }
   if (dates[0] && lastSale > dates[0]) throw new Error("Mixed market table versions");
   const places = Object.freeze([...placeMap.values()].map(Object.freeze));
+  const dataUpTo = dates[0] || lastSale;
+  const yearRows = periods.filter(row => row.Period === "This year");
   const coverage = Object.freeze({ available: Boolean(periods.length || quarters.length), projectCount: new Set(places.filter(place => place.level === "Project").map(place => place.project)).size,
     districtCount: new Set(places.filter(place => place.level === "District").map(place => place.area)).size,
-    periodRows: periods.length, quarterRows: quarters.length, dataUpTo: dates[0] || lastSale, firstSale,
-    sourceSales: report.sourceSales ?? null, salesUsed: report.salesUsed ?? null });
+    periodRows: periods.length, quarterRows: quarters.length, dataUpTo, firstSale,
+    sourceSales: report.sourceSales ?? null, salesUsed: report.salesUsed ?? null,
+    currentYear: dataUpTo ? Number(dataUpTo.slice(0, 4)) : null, currentYearStart: dataUpTo ? `${dataUpTo.slice(0, 4)}-01-01` : null,
+    currentYearRows: yearRows.length, currentYearSales: report.currentYearSales ?? null,
+    currentYearProjectCount: new Set(yearRows.filter(row => row.Level === "Project" && !PLACEHOLDERS.has(normalize(row.Project))).map(row => row.Project)).size,
+    currentYearDistrictCount: new Set(yearRows.filter(row => row.Level === "District").map(row => row.Area)).size });
   const data = Object.freeze({ periods, quarters, periodRows: periods, quarterRows: quarters, places, coverage,
     source: Object.freeze({ origin: "Bundled precomputed market tables", dataUpTo: coverage.dataUpTo, commercialUse: false }) });
   internals.set(data, { periods: makeIndex(periods, "Period"), quarters: makeIndex(quarters, "Quarter"),
@@ -147,7 +154,8 @@ export function loadMarketPrices(directory = DEFAULT_DIRECTORY) {
     try { report = readFileSync(path.join(resolved, "build_report.txt"), "utf8"); } catch { /* Optional provenance counts. */ }
     data = createMarketPrices({ periodRows, quarterRows, report: {
       sourceSales: Number(report.match(/^Source rows: (\d+)$/m)?.[1]) || null,
-      salesUsed: Number(report.match(/^Sales used in the tables: (\d+)$/m)?.[1]) || null
+      salesUsed: Number(report.match(/^Sales used in the tables: (\d+)$/m)?.[1]) || null,
+      currentYearSales: Number(report.match(/^Sales used this year: (\d+)$/m)?.[1]) || null
     } });
   } catch {
     data = createMarketPrices();

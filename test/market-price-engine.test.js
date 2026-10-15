@@ -8,36 +8,59 @@ test("market averages reach a checked buyer reply without becoming an offer", as
   const { last } = await talk(["What is the average price of 2 bedroom apartments in Reem?"]);
   assert.equal(last.stage, "market_prices", last.reply);
   assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
-  assert.match(last.reply, /2,410,000/);
-  assert.match(last.reply, /2,295,017/);
-  assert.match(last.reply, /Last 12 months/i);
-  assert.match(last.reply, /2,579|2579/);
+  assert.match(last.reply, /1,658/);
+  assert.match(last.reply, /average AED 1,658\/sqft/);
+  assert.match(last.reply, /2026 year-to-date average/i);
+  assert.match(last.reply, /2,044|2044/);
   assert.match(last.reply, /2026-10-14/);
+  assert.doesNotMatch(last.reply, /historical|past sales|Last 12 months|2,295,017/i);
+  assert.doesNotMatch(last.reply, /per sale|per unit|median|2,386,525|2,465,000/i);
   assert.equal(last.matchCount, 0);
   assert.equal(last.packs.length, 0);
   assert.equal(last.turnOutcome, "info_provided");
   assert.equal(last.followUpSubmitted, false);
   const allowedClaims = thesisClaims(last.investmentTheses);
-  assert.equal(validateMessage(last.reply.replace("2,410,000", "9,999,999"), [], { allowedClaims }).ok, false,
+  assert.equal(validateMessage(last.reply.replace("1,658", "9,999"), [], { allowedClaims }).ok, false,
     "a changed figure must lose its exact sourced evidence");
-  assert.equal(validateMessage("Book this home for AED 2,410,000.", [], { allowedClaims }).ok, false,
-    "historical evidence must not authorize an unrelated current quote");
+  assert.equal(validateMessage("Book this home for AED 1,658.", [], { allowedClaims }).ok, false,
+    "market average evidence must not authorize an unrelated unit quote");
 });
 
-test("Arabic market questions keep their scoped recorded figures", async () => {
-  const { last } = await talk(["كم متوسط سعر شقة غرفتين في الريم خلال آخر 12 شهر؟"]);
+test("Arabic market questions give this year's average", async () => {
+  const { last } = await talk(["كم متوسط سعر شقة غرفتين في الريم هذا العام؟"]);
   assert.equal(last.stage, "market_prices", last.reply);
   assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
-  assert.match(last.reply, /2,410,000/);
-  assert.match(last.reply, /وسيط/);
-  assert.match(last.reply, /2,579|2579/);
+  assert.match(last.reply, /1,658/);
+  assert.match(last.reply, /متوسط/);
+  assert.match(last.reply, /2,044|2044/);
   assert.equal(last.callRequestSubmitted, false);
+});
+
+test("an explicit last-three-month question gives average AED per sqft for that window", async () => {
+  const { last } = await talk(["Average price per sqft for 2 bedroom apartments in Reem over the last 3 months?"]);
+  assert.equal(last.stage, "market_prices", last.reply);
+  assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
+  assert.match(last.reply, /Last 3 months average/);
+  assert.match(last.reply, /average AED 1,669\/sqft/);
+  assert.match(last.reply, /410 sales/);
+  assert.match(last.reply, /2026-07-15 to 2026-10-14/);
+  assert.doesNotMatch(last.reply, /historical|per sale|per unit|median|1,658\/sqft/i);
+});
+
+test("Arabic square-foot wording cannot turn a three-month request into a quarter", async () => {
+  const { last } = await talk(["كم متوسط سعر القدم المربع لشقة غرفتين في الريم خلال آخر 3 أشهر؟"]);
+  assert.equal(last.stage, "market_prices", last.reply);
+  assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
+  assert.match(last.reply, /آخر 3 أشهر/);
+  assert.match(last.reply, /1,669\/قدم²/);
+  assert.match(last.reply, /410 مبيعة/);
+  assert.doesNotMatch(last.reply, /2026-Q|الربع سنوي|تاريخي|لل وحدة/);
 });
 
 test("explicit market scope wins over a previously recommended listing", async () => {
   const { last } = await talk(["Budget 2M, 2 bedrooms in Yas", "Average price for 2 bedroom apartments in Reem?"]);
   assert.equal(last.stage, "market_prices", last.reply);
-  assert.match(last.reply, /2,410,000/);
+  assert.match(last.reply, /1,658/);
   assert.doesNotMatch(last.reply, /starting from|On booking|During construction/i);
   assert.equal(last.matchCount, 0);
   assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
@@ -74,7 +97,7 @@ test("market queries preserve stop and contact controls", async () => {
   }
 });
 
-test("Reserve inside a recorded project name cannot accept a handoff", async () => {
+test("Reserve inside a project name cannot accept a handoff", async () => {
   const { engine } = await setupConversation();
   engine.memory.setPendingOffer("project-name", { type: "handoff_offer", reason: "buying" });
   const last = await engine.handleMessage("project-name", "Average villa price in Saadiyat Reserve - The Dunes?");
@@ -98,7 +121,7 @@ test("unavailable market tables have a safe response", async () => {
 });
 
 test("unknown places and unsupported scopes stay safe through full reply validation", async () => {
-  for (const message of ["Average apartment price in Dubai?", "Average apartment prices in Reem this year?", "Average 1 or 2 bedroom apartment prices in Reem?"]) {
+  for (const message of ["Average apartment price in Dubai?", "Average apartment prices in Reem this month?", "Average 1 or 2 bedroom apartment prices in Reem?"]) {
     const { last } = await talk([message]);
     assert.equal(last.stage, "market_prices", last.reply);
     assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));

@@ -6,6 +6,18 @@ import { buildFactPack } from "../src/facts/retrieval.js";
 
 // Every price, amount, date or availability a buyer reads comes from the data.
 
+test("plain current-year averages require exact typed source evidence", () => {
+  const text = "2026 year-to-date average: AED 1,658/sqft across 2,044 sales. Data through 2026-10-14.";
+  const evidence = { field: "marketPriceEvidence", value: text, evidenceClass: "CALCULATION",
+    source: "https://adrec.gov.ae/en/market-data", recordId: "market-prices:2026-10-14:period:reem-2br",
+    verifiedAt: "2026-10-14", scope: { basis: "precomputed_market_prices", table: "period_prices.csv", rowKeys: ["This year | District | Al Reem Island | All projects | Apartment | 2 BR | All"] } };
+  assert.equal(validateMessage(text, [], { allowedClaims: [evidence] }).ok, true);
+  assert.equal(validateMessage(text.replace("1,658", "9,999"), [], { allowedClaims: [evidence] }).ok, false);
+  assert.equal(validateMessage(text, [], { allowedClaims: [{ ...evidence, scope: { ...evidence.scope, basis: "unverified" } }] }).ok, false);
+  assert.equal(validateMessage(text, [], { allowedClaims: [{ ...evidence, source: "https://example.com" }] }).ok, false);
+  assert.equal(validateMessage("This home is available now for AED 1,658.", [], { allowedClaims: [evidence] }).ok, false);
+});
+
 test("a shortlist quotes only confirmed figures and passes the fact check", async () => {
   const { last } = await talk(["Budget 2M, 2 bedroom in Yas"]);
   assert.equal(last.stage, "matched");

@@ -541,7 +541,7 @@ export class ConversationEngine {
       pendingOffer: pendingAtStart, lastAskedField, intents }) : null;
     let draft = conciergeDraft || (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
       askedFields, pendingOffer: pendingAtStart });
-    // Historical statistics answer explicit market questions before listing advice.
+    // Market averages answer explicit price questions before listing advice.
     // Permission changes and handoffs retain priority over informational answers.
     if (!contact && !serviceDraft && !buyer.salesPathStopped && !intents.includes("start_fresh") &&
         !["paused", "permissions_updated", "welcome_back", "handoff_declined"].includes(draft?.stage)) {

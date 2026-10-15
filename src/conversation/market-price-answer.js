@@ -1,9 +1,10 @@
 import { loadMarketPrices, marketPriceRows, marketQuarterRows, marketPlacesInMessage, exactMarketPlaces, marketPriceCoverage, findMarketPlaces, cheapestMarketAreas } from "../facts/market-prices.js";
 
 const SOURCE = "https://adrec.gov.ae/en/market-data";
+export const DEFAULT_MARKET_PRICE_PERIOD = "This year";
 const STATISTIC = /\b(?:averages?|avg|median)\b|متوسط/i;
 const MARKET_PRICE = /\b(?:market|historical|historic|recorded|transaction|sold)\s+(?:\w+\s+){0,2}(?:prices?|pricing|sales|transactions?)\b|\b(?:price|aed)\s*(?:per|\/)\s*(?:sq\.?\s*ft|sqft|square\s*(?:foot|feet))\b|\b(?:psf|ppsf)\b|أسعار السوق|اسعار السوق|سعر السوق|مبيعات مسجلة|المبيعات المسجلة|أسعار تاريخية|اسعار تاريخية|سعر القدم|للقدم|لكل قدم/i;
-const TRENDS = /\b(?:trends?|quarterly|quarters?|q[1-4])\b|\bprices?\b.{0,45}\b(?:move[ds]?|chang(?:e[ds]?|ing)|evolv(?:e[ds]?|ing)|rise|risen|fell|fallen|growth|history)\b|\b(?:move[ds]?|chang(?:e[ds]?|ing)|rise|risen|fell|fallen)\b.{0,40}\bprices?\b|اتجاه.*(?:سعر|أسعار|اسعار)|تغير.*(?:سعر|أسعار|اسعار)|تطور.*(?:سعر|أسعار|اسعار)|(?:سعر|أسعار|اسعار).*تغير|ربع|أرباع|ارباع/i;
+const TRENDS = /\b(?:trends?|quarterly|quarters?|q[1-4])\b|\bprices?\b.{0,45}\b(?:move[ds]?|chang(?:e[ds]?|ing)|evolv(?:e[ds]?|ing)|rise|risen|fell|fallen|growth|history)\b|\b(?:move[ds]?|chang(?:e[ds]?|ing)|rise|risen|fell|fallen)\b.{0,40}\bprices?\b|اتجاه.*(?:سعر|أسعار|اسعار)|تغير.*(?:سعر|أسعار|اسعار)|تطور.*(?:سعر|أسعار|اسعار)|(?:سعر|أسعار|اسعار).*تغير|(?:^|[^\p{L}\p{N}])(?:و|ب|ل)?(?:الربع|ربع|الأرباع|الارباع|أرباع|ارباع)(?=$|[^\p{L}\p{N}])/iu;
 const CHEAPEST_AREAS = /\b(?:cheapest|lowest[- ]priced|most affordable)\b.{0,45}\b(?:areas?|districts?|neighbou?rhoods?)\b|\b(?:areas?|districts?|neighbou?rhoods?)\b.{0,45}\b(?:cheapest|lowest[- ]priced|most affordable)\b|(?:أرخص|ارخص|الأرخص|الارخص).{0,30}(?:مناطق|أحياء|احياء)|(?:مناطق|أحياء|احياء).{0,30}(?:أرخص|ارخص|الأرخص|الارخص)/i;
 const COMPARISON = /\b(?:compare|comparison|versus|vs\.?)\b|\bbetween\b|قارن|مقارن|بين|مقابل/i;
 const PRIVATE_OR_CONTACT = /\b(?:unsubscribe|privacy|delete my|erase my|forget (?:me|my)|stop (?:messaging|contacting|calling)|do not (?:message|contact|call)|don'?t (?:message|contact|call)|call me|contact me|whatsapp me|text me|message me|request a call|reserve|book a viewing)\b|اتصل|اتصلي|تواصل معي|كلمني على|واتساب|احذف|خصوصي|لا تتصل|لا تراسل|وقف الرسائل|أوقف الرسائل|حجز|معاينة/i;
@@ -19,7 +20,7 @@ const TYPES = [
   ["Retail", /\bretail\b|\bshops?\b|محلات|محل تجاري|تجزئة/i]
 ];
 const TYPE_AR = { Apartment: "شقق", Villa: "فلل", Townhouse: "تاونهاوس", Duplex: "دوبلكس", Penthouse: "بنتهاوس", "Villa plot": "أرض فيلا", Office: "مكاتب", Retail: "محلات" };
-const PERIOD_AR = { "Last 3 months": "آخر 3 أشهر", "Last 12 months": "آخر 12 شهراً", "Last 2 years": "آخر سنتين", "Last 3 years": "آخر 3 سنوات", "All data": "كل البيانات" };
+const PERIOD_AR = { "This year": "منذ بداية السنة", "Last 3 months": "آخر 3 أشهر", "Last 12 months": "آخر 12 شهراً", "Last 2 years": "آخر سنتين", "Last 3 years": "آخر 3 سنوات", "All data": "كل البيانات" };
 const digits = text => String(text || "").replace(/[٠-٩۰-۹]/g, value => "٠١٢٣٤٥٦٧٨٩".includes(value) ? String("٠١٢٣٤٥٦٧٨٩".indexOf(value)) : String("۰۱۲۳۴۵۶۷۸۹".indexOf(value)));
 const number = value => Number(value).toLocaleString("en-US");
 const money = value => `AED ${number(value)}`;
@@ -37,12 +38,13 @@ function maskPlaceNames(message, places) {
   return { text, names };
 }
 
-function periodFilter(message) {
+function periodFilter(message, currentYear) {
   if (/\ball (?:data|time|history)\b|\bsince (?:the beginning|2019)\b|كل البيانات|جميع البيانات|كامل البيانات|منذ البداية/i.test(message)) return "All data";
   if (/\b(?:last|past|previous)\s+(?:3|three)\s+months?\b|(?:آخر|اخر|خلال)\s*3\s*(?:أشهر|اشهر|شهور)/i.test(message)) return "Last 3 months";
   if (/\b(?:last|past|previous)\s+(?:2|two)\s+years?\b|(?:آخر|اخر|خلال)\s*(?:سنتين|عامين|2\s*(?:سنة|سنوات|عام|أعوام|اعوام))/i.test(message)) return "Last 2 years";
   if (/\b(?:last|past|previous)\s+(?:3|three)\s+years?\b|(?:آخر|اخر|خلال)\s*3\s*(?:سنوات|أعوام|اعوام)/i.test(message)) return "Last 3 years";
-  if (/\b(?:last|past|previous)\s+(?:12|twelve)\s+months?\b|\b(?:last|past|previous)\s+(?:one\s+|1\s+)?year\b|(?:آخر|اخر|خلال)\s*12\s*(?:شهر|شهراً|أشهر|اشهر)|(?:آخر|اخر)\s*(?:سنة|عام)|السنة الماضية|العام الماضي/i.test(message)) return "Last 12 months";
+  if (/\b(?:last|past|previous)\s+(?:12|twelve)\s+months?\b|(?:آخر|اخر|خلال)\s*12\s*(?:شهر|شهراً|أشهر|اشهر)/i.test(message)) return "Last 12 months";
+  if (/\b(?:this|current)\s+(?:calendar\s+)?year\b|\byear[ -]+to[ -]+date\b|\bytd\b|هذا العام|هذه السنة|العام الحالي|السنة الحالية|للعام الحالي|للسنة الحالية|منذ بداية العام|منذ بداية السنة/i.test(message) || new RegExp(`\\b${currentYear}\\b`).test(message)) return "This year";
   return null;
 }
 
@@ -76,10 +78,14 @@ function homeFilters(message) {
   return { type: types[0] || "Apartment", bedrooms: /\bnot stated\b|غير مذكور/i.test(message) ? "Not stated" : uniqueBeds[0] || "All", saleType: offplan && !ready ? "Off-plan" : ready && !offplan ? "Ready" : "All" };
 }
 
-function scopeText(filters, ar, quarterly = false) {
+function scopeText(filters, ar, { quarterly = false, currentYear, statistic = "average" } = {}) {
   const bed = ar ? ({ All: "كل أعداد الغرف", Studio: "استوديو", "1 BR": "غرفة نوم واحدة", "2 BR": "غرفتان", "3 BR": "3 غرف نوم", "4 BR": "4 غرف نوم", "5+ BR": "5 غرف فأكثر", "Not stated": "غرف غير مذكورة" })[filters.bedrooms] : filters.bedrooms === "All" ? "All bedrooms" : filters.bedrooms;
   const sale = filters.saleType === "All" ? (ar ? "كل أنواع البيع" : "All sale types") : filters.saleType === "Ready" ? (ar ? "جاهز" : "Ready") : (ar ? "على الخارطة" : "Off-plan");
-  return [quarterly ? (ar ? "ربع سنوي" : "Quarterly") : (ar ? PERIOD_AR[filters.period] : filters.period), ar ? TYPE_AR[filters.type] : filters.type, bed, sale].join("; ");
+  const label = statistic === "median" ? (ar ? "وسيط الأسعار" : "median") : statistic === "both" ? (ar ? "متوسط ووسيط الأسعار" : "average and median") : (ar ? "متوسط الأسعار" : "average");
+  const period = quarterly ? (ar ? `${label} الربع سنوي` : `Quarterly ${label}`) : filters.period === "This year"
+    ? (ar ? `${label} لعام ${currentYear} منذ بداية السنة` : `${currentYear} year-to-date ${label}`)
+    : (ar ? `${label} — ${PERIOD_AR[filters.period]}` : `${filters.period} ${label}`);
+  return `${period} — ${[ar ? TYPE_AR[filters.type] : filters.type, bed, sale].join("; ")}`;
 }
 
 function placeLabel(place, ar) {
@@ -89,7 +95,7 @@ function placeLabel(place, ar) {
 
 function placeFilters(place) { return { level: place.level, area: place.area, project: place.project }; }
 
-function rowText(row, ar, { quarter = false, ranked = false } = {}) {
+function rowText(row, ar, { quarter = false, ranked = false, statistic = "average", includeTotal = false } = {}) {
   const place = { level: row.Level, area: row.Area, project: row.Project, name: row.Level === "Project" ? row.Project : row.Area };
   const prefix = `${ranked ? `${row["Cheapest rank"]}. ` : ""}${placeLabel(place, ar)}${quarter ? ` — ${row.Quarter}` : ""}`;
   const sales = ar ? `${number(row.Sales)} مبيعة` : `${number(row.Sales)} sales`;
@@ -98,23 +104,25 @@ function rowText(row, ar, { quarter = false, ranked = false } = {}) {
   if (row.Reliability === "Low sample") return ar
     ? `${prefix}: عدد المبيعات قليل لعرض رقم موثوق (Low sample)؛ ${sales}، ${dates}${partial}.`
     : `${prefix}: too few sales for a reliable figure (Low sample); ${sales}, ${dates}${partial}.`;
-  const median = `${money(row["Median price AED"])}${ar ? " للمبيعة" : " per sale"}, ${money(row["Median AED per sqft"])}${ar ? "/قدم²" : "/sqft"}`;
-  const average = `${money(row["Avg price AED"])}${ar ? " للمبيعة" : " per sale"}, ${money(row["Avg AED per sqft"])}${ar ? "/قدم²" : "/sqft"}`;
-  return ar ? `${prefix}: الوسيط ${median}؛ المتوسط ${average}؛ ${sales}، ${dates}${partial}.`
-    : `${prefix}: median ${median}; average ${average}; ${sales}, ${dates}${partial}.`;
+  const median = `${money(row["Median AED per sqft"])}${ar ? "/قدم²" : "/sqft"}${includeTotal ? `, ${money(row["Median price AED"])}${ar ? " للوحدة" : " per unit"}` : ""}`;
+  const average = `${money(row["Avg AED per sqft"])}${ar ? "/قدم²" : "/sqft"}${includeTotal ? `, ${money(row["Avg price AED"])}${ar ? " للوحدة" : " per unit"}` : ""}`;
+  const figures = statistic === "median" ? (ar ? `الوسيط ${median}` : `median ${median}`) : statistic === "both"
+    ? (ar ? `المتوسط ${average}؛ الوسيط ${median}` : `average ${average}; median ${median}`) : (ar ? `المتوسط ${average}` : `average ${average}`);
+  return `${prefix}: ${figures}; ${sales}, ${dates}${partial}.`;
 }
 
 function evidenceDraft(lines, data, { filters = {}, places = [], rows = [], mode = "period", ...details } = {}, ar = false) {
   const coverage = marketPriceCoverage(data);
-  const footer = ar ? `البيانات حتى ${coverage.dataUpTo}. مبيعات تاريخية مسجلة.\nRecorded sales source: ADREC — ${SOURCE}`
-    : `Data up to ${coverage.dataUpTo}. Historical recorded sales.\nSource: ADREC — ${SOURCE}`;
+  const footer = ar ? `البيانات حتى ${coverage.dataUpTo}.\nالمصدر: ADREC — ${SOURCE}`
+    : `Data through ${coverage.dataUpTo}.\nSource: ADREC — ${SOURCE}`;
   const text = [...lines, footer].filter(Boolean).join("\n");
-  const evidence = { field: "investmentEvidence", value: text, source: SOURCE,
+  const evidence = { field: "marketPriceEvidence", value: text, source: SOURCE,
     sourceRecordId: `market-prices:${coverage.dataUpTo}:${mode}:${rows.map(row => row.Key).join("||") || JSON.stringify(filters)}`,
-    verifiedOn: coverage.dataUpTo, scope: { basis: "precomputed_historical_sales", table: mode === "quarter" ? "quarterly_prices.csv" : "period_prices.csv", filters, rowKeys: rows.map(row => row.Key), places },
+    verifiedOn: coverage.dataUpTo, scope: { basis: "precomputed_market_prices", table: mode === "quarter" ? "quarterly_prices.csv" : "period_prices.csv", filters, rowKeys: rows.map(row => row.Key), places, dataUpTo: coverage.dataUpTo,
+      ...(filters.period === "This year" ? { periodYear: Number(coverage.dataUpTo.slice(0, 4)), periodStart: `${coverage.dataUpTo.slice(0, 4)}-01-01` } : {}) },
     evidenceClass: "CALCULATION", usable: true, commercialQuote: false, confidence: rows.some(row => row.Reliability === "Low sample") ? "Low" : "Medium" };
   return { text, stage: "market_prices", nextQuestion: null, pendingOffer: null, callRequest: null,
-    suppressCommercial: true, factPacks: [], investmentTheses: [{ projectId: "historical-market-prices", evidenceRegistry: [evidence] }],
+    suppressCommercial: true, factPacks: [], investmentTheses: [{ projectId: "market-prices", evidenceRegistry: [evidence] }],
     marketPrices: { mode, filters, places, rows, dataUpTo: coverage.dataUpTo, ...details } };
 }
 
@@ -133,13 +141,16 @@ function locationQueries(message, names = new Map()) {
   if (!queries.length) queries.push(message);
   return queries.map(query => query
     .replace(/\b(?:last|past|previous)\s+(?:\d+|one|two|three|four|five|six|twelve)\s+(?:months?|years?|quarters?)\b/gi, " ")
+    .replace(/\byear[ -]+to[ -]+date\b|\bytd\b|\b(?:this|current)\s+calendar\s+year\b|\b(?:calendar\s+)?year\s+20\d{2}\b/gi, " ")
     .replace(/\b(?:last|past|this|current|previous|latest)\s+(?:month|year|quarter)\b|\ball\s+(?:data|time|history|bedrooms?|sale types)\b|\bsince\s+(?:the beginning|2019)\b/gi, " ")
     .replace(/(?:آخر|اخر|خلال)\s*(?:\d+\s*(?:أشهر|اشهر|شهور|شهراً|شهرا|شهر|سنوات|سنة|أعوام|اعوام|عام)|سنتين|عامين|سنة|عام)|(?:هذا|هذه)\s*(?:العام|السنة|الشهر)|كل البيانات|جميع البيانات|كل أعداد الغرف|جميع الغرف|كل أنواع البيع/g, " ")
+    .replace(/منذ بداية (?:العام|السنة)|(?:للعام|للسنة|لعام|لسنة|العام|السنة|عام|سنة)\s*(?:الحالي|الحالية|20\d{2})/g, " ")
+    .replace(/السنة الماضية|العام الماضي/g, " ")
     .replace(/\b\d+\s*\+?\s*(?:[- ]?bed(?:room)?s?|br|bhk)\b|\d+\s*\+?\s*(?:غرف(?:ة|ه)?(?: نوم)?)/gi, " ")
     .replace(/\b20\d{2}\s*[-/]?\s*q[1-4]\b|\bq[1-4](?:\s*[-/,]?\s*20\d{2})?\b|\b20\d{2}\b/gi, " ")
-    .replace(/\b(?:what|which|where|when|why|how|are|is|was|were|do|did|does|the|a|an|me|tell|please|show|give|can|could|would|you|i|we|want|know|about|look|like|compare|comparison|average|avg|median|mean|market|historical|historic|recorded|prices?|pricing|costs?|sales?|transactions?|in|at|within|for|of|on|over|during|with|by|and|or|from|to|per|sqft|sq|ft|square|foot|feet|aed|psf|ppsf|property|properties|homes?|units?|apartments?|flats?|villas?|plots?|land|townhouses?|townhomes?|duplex(?:es)?|penthouses?|offices?|retail|shops?|bedrooms?|beds?|br|ready|off[- ]?plan|studio|zero|one|two|three|four|five|six|quarterly|quarters?|trends?|have|has|changed|changing|moved|move|evolved|rise|risen|fell|fallen|now|today|recently|cheapest|lowest|priced|most|affordable|areas?|districts?|neighbou?rhoods?)\b/gi, " ")
+    .replace(/\b(?:what|which|where|when|why|how|are|is|was|were|do|did|does|the|a|an|me|tell|please|show|give|can|could|would|you|i|we|want|know|about|look|like|compare|comparison|average|avg|median|mean|market|historical|historic|recorded|prices?|pricing|costs?|sales?|transactions?|in|at|within|for|of|on|over|during|with|by|and|or|from|to|per|sqft|sq|ft|square|foot|feet|aed|psf|ppsf|total|whole|property|properties|homes?|units?|apartments?|flats?|villas?|plots?|land|townhouses?|townhomes?|duplex(?:es)?|penthouses?|offices?|retail|shops?|bedrooms?|beds?|br|ready|off[- ]?plan|studio|zero|one|two|three|four|five|six|quarterly|quarters?|trends?|have|has|changed|changing|moved|move|evolved|rise|risen|fell|fallen|now|today|recently|cheapest|lowest|priced|most|affordable|areas?|districts?|neighbou?rhoods?)\b/gi, " ")
     .replace(/ما هي|ما هو|ماهي|ماهو|كيف|هل|أريد|اريد|أعطني|اعطني|عطني|من فضلك|متوسط|وسيط|أسعار|اسعار|السعر|سعر|مقارنة|قارن|المبيعات|مبيعات|شقق|شقة|فلل|فيلا|غرفتين|غرف نوم|غرفة|الربع|الأول|الاول|الثاني|الثالث|الرابع|السوق|تغيرت|في|خلال|لآخر|لاخر|على الخارطة|الجاهزة|جاهزة|أرخص|ارخص|مناطق|أحياء|احياء/g, " ")
-    .replace(/(?:^|\s)(?:ما|كم|شو|وش|ال|للقدم|المربع|قدم|المربعة|تطور|اتجاه|تغير)(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)(?:ما|كم|شو|وش|ال|للقدم|المربع|قدم|المربعة|تطور|اتجاه|تغير|الوحدة|الإجمالي|الاجمالي|إجمالي|اجمالي|بالكامل)(?=\s|$)/g, " ")
     .replace(/^[?؟!.,;:()\-–—/\s]+|[?؟!.,;:()\-–—/\s]+$/g, "").replace(/\s+/g, " ").trim())
     .map(query => { for (const [token, name] of names) query = query.replaceAll(token, name); return query; })
     .filter(query => query && !/^(?:all|emirate|الكل|الإمارة|الامارة|البيانات|الأشهر|اشهر|شهور|سنة|سنوات|\d+)$/i.test(query));
@@ -173,7 +184,7 @@ function quarterQueries(message) {
 
 function noSales(place, ar, quarter = null) {
   const label = `${placeLabel(place, ar)}${quarter ? ` — ${quarter}` : ""}`;
-  return ar ? `${label}: لا توجد مبيعات مسجلة لهذا المزيج من المرشحات.` : `${label}: no recorded sales for this combination of filters.`;
+  return ar ? `${label}: لا توجد مبيعات لهذا المزيج من المرشحات.` : `${label}: no sales for this combination of filters.`;
 }
 
 /** This predicate also keeps a research scope out of the buyer's search preferences. */
@@ -188,16 +199,19 @@ export function isMarketPriceQuestion(message, data = loadMarketPrices()) {
     (statistic || MARKET_PRICE.test(masked) || CHEAPEST_AREAS.test(masked) || TRENDS.test(masked)));
 }
 
-/** Historical statistics are read from one exact precomputed scope, never quotes. */
-export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = loadMarketPrices() } = {}) {
+/** Statistics are read from one exact precomputed scope, never current listing quotes. */
+export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = loadMarketPrices(), currentYear = new Date().getUTCFullYear(), defaultPeriod = DEFAULT_MARKET_PRICE_PERIOD } = {}) {
   message = digits(message).trim();
   const ar = buyer.language === "ar", coverage = marketPriceCoverage(data);
   let places = marketPlacesInMessage(message, data);
   const masked = maskPlaceNames(message, places);
   const filterMessage = masked.text.replace(/PLACEIDENTITY\d+TOKEN/g, " ");
   const cheapest = CHEAPEST_AREAS.test(filterMessage), trend = TRENDS.test(filterMessage);
+  const asksMedian = /\bmedian\b|وسيط/i.test(filterMessage), asksAverage = /\b(?:averages?|avg|mean)\b|متوسط/i.test(filterMessage);
+  const statistic = asksMedian ? (asksAverage ? "both" : "median") : "average";
+  const includeTotal = /\b(?:total|unit|whole[- ]property)\s+(?:sale\s+|property\s+)?prices?\b|\bprices?\s+per\s+(?:unit|home|apartment|villa)\b|السعر الإجمالي|السعر الاجمالي|سعر الوحدة|إجمالي السعر|اجمالي السعر|سعر المنزل بالكامل|سعر العقار بالكامل/i.test(filterMessage);
   if (!isMarketPriceQuestion(message, data) || buyer.salesPathStopped) return null;
-  if (!coverage.available) return { text: ar ? "جداول الأسعار التاريخية غير متاحة حالياً، فلا أستطيع تأكيد متوسط أو وسيط مسجل لهذا النطاق." : "The historical price tables are unavailable right now, so I can't confirm a recorded average or median for this scope.",
+  if (!coverage.available) return { text: ar ? "أرقام متوسط الأسعار لهذه السنة غير متاحة حالياً لهذا النطاق." : "This year's average price figures are unavailable right now for this scope.",
     stage: "market_prices", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true, factPacks: [], investmentTheses: [], marketPrices: { unavailable: true } };
   const filters = homeFilters(filterMessage);
   if (filters.clarify) {
@@ -207,8 +221,15 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
           : (ar ? "الأرقام منفصلة حسب عدد الغرف. أعد سؤال السعر مع عدد غرف واحد." : "The figures are separate by bedroom count. Please repeat the price question with one bedroom scope.");
     return evidenceDraft([text], data, { filters, missingScope: true }, ar);
   }
-  const period = periodFilter(filterMessage);
-  filters.period = period || "Last 12 months";
+  const explicitYears = [...new Set(filterMessage.match(/\b20\d{2}\b/g) || [])].map(Number);
+  const sourceYear = Number(coverage.dataUpTo.slice(0, 4));
+  const currentYearWords = /\b(?:this|current)\s+(?:calendar\s+)?year\b|\byear[ -]+to[ -]+date\b|\bytd\b|هذا العام|هذه السنة|العام الحالي|السنة الحالية|منذ بداية العام|منذ بداية السنة/i.test(filterMessage);
+  const priceYear = explicitYears.length === 1 && !currentYearWords && explicitYears[0] === sourceYear ? sourceYear : Number(currentYear);
+  if (!trend && (explicitYears.length > 1 || (explicitYears.length && explicitYears[0] !== priceYear))) return evidenceDraft([
+    ar ? "أرقام السنة المطلوبة غير متاحة كمتوسط سنوي منفصل. أعد سؤال السعر مع هذه السنة أو فترة واحدة متاحة." : "A separate annual average is unavailable for the requested year. Please repeat the price question with This year or one available period."
+  ], data, { filters, missingScope: true }, ar);
+  const period = periodFilter(filterMessage, priceYear);
+  filters.period = period || defaultPeriod;
   const unknown = unknownLocation(message, places, data, catalog);
   if (unknown) {
     const matches = findMarketPlaces(unknown, data, { limit: 3 });
@@ -224,19 +245,23 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
     return evidenceDraft([ar ? `حدد المنطقة أو المشروع المقصود: ${names}.` : `Please choose the exact area or project scope: ${names}.`], data, { filters, places, missingScope: true }, ar);
   }
   const explicitQuarters = quarterQueries(filterMessage);
-  if (cheapest && trend) return evidenceDraft([ar ? "ترتيب أرخص المناطق متاح للفترات الجاهزة، وليس لكل ربع. أعد السؤال مع آخر 3 أشهر أو آخر 12 شهراً أو آخر سنتين أو آخر 3 سنوات أو كل البيانات." : "Cheapest-area ranks are available for the precomputed periods, without quarterly ranks. Please repeat the question with Last 3 months, Last 12 months, Last 2 years, Last 3 years or All data."], data, { filters, places, missingScope: true }, ar);
+  if (cheapest && trend) return evidenceDraft([ar ? "ترتيب أرخص المناطق متاح لهذه السنة أو للفترات الجاهزة، وليس لكل ربع. أعد السؤال مع هذه السنة أو آخر 3 أشهر أو آخر 12 شهراً أو آخر سنتين أو آخر 3 سنوات أو كل البيانات." : "Cheapest-area ranks are available for This year or the other precomputed periods, without quarterly ranks. Please repeat the question with This year, Last 3 months, Last 12 months, Last 2 years, Last 3 years or All data."], data, { filters, places, missingScope: true }, ar);
+  if (filters.period === "This year" && !explicitQuarters.length && sourceYear !== priceYear) return {
+    text: ar ? "أرقام متوسط الأسعار لهذه السنة غير متاحة في البيانات الحالية لهذا النطاق." : "This year's average price figures are unavailable in the current data for this scope.",
+    stage: "market_prices", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true, factPacks: [], investmentTheses: [], marketPrices: { unavailable: true, filters, currentYear } };
   if (trend) {
     const { period: unused, ...quarterFilters } = filters;
     if (!explicitQuarters.length && /\bq[1-4]\b|الربع\s*(?:الأول|الاول|الثاني|الثالث|الرابع|[1-4])/i.test(filterMessage) && !/\b(?:latest|last|this|current)\b|الأخير|الاخير|الحالي/i.test(filterMessage)) {
       return evidenceDraft([ar ? "أعد سؤال السعر مع سنة الربع المطلوب." : "Please include the calendar year with the requested quarter in the price question."], data, { mode: "quarter", filters: quarterFilters, places, missingScope: true }, ar);
     }
-    const rows = [], lines = [ar ? `المبيعات المسجلة — ${scopeText(filters, true, true)}.` : `Recorded sales — ${scopeText(filters, false, true)}.`];
+    const rows = [], lines = [`${scopeText(filters, ar, { quarterly: true, currentYear: priceYear, statistic })}.`];
     if (places.length > 1 && new Set(places.map(place => place.level)).size > 1) lines.push(ar ? "المقارنة تجمع مستوى منطقة مع مستوى مشروع؛ النطاقان مختلفان." : "This comparison mixes District and Project scopes; these are different geographic levels.");
     let quarters = explicitQuarters;
     if (!quarters.length) {
       let available = [...new Set(places.flatMap(place => marketQuarterRows(data, { ...quarterFilters, ...placeFilters(place) }).map(row => row.Quarter)))].sort();
       const years = [...new Set(filterMessage.match(/\b20\d{2}\b/g) || [])];
       if (years.length) available = available.filter(quarter => years.includes(quarter.slice(0, 4)));
+      else if (filters.period === "This year") available = available.filter(quarter => quarter.startsWith(`${priceYear}-`));
       const lastQuarter = /\b(?:last|previous)\s+quarter\b|الربع (?:الماضي|السابق)/i.test(filterMessage);
       const thisQuarter = /\b(?:this|current|latest)\s+quarter\b|الربع (?:الحالي|الأخير|الاخير)/i.test(filterMessage);
       if (lastQuarter) available = available.filter(quarter => marketQuarterRows(data, { quarter }).some(row => /^Complete/i.test(row["Quarter status"])));
@@ -246,25 +271,26 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
     }
     for (const quarter of quarters) for (const place of places) {
       const row = marketQuarterRows(data, { ...quarterFilters, ...placeFilters(place), quarter })[0];
-      if (row) { rows.push(row); lines.push(rowText(row, ar, { quarter: true })); }
+      if (row) { rows.push(row); lines.push(rowText(row, ar, { quarter: true, statistic, includeTotal })); }
       else lines.push(noSales(place, ar, quarter));
     }
     if (!quarters.length) for (const place of places) lines.push(noSales(place, ar));
     if (places.some(place => place.level === "Project") && quarterFilters.saleType !== "All") lines.push(ar ? "الجدول الربع سنوي للمشاريع متاح لكل أنواع البيع مجتمعة فقط." : "The quarterly project table is available for All sale types together only.");
     return evidenceDraft(lines, data, { mode: "quarter", filters: quarterFilters, places, rows, quarters }, ar);
   }
-  if (!period && /\b(?:last|past|previous)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\s+(?:months?|years?)\b|\b(?:this|current|last|previous)\s+month\b|\b(?:this|current)\s+year\b|\b20\d{2}\b|(?:هذا|هذه)\s*(?:العام|السنة|الشهر)|(?:آخر|اخر|خلال)\s*\d+\s*(?:شهر|أشهر|اشهر|شهور|سنة|سنوات)/i.test(filterMessage)) {
-    return evidenceDraft([ar ? "الفترات المتاحة: آخر 3 أشهر، آخر 12 شهراً، آخر سنتين، آخر 3 سنوات أو كل البيانات. أعد سؤال السعر مع إحدى هذه الفترات." : "The available periods are Last 3 months, Last 12 months, Last 2 years, Last 3 years or All data. Please repeat the price question with one of these periods."], data, { filters, places, missingScope: true }, ar);
+  if (!period && /\b(?:last|past|previous)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\s+(?:months?|years?)\b|\b(?:last|past|previous)\s+(?:calendar\s+)?year\b|\b(?:this|current|last|previous)\s+month\b|\b(?:this|current)\s+year\b|\b20\d{2}\b|السنة الماضية|العام الماضي|(?:هذا|هذه)\s*(?:العام|السنة|الشهر)|(?:آخر|اخر|خلال)\s*\d+\s*(?:شهر|أشهر|اشهر|شهور|سنة|سنوات)/i.test(filterMessage)) {
+    return evidenceDraft([ar ? "الفترات المتاحة: هذه السنة، آخر 3 أشهر، آخر 12 شهراً، آخر سنتين، آخر 3 سنوات أو كل البيانات. أعد سؤال السعر مع إحدى هذه الفترات." : "The available periods are This year, Last 3 months, Last 12 months, Last 2 years, Last 3 years or All data. Please repeat the price question with one of these periods."], data, { filters, places, missingScope: true }, ar);
   }
-  const lines = [ar ? `المبيعات المسجلة — ${scopeText(filters, true)}.` : `Recorded sales — ${scopeText(filters, false)}.`];
+  const lines = [`${scopeText(filters, ar, { currentYear: priceYear, statistic })}.`];
   if (cheapest) {
     if (places.some(place => place.level !== "Abu Dhabi")) return evidenceDraft([ar ? "ترتيب أرخص المناطق يقارن مناطق أبوظبي كاملة، ولا يقسم المنطقة إلى أحياء أصغر. لعرض هذا الترتيب، اذكر أرخص مناطق أبوظبي في سؤال السعر." : "The cheapest-area ranking compares districts across Abu Dhabi; it does not divide a district into smaller neighbourhoods. To use that ranking, ask for cheapest areas in Abu Dhabi."], data, { filters, places, missingScope: true }, ar);
     const count = message.match(/\b(?:cheapest|lowest[- ]priced|most affordable)\s+(\d+)\b|(?:أرخص|ارخص)\s*(\d+)/i);
     const limit = count ? Math.min(20, Math.max(1, Number(count[1] || count[2]))) : 5;
     const rows = cheapestMarketAreas(data, { ...filters, level: "District", project: "All projects" }, { limit });
-    lines.push(ar ? "أرخص المناطق حسب ترتيب وسيط السعر المسجل للقدم المربع:" : "Cheapest areas by the table's median AED/sqft rank:");
-    lines.push(...rows.map(row => rowText(row, ar, { ranked: true })));
-    if (!rows.length) lines.push(ar ? "لا توجد مبيعات مسجلة بعينة كافية لترتيب المناطق لهذا المزيج من المرشحات." : "No recorded sales with sufficient samples to rank areas for this combination of filters.");
+    const averageRank = filters.period === "This year";
+    lines.push(ar ? `أرخص المناطق حسب ترتيب ${averageRank ? "متوسط" : "وسيط"} السعر للقدم المربع:` : `Cheapest areas by the table's ${averageRank ? "average" : "median"} AED/sqft rank:`);
+    lines.push(...rows.map(row => rowText(row, ar, { ranked: true, statistic, includeTotal })));
+    if (!rows.length) lines.push(ar ? "لا توجد مبيعات بعينة كافية لترتيب المناطق لهذا المزيج من المرشحات." : "No sales with sufficient samples to rank areas for this combination of filters.");
     lines.push(ar ? "المناطق ذات المبيعات القليلة لا تدخل في الترتيب." : "Areas with too few sales are excluded from the ranking.");
     return evidenceDraft(lines, data, { mode: "cheapest", filters: { ...filters, level: "District" }, places: [], rows }, ar);
   }
@@ -275,7 +301,7 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
   const rows = [];
   for (const place of places) {
     const row = marketPriceRows(data, { ...filters, ...placeFilters(place) })[0];
-    if (row) { rows.push(row); lines.push(rowText(row, ar)); }
+    if (row) { rows.push(row); lines.push(rowText(row, ar, { statistic, includeTotal })); }
     else lines.push(noSales(place, ar));
   }
   return evidenceDraft(lines, data, { filters, places, rows }, ar);

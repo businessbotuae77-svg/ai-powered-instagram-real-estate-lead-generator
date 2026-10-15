@@ -159,14 +159,19 @@ export function validateMessage(message, packs, options = {}) {
   };
 }
 
-// Exact sourced research wording may contain prices or payment ratios. It is
-// permitted as a labelled observation, never as a quote or availability claim.
+// Exact application-created source wording keeps every figure within its
+// original scope. Market statistics carry typed provenance rather than a label.
 export function literalResearchClaims(message, allowedClaims = []) {
   const text = String(message);
-  return allowedClaims.filter(row => row.field === "investmentEvidence" &&
+  const isSourcedText = row => (row.field === "investmentEvidence" &&
+    /\b(?:research|recorded|observed|FACT|CALCULATION)\b/i.test(text)) ||
+    (row.field === "marketPriceEvidence" && row.source === "https://adrec.gov.ae/en/market-data" &&
+      String(row.recordId || "").startsWith("market-prices:") && row.scope?.basis === "precomputed_market_prices" &&
+      ["period_prices.csv", "quarterly_prices.csv"].includes(row.scope.table) && Array.isArray(row.scope.rowKeys));
+  return allowedClaims.filter(row => isSourcedText(row) &&
     ["FACT", "CALCULATION"].includes(row.evidenceClass) && row.source && row.recordId && row.scope &&
     Number.isFinite(Date.parse(row.verifiedAt || "")) && typeof row.value === "string" && row.value &&
-    text.includes(normalizeBuyerText(row.value)) && /\b(?:research|recorded|observed|FACT|CALCULATION)\b/i.test(text))
+    text.includes(normalizeBuyerText(row.value)))
     .map(row => {
       const value = normalizeBuyerText(row.value);
       const spans = [];

@@ -93,6 +93,7 @@ test("malformed or inconsistent rows fail closed and missing tables never expose
   assert.throws(() => createMarketPrices({ periodRows: [period({ Sales: "11oops" })] }), /number/);
   assert.throws(() => createMarketPrices({ periodRows: [period(), period()] }), /Duplicate/);
   assert.throws(() => createMarketPrices({ periodRows: [period({ "First sale": "2026-02-31" })] }), /date/);
+  assert.throws(() => createMarketPrices({ periodRows: [period({ Period: "This year", "First sale": "2025-12-31" })] }), /current-year/);
   assert.throws(() => createMarketPrices({ periodRows: [period(), period({ Area: "Other", "Data up to": "2026-10-15" })] }), /Mixed/);
   const directory = mkdtempSync(path.join(tmpdir(), "market-data-"));
   try {
@@ -108,11 +109,54 @@ test("malformed or inconsistent rows fail closed and missing tables never expose
 test("bundled market tables expose all named projects and exact imported scope once loaded", () => {
   const data = loadMarketPrices();
   assert.strictEqual(loadMarketPrices(), data);
-  assert.deepEqual(data.coverage, { available: true, projectCount: 348, districtCount: 100, periodRows: 26075, quarterRows: 40959,
-    dataUpTo: "2026-10-14", firstSale: "2019-01-02", sourceSales: 124526, salesUsed: 107157 });
+  assert.deepEqual(data.coverage, { available: true, projectCount: 348, districtCount: 100, periodRows: 30583, quarterRows: 40959,
+    dataUpTo: "2026-10-14", firstSale: "2019-01-02", sourceSales: 124526, salesUsed: 107157,
+    currentYear: 2026, currentYearStart: "2026-01-01", currentYearRows: 4508, currentYearSales: 22269, currentYearProjectCount: 328, currentYearDistrictCount: 72 });
   const rows = marketPriceRows(data, { period: "Last 12 months", level: "District", area: "Al Reem Island", type: "Apartment", bedrooms: "2 BR", saleType: "All" });
   assert.equal(rows.length, 1);
   assert.equal(rows[0]["Median AED per sqft"], 1697);
   assert.equal(rows[0]["Median price AED"], 2410000);
   assert.equal(rows[0].Sales, 2579);
+});
+
+test("this-year averages use calendar-year sales rather than rolling periods or quarter averages", () => {
+  const data = loadMarketPrices();
+  const yearRows = marketPriceRows(data, { period: "This year" });
+  assert.equal(yearRows.length, 4508);
+  assert.ok(yearRows.every(row => row["First sale"] >= "2026-01-01" && row["Last sale"] <= "2026-10-14"));
+  const filters = { period: "This year", level: "District", area: "Al Reem Island", type: "Apartment", bedrooms: "2 BR", saleType: "All" };
+  const [row] = marketPriceRows(data, filters);
+  assert.equal(row.Sales, 2044);
+  assert.equal(row["Avg price AED"], 2386525);
+  assert.equal(row["Median price AED"], 2465000);
+  assert.equal(row["Avg AED per sqft"], 1658);
+  // Averaging the rounded quarter means (1,583, 1,721, 1,640, 1,701) gives 1,661.
+  assert.notEqual(row["Avg AED per sqft"], 1661);
+  assert.equal(row["Median AED per sqft"], 1764);
+  assert.equal(row["First sale"], "2026-01-02");
+  // The unweighted mean of the four quarter means is 2,388,888, not the YTD average.
+  assert.notEqual(row["Avg price AED"], 2388888);
+  assert.notEqual(row["Avg price AED"], marketPriceRows(data, { ...filters, period: "Last 12 months" })[0]["Avg price AED"]);
+  assert.equal(marketPriceRows(data, { ...filters, saleType: "Off-plan" })[0]["Avg price AED"], 2600843);
+  assert.equal(marketPriceRows(data, { ...filters, saleType: "Ready" })[0]["Avg price AED"], 1750228);
+});
+
+test("this-year cheapest ranks follow average price per sqft while older periods retain median ranks", () => {
+  const data = loadMarketPrices();
+  for (const [periodName, metric] of [["This year", "Avg AED per sqft"], ["Last 12 months", "Median AED per sqft"]]) {
+    const groups = new Map();
+    for (const row of marketPriceRows(data, { period: periodName })) {
+      if (row.Reliability !== "OK") { assert.equal(row["Cheapest rank"], null); continue; }
+      const key = JSON.stringify([row.Level, row.Type, row.Bedrooms, row["Sale Type"]]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+    for (const rows of groups.values()) {
+      rows.sort((a, b) => a[metric] - b[metric]);
+      for (let index = 0; index < rows.length; index++) {
+        const rank = rows.findIndex(row => row[metric] === rows[index][metric]) + 1;
+        assert.equal(rows[index]["Cheapest rank"], rank, `${periodName}: ${rows[index].Key}`);
+      }
+    }
+  }
 });
