@@ -92,11 +92,14 @@ export function buildFactPack(match, options = {}) {
 export function buildProjectKnowledgePack(project) {
   const evidence = { source: project.source, recordId: project.id, scope: "project_knowledge", verifiedAt: project.lastVerified || null };
   Object.assign(evidence, { evidenceClass: "FACT", confidence: project.confidence || "Unrated" });
+  const fresh = approvedFresh(project);
   const pack = { projectId: project.id, unitId: null, knowledgeOnly: true };
   const values = { name: project.name, developer: project.developerName, emirate: project.emirate,
-    area: project.area, status: approvedFresh(project) ? project.status : null, description: project.description, features: project.features };
+    area: project.area, status: fresh ? project.status : null, description: project.description, features: project.features };
   for (const [key, value] of Object.entries(values)) pack[key] = field(value, evidence);
-  for (const key of ["bedrooms", "bedroomLabel", "propertyType", "sizeSqftFrom", "sizeSqftTo", "startingPriceAed", "startingPriceText", "downPaymentAed", "downPaymentText", "paymentPlanAvailable", "paymentPlanSummary", "handover", "availability", "availabilityNotes"]) pack[key] = field(null);
+  for (const key of ["bedrooms", "bedroomLabel", "propertyType", "sizeSqftFrom", "sizeSqftTo", "startingPriceAed", "startingPriceText", "downPaymentAed", "downPaymentText", "paymentPlanAvailable", "paymentPlanSummary", "availability", "availabilityNotes"]) pack[key] = field(null);
+  // A documented project date does not depend on a priced unit or establish stock.
+  pack.handover = field(fresh ? project.handover : null, { ...evidence, scope: "project_handover" });
   pack.source = field(project.source, evidence);
   pack.lastVerified = field(project.lastVerified, evidence);
   return pack;

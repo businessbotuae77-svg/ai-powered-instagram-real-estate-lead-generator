@@ -6,7 +6,7 @@ const STATISTIC = /\b(?:averages?|avg|median)\b|متوسط/i;
 const MARKET_PRICE = /\b(?:market|historical|historic|recorded|transaction|sold)\s+(?:\w+\s+){0,2}(?:prices?|pricing|sales|transactions?)\b|\b(?:price|aed)\s*(?:per|\/)\s*(?:sq\.?\s*ft|sqft|square\s*(?:foot|feet))\b|\b(?:psf|ppsf)\b|أسعار السوق|اسعار السوق|سعر السوق|مبيعات مسجلة|المبيعات المسجلة|أسعار تاريخية|اسعار تاريخية|سعر القدم|للقدم|لكل قدم/i;
 const TRENDS = /\b(?:trends?|quarterly|quarters?|q[1-4])\b|\bprices?\b.{0,45}\b(?:move[ds]?|chang(?:e[ds]?|ing)|evolv(?:e[ds]?|ing)|rise|risen|fell|fallen|growth|history)\b|\b(?:move[ds]?|chang(?:e[ds]?|ing)|rise|risen|fell|fallen)\b.{0,40}\bprices?\b|اتجاه.*(?:سعر|أسعار|اسعار)|تغير.*(?:سعر|أسعار|اسعار)|تطور.*(?:سعر|أسعار|اسعار)|(?:سعر|أسعار|اسعار).*تغير|(?:^|[^\p{L}\p{N}])(?:و|ب|ل)?(?:الربع|ربع|الأرباع|الارباع|أرباع|ارباع)(?=$|[^\p{L}\p{N}])/iu;
 const CHEAPEST_AREAS = /\b(?:cheapest|lowest[- ]priced|most affordable)\b.{0,45}\b(?:areas?|districts?|neighbou?rhoods?)\b|\b(?:areas?|districts?|neighbou?rhoods?)\b.{0,45}\b(?:cheapest|lowest[- ]priced|most affordable)\b|(?:أرخص|ارخص|الأرخص|الارخص).{0,30}(?:مناطق|أحياء|احياء)|(?:مناطق|أحياء|احياء).{0,30}(?:أرخص|ارخص|الأرخص|الارخص)/i;
-const COMPARISON = /\b(?:compare|comparison|versus|vs\.?)\b|\bbetween\b|قارن|مقارن|بين|مقابل/i;
+const COMPARISON = /\b(?:compare|comparison|versus|vs\.?|or)\b|\bbetween\b|قارن|مقارن|بين|مقابل|(?:^|\s)(?:أو|او)(?=\s|$)/i;
 const PRIVATE_OR_CONTACT = /\b(?:unsubscribe|privacy|delete my|erase my|forget (?:me|my)|stop (?:messaging|contacting|calling)|do not (?:message|contact|call)|don'?t (?:message|contact|call)|call me|contact me|whatsapp me|text me|message me|request a call|reserve|book a viewing)\b|اتصل|اتصلي|تواصل معي|كلمني على|واتساب|احذف|خصوصي|لا تتصل|لا تراسل|وقف الرسائل|أوقف الرسائل|حجز|معاينة/i;
 const OTHER_TERMS = /\b(?:payment\s*plans?|handover|availability|available|mortgage|rents?|rentals?|yields?|roi|deposit|reservation)\b|سداد|تسليم|متاح|متوفر|تمويل|إيجار|ايجار|عائد|عوائد|دفعة/i;
 const TYPES = [
@@ -78,6 +78,26 @@ function homeFilters(message) {
   return { type: types[0] || "Apartment", bedrooms: /\bnot stated\b|غير مذكور/i.test(message) ? "Not stated" : uniqueBeds[0] || "All", saleType: offplan && !ready ? "Off-plan" : ready && !offplan ? "Ready" : "All" };
 }
 
+function districtPriceComparison(message, places, comparisonContext = null) {
+  if (places.length !== 2 || places.some(place => place.level !== "District")) return false;
+  if (!COMPARISON.test(message) && !/\b(?:and|or)\b|(?:^|\s)(?:أو|او)(?=\s|$)/i.test(message)) return false;
+  if (/\b(?:listings?|recommend(?:ations?)?|options?|budget|under|below|find|buy(?:ing)?|show me|projects?)\b|رشح|اقترح|ابحث|ميزاني|مشاريع/i.test(message)) return false;
+  return Boolean(comparisonContext) || /\b(?:prices?|pricing|costs?|psf|ppsf)\b|\bhow much\b|سعر|أسعار|اسعار|بكم/i.test(message);
+}
+
+function comparisonFilters(filters, message, context, buyer) {
+  const prior = context?.filters || context || {};
+  if (!TYPES.some(([, regex]) => regex.test(message)) && TYPES.some(([type]) => type === prior.type)) filters.type = prior.type;
+  if (filters.bedrooms === "All" && !/\ball (?:bedrooms?|beds?|layouts?)\b|كل الغرف|جميع الغرف|كل أعداد الغرف/i.test(message)) {
+    const wanted = prior.bedrooms ?? buyer.bedrooms;
+    const beds = Array.isArray(wanted) && wanted.length === 1 ? wanted[0] : wanted;
+    const mapped = beds === 0 ? "Studio" : [1, 2, 3, 4].includes(beds) ? `${beds} BR` : beds;
+    if (["Studio", "1 BR", "2 BR", "3 BR", "4 BR", "5+ BR", "Not stated"].includes(mapped)) filters.bedrooms = mapped;
+  }
+  if (!/\boff[- ]?plan\b|\bready\b|\ball sale types\b|على الخارطة|جاهز|كل أنواع البيع/i.test(message) && ["All", "Ready", "Off-plan"].includes(prior.saleType)) filters.saleType = prior.saleType;
+  return prior;
+}
+
 function scopeText(filters, ar, { quarterly = false, currentYear, statistic = "average" } = {}) {
   const bed = ar ? ({ All: "كل أعداد الغرف", Studio: "استوديو", "1 BR": "غرفة نوم واحدة", "2 BR": "غرفتان", "3 BR": "3 غرف نوم", "4 BR": "4 غرف نوم", "5+ BR": "5 غرف فأكثر", "Not stated": "غرف غير مذكورة" })[filters.bedrooms] : filters.bedrooms === "All" ? "All bedrooms" : filters.bedrooms;
   const sale = filters.saleType === "All" ? (ar ? "كل أنواع البيع" : "All sale types") : filters.saleType === "Ready" ? (ar ? "جاهز" : "Ready") : (ar ? "على الخارطة" : "Off-plan");
@@ -127,7 +147,7 @@ function evidenceDraft(lines, data, { filters = {}, places = [], rows = [], mode
 }
 
 // Only a buyer-supplied location can narrow the default emirate-wide scope.
-function splitLocations(text) { return text.split(/\s+(?:and|versus|vs\.?|و|مقابل)\s+|\s+و(?=[\u0600-\u06ff])/i); }
+function splitLocations(text) { return text.split(/\s+(?:and|or|versus|vs\.?|و|أو|او|مقابل)\s+|\s+و(?=[\u0600-\u06ff])/i); }
 
 function locationQueries(message, names = new Map()) {
   const queries = [];
@@ -140,6 +160,7 @@ function locationQueries(message, names = new Map()) {
   if (matches.length) queries.push(...splitLocations(matches[0][1] || matches[0][2]));
   if (!queries.length) queries.push(message);
   return queries.map(query => query
+    .replace(/\bwhat(?:['’]s|s)\b/gi, " ")
     .replace(/\b(?:last|past|previous)\s+(?:\d+|one|two|three|four|five|six|twelve)\s+(?:months?|years?|quarters?)\b/gi, " ")
     .replace(/\byear[ -]+to[ -]+date\b|\bytd\b|\b(?:this|current)\s+calendar\s+year\b|\b(?:calendar\s+)?year\s+20\d{2}\b/gi, " ")
     .replace(/\b(?:last|past|this|current|previous|latest)\s+(?:month|year|quarter)\b|\ball\s+(?:data|time|history|bedrooms?|sale types)\b|\bsince\s+(?:the beginning|2019)\b/gi, " ")
@@ -147,6 +168,7 @@ function locationQueries(message, names = new Map()) {
     .replace(/منذ بداية (?:العام|السنة)|(?:للعام|للسنة|لعام|لسنة|العام|السنة|عام|سنة)\s*(?:الحالي|الحالية|20\d{2})/g, " ")
     .replace(/السنة الماضية|العام الماضي/g, " ")
     .replace(/\b\d+\s*\+?\s*(?:[- ]?bed(?:room)?s?|br|bhk)\b|\d+\s*\+?\s*(?:غرف(?:ة|ه)?(?: نوم)?)/gi, " ")
+    .replace(/غرفة(?:\s+نوم)?\s+واحدة|غرفة\s+نوم/g, " ")
     .replace(/\b20\d{2}\s*[-/]?\s*q[1-4]\b|\bq[1-4](?:\s*[-/,]?\s*20\d{2})?\b|\b20\d{2}\b/gi, " ")
     .replace(/\b(?:what|which|where|when|why|how|are|is|was|were|do|did|does|the|a|an|me|tell|please|show|give|can|could|would|you|i|we|want|know|about|look|like|compare|comparison|average|avg|median|mean|market|historical|historic|recorded|prices?|pricing|costs?|sales?|transactions?|in|at|within|for|of|on|over|during|with|by|and|or|from|to|per|sqft|sq|ft|square|foot|feet|aed|psf|ppsf|total|whole|property|properties|homes?|units?|apartments?|flats?|villas?|plots?|land|townhouses?|townhomes?|duplex(?:es)?|penthouses?|offices?|retail|shops?|bedrooms?|beds?|br|ready|off[- ]?plan|studio|zero|one|two|three|four|five|six|quarterly|quarters?|trends?|have|has|changed|changing|moved|move|evolved|rise|risen|fell|fallen|now|today|recently|cheapest|lowest|priced|most|affordable|areas?|districts?|neighbou?rhoods?)\b/gi, " ")
     .replace(/ما هي|ما هو|ماهي|ماهو|كيف|هل|أريد|اريد|أعطني|اعطني|عطني|من فضلك|متوسط|وسيط|أسعار|اسعار|السعر|سعر|مقارنة|قارن|المبيعات|مبيعات|شقق|شقة|فلل|فيلا|غرفتين|غرف نوم|غرفة|الربع|الأول|الاول|الثاني|الثالث|الرابع|السوق|تغيرت|في|خلال|لآخر|لاخر|على الخارطة|الجاهزة|جاهزة|أرخص|ارخص|مناطق|أحياء|احياء/g, " ")
@@ -188,19 +210,20 @@ function noSales(place, ar, quarter = null) {
 }
 
 /** This predicate also keeps a research scope out of the buyer's search preferences. */
-export function isMarketPriceQuestion(message, data = loadMarketPrices()) {
+export function isMarketPriceQuestion(message, data = loadMarketPrices(), comparisonContext = null) {
   message = digits(message).trim();
-  const masked = maskPlaceNames(message, marketPlacesInMessage(message, data)).text;
+  const places = marketPlacesInMessage(message, data);
+  const masked = maskPlaceNames(message, places).text;
   const priceContext = /\b(?:prices?|pricing|costs?|aed|psf|ppsf|sales?|transactions?)\b|سعر|أسعار|اسعار|مبيعات/i.test(masked);
   const statistic = STATISTIC.test(masked) || ((/\bmean\b|وسيط/i.test(masked)) && priceContext);
   const unrelatedAverage = /\b(?:age|income|salary|size|height|weight|population|temperature|commission|fees?)\b|متوسط (?:العمر|عمر|دخل|مساحة|حجم|وزن)|رسوم|أتعاب|اتعاب/i.test(masked) && !priceContext;
   const definition = /\bwhat does\b.{0,60}\bmean\b|\bmeaning of\b|ما معنى|ما معني/i.test(masked);
   return Boolean(message && !definition && !unrelatedAverage && !PRIVATE_OR_CONTACT.test(masked) && !OTHER_TERMS.test(masked) &&
-    (statistic || MARKET_PRICE.test(masked) || CHEAPEST_AREAS.test(masked) || TRENDS.test(masked)));
+    (statistic || MARKET_PRICE.test(masked) || CHEAPEST_AREAS.test(masked) || TRENDS.test(masked) || districtPriceComparison(message, places, comparisonContext)));
 }
 
 /** Statistics are read from one exact precomputed scope, never current listing quotes. */
-export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = loadMarketPrices(), currentYear = new Date().getUTCFullYear(), defaultPeriod = DEFAULT_MARKET_PRICE_PERIOD } = {}) {
+export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = loadMarketPrices(), currentYear = new Date().getUTCFullYear(), defaultPeriod = DEFAULT_MARKET_PRICE_PERIOD, comparisonContext = null } = {}) {
   message = digits(message).trim();
   const ar = buyer.language === "ar", coverage = marketPriceCoverage(data);
   let places = marketPlacesInMessage(message, data);
@@ -210,7 +233,7 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
   const asksMedian = /\bmedian\b|وسيط/i.test(filterMessage), asksAverage = /\b(?:averages?|avg|mean)\b|متوسط/i.test(filterMessage);
   const statistic = asksMedian ? (asksAverage ? "both" : "median") : "average";
   const includeTotal = /\b(?:total|unit|whole[- ]property)\s+(?:sale\s+|property\s+)?prices?\b|\bprices?\s+per\s+(?:unit|home|apartment|villa)\b|السعر الإجمالي|السعر الاجمالي|سعر الوحدة|إجمالي السعر|اجمالي السعر|سعر المنزل بالكامل|سعر العقار بالكامل/i.test(filterMessage);
-  if (!isMarketPriceQuestion(message, data) || buyer.salesPathStopped) return null;
+  if (!isMarketPriceQuestion(message, data, comparisonContext) || buyer.salesPathStopped) return null;
   if (!coverage.available) return { text: ar ? "أرقام متوسط الأسعار لهذه السنة غير متاحة حالياً لهذا النطاق." : "This year's average price figures are unavailable right now for this scope.",
     stage: "market_prices", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true, factPacks: [], investmentTheses: [], marketPrices: { unavailable: true } };
   const filters = homeFilters(filterMessage);
@@ -221,6 +244,8 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
           : (ar ? "الأرقام منفصلة حسب عدد الغرف. أعد سؤال السعر مع عدد غرف واحد." : "The figures are separate by bedroom count. Please repeat the price question with one bedroom scope.");
     return evidenceDraft([text], data, { filters, missingScope: true }, ar);
   }
+  const contextualComparison = comparisonContext && districtPriceComparison(message, places, comparisonContext) && !/\b(?:prices?|pricing|costs?|psf|ppsf|averages?|avg|mean|median)\b|سعر|أسعار|اسعار|متوسط|وسيط/i.test(filterMessage);
+  const priorFilters = contextualComparison ? comparisonFilters(filters, filterMessage, comparisonContext, buyer) : {};
   const explicitYears = [...new Set(filterMessage.match(/\b20\d{2}\b/g) || [])].map(Number);
   const sourceYear = Number(coverage.dataUpTo.slice(0, 4));
   const currentYearWords = /\b(?:this|current)\s+(?:calendar\s+)?year\b|\byear[ -]+to[ -]+date\b|\bytd\b|هذا العام|هذه السنة|العام الحالي|السنة الحالية|منذ بداية العام|منذ بداية السنة/i.test(filterMessage);
@@ -229,7 +254,7 @@ export function marketPriceAnswer({ message, buyer = {}, catalog = {}, data = lo
     ar ? "أرقام السنة المطلوبة غير متاحة كمتوسط سنوي منفصل. أعد سؤال السعر مع هذه السنة أو فترة واحدة متاحة." : "A separate annual average is unavailable for the requested year. Please repeat the price question with This year or one available period."
   ], data, { filters, missingScope: true }, ar);
   const period = periodFilter(filterMessage, priceYear);
-  filters.period = period || defaultPeriod;
+  filters.period = period || (Object.hasOwn(PERIOD_AR, priorFilters.period) ? priorFilters.period : defaultPeriod);
   const unknown = unknownLocation(message, places, data, catalog);
   if (unknown) {
     const matches = findMarketPlaces(unknown, data, { limit: 3 });

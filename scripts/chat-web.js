@@ -1,3 +1,4 @@
+import { botProjectCoverage } from "../src/facts/project-access.js";
 import { POLICY_VERSION } from "../src/conversation/policy.js";
 import http from "node:http";
 import v8 from "node:v8";
@@ -137,6 +138,8 @@ const server = http.createServer(async (req, res) => {
       milestone: 3,
       buyerDecisions: { enabled: engine.buyerDecisions.enabled, pilotHomeTypes: engine.buyerDecisions.pilotUnitIds?.length || 0 },
       marketPrices: engine.marketPrices?.coverage || null,
+      projectKnowledge: engine.projectKnowledge?.coverage || null,
+      projectAccess: botProjectCoverage({ catalog: properties.catalog(), marketPrices: engine.marketPrices, projectKnowledge: engine.projectKnowledge }),
       integrations: {
         metaConfigured: Boolean(process.env.META_PAGE_ACCESS_TOKEN && process.env.META_APP_SECRET),
         instagramPoller:

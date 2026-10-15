@@ -129,6 +129,48 @@ test("comparisons preserve one filter scope and disclose different geographic le
   assert.equal(mixed.marketPrices.rows[1].Area, "Khalifa City");
 });
 
+test("everyday area price comparisons ignore a stale catalogue project", () => {
+  const buyer = { projectInterest: "Bab Al Qasr Residence", bedrooms: [2], preferredAreas: ["Yas Island"] };
+  const catalog = { projects: [{ id: "bab", name: "Bab Al Qasr Residence", area: "Yas Island" }], units: [{ id: "bab-1", projectId: "bab", bedrooms: 1, startingPriceAed: 1000000 }] };
+  for (const query of ["Whats average 1 br price in shamkha vs yas", "Whats 1 br price in shamkha vs yas", "What's average 1 br price in shamkha vs yas", "What’s 1 br price in shamkha vs yas", "What is the 1 BR price in Shamkha or Yas?"]) {
+    const draft = answer(query, { buyer, catalog });
+    assert.equal(isMarketPriceQuestion(query, data), true, query);
+    assert.notEqual(draft.marketPrices.missingScope, true, query);
+    assert.deepEqual(draft.marketPrices.rows.map(row => row.Area), ["Al Shamkhah", "Yas Island"], query);
+    assert.equal(draft.marketPrices.filters.bedrooms, "1 BR", query);
+    assert.equal(draft.marketPrices.filters.period, "This year", query);
+    assert.match(draft.text, /Al Shamkhah.*average AED 1,131\/sqft; 93 sales/, query);
+    assert.match(draft.text, /Yas Island.*average AED 2,211\/sqft; 1,494 sales/, query);
+    assert.doesNotMatch(draft.text, /Bab Al Qasr|AED 1,000,000|Whats/, query);
+    assert.deepEqual(draft.factPacks, []);
+    assert.equal(validateMessage(draft.text, [], { allowedClaims: thesisClaims(draft.investmentTheses) }).ok, true, query);
+  }
+  const arabic = answer("كم متوسط سعر شقة غرفة نوم واحدة في الشامخة مقابل ياس؟", { buyer: { ...buyer, language: "ar" }, catalog });
+  assert.notEqual(arabic.marketPrices.missingScope, true);
+  assert.equal(arabic.marketPrices.filters.bedrooms, "1 BR");
+  assert.deepEqual(arabic.marketPrices.rows.map(row => row.Area), ["Al Shamkhah", "Yas Island"]);
+  assert.match(arabic.text, /المتوسط AED 1,131\/قدم²; 93 مبيعة/);
+  assert.match(arabic.text, /المتوسط AED 2,211\/قدم²; 1,494 مبيعة/);
+  assert.equal(validateMessage(arabic.text, [], { allowedClaims: thesisClaims(arabic.investmentTheses) }).ok, true);
+});
+
+test("bare area comparisons inherit only relevant market filters and preserve explicit changes", () => {
+  const comparisonContext = { filters: { type: "Apartment", bedrooms: "1 BR", saleType: "All", period: "This year" } };
+  const buyer = { projectInterest: "Bab Al Qasr Residence", bedrooms: [2] };
+  const draft = answer("Al shamkha vs yas", { comparisonContext, buyer });
+  assert.equal(isMarketPriceQuestion("Al shamkha vs yas", data, comparisonContext), true);
+  assert.deepEqual(draft.marketPrices.filters, comparisonContext.filters);
+  assert.deepEqual(draft.marketPrices.rows.map(row => row.Area), ["Al Shamkhah", "Yas Island"]);
+  assert.doesNotMatch(draft.text, /Bab Al Qasr/);
+  const explicit = answer("Al shamkha vs yas 2 BR over the last 3 months", { comparisonContext, buyer });
+  assert.equal(explicit.marketPrices.filters.bedrooms, "2 BR");
+  assert.equal(explicit.marketPrices.filters.period, "Last 3 months");
+  assert.equal(answer("Al shamkha vs yas", { comparisonContext: {}, buyer: { bedrooms: [1] } }).marketPrices.filters.bedrooms, "1 BR");
+  assert.equal(answer("Al shamkha vs yas"), null);
+  assert.equal(isMarketPriceQuestion("Yas or Saadiyat", data), false);
+  assert.equal(answer("Which projects should I buy in Shamkha vs Yas?", { comparisonContext }), null);
+});
+
 test("quarter comparisons read exact quarters, label partial quarters and never widen project sale type", () => {
   const draft = answer("Compare apartment prices in Reem and Yas in Q1 2026 and Q3 2026");
   assert.equal(draft.marketPrices.rows.length, 4);

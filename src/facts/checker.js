@@ -167,7 +167,7 @@ export function literalResearchClaims(message, allowedClaims = []) {
     /\b(?:research|recorded|observed|FACT|CALCULATION)\b/i.test(text)) ||
     (row.field === "marketPriceEvidence" && row.source === "https://adrec.gov.ae/en/market-data" &&
       String(row.recordId || "").startsWith("market-prices:") && row.scope?.basis === "precomputed_market_prices" &&
-      ["period_prices.csv", "quarterly_prices.csv"].includes(row.scope.table) && Array.isArray(row.scope.rowKeys));
+      ["period_prices.csv", "quarterly_prices.csv", "project_knowledge.json"].includes(row.scope.table) && Array.isArray(row.scope.rowKeys));
   return allowedClaims.filter(row => isSourcedText(row) &&
     ["FACT", "CALCULATION"].includes(row.evidenceClass) && row.source && row.recordId && row.scope &&
     Number.isFinite(Date.parse(row.verifiedAt || "")) && typeof row.value === "string" && row.value &&
