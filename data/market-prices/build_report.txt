@@ -1,0 +1,12 @@
+Source rows: 124526
+Identical rows kept as separate sales: 6697
+Excluded (partial share, no area/price, or court-mandated): 6099
+Excluded (other property types: farms, complexes, other plots...): 8579
+Flagged as extreme price per sqft and left out of figures: 2691
+Sales used in the tables: 107157
+Data covers: 2019-01-02 to 2026-10-14
+quarterly_prices.csv rows: 40959
+period_prices.csv rows: 26075
+Rules: price per sqft = price / (sqm x 10.7639); full sales only; court-mandated excluded;
+extreme values (outside 1st-99th percentile per district+type+bedrooms) excluded;
+rows with fewer than 5 sales marked 'Low sample' and not ranked.
