@@ -63,6 +63,7 @@ report.append(f"Sales used in the tables: {len(df)}")
 q = df["Date"].dt.quarter
 df["Quarter"] = df["Date"].dt.year.astype(str) + "-Q" + q.astype(str)
 DATA_END = df["Date"].max()
+YEAR_START = pd.Timestamp(year=DATA_END.year, month=1, day=1)
 
 # ---------- aggregation helpers ----------
 def expand(d):
@@ -115,21 +116,28 @@ qt = qt.sort_values(["Level", "Area", "Project", "Type", "Bedrooms", "Sale Type"
 qt.insert(0, "Key", qt["Level"] + " | " + qt["Area"] + " | " + qt["Project"] + " | " + qt["Type"] + " | "
           + qt["Bedrooms"] + " | " + qt["Sale Type"] + " | " + qt["Quarter"])
 
-# ---------- table 2: rolling periods + ranks ----------
-PERIODS = {"Last 3 months": 3, "Last 12 months": 12, "Last 2 years": 24, "Last 3 years": 36, "All data": None}
+# ---------- table 2: calendar year-to-date, rolling periods + ranks ----------
+PERIODS = {"This year": "year-to-date", "Last 3 months": 3, "Last 12 months": 12, "Last 2 years": 24, "Last 3 years": 36, "All data": None}
 pts = []
 for name, months in PERIODS.items():
-    sub = x if months is None else x[x["Date"] > DATA_END - pd.DateOffset(months=months)]
+    if name == "This year":
+        # Filter the cleaned sales themselves; quarterly averages cannot be averaged.
+        sub = x[x["Date"] >= YEAR_START]
+    else:
+        sub = x if months is None else x[x["Date"] > DATA_END - pd.DateOffset(months=months)]
     p = stats(sub, dims)
     p.insert(0, "Period", name)
     pts.append(p)
 pt = pd.concat(pts)
 
-# cheapest rank: within same Level + Period + Type + Bedrooms + Sale Type, by median AED/sqft, only reliable rows
+# Cheapest rank uses average AED/sqft this year; older periods retain median ranks.
+# Rank only reliable rows within the same Level + Period + Type + Bedrooms + Sale Type.
 grp = ["Period", "Level", "Type", "Bedrooms", "Sale Type"]
 ok = pt["Reliability"] == "OK"
 pt["Cheapest rank"] = np.nan
 pt.loc[ok, "Cheapest rank"] = pt[ok].groupby(grp)["Median AED per sqft"].rank(method="min")
+year_ok = ok & pt["Period"].eq("This year")
+pt.loc[year_ok, "Cheapest rank"] = pt[year_ok].groupby(grp)["Avg AED per sqft"].rank(method="min")
 pt["Cheapest rank"] = pt["Cheapest rank"].astype("Int64")
 pt["Data up to"] = DATA_END.date()
 pt = pt.sort_values(["Period", "Level", "Area", "Project", "Type", "Bedrooms", "Sale Type"])
@@ -140,8 +148,14 @@ qt.to_csv("quarterly_prices.csv", index=False)
 pt.to_csv("period_prices.csv", index=False)
 report += [
     f"Data covers: {df['Date'].min().date()} to {DATA_END.date()}",
+    f"This year: {YEAR_START.date()} to {DATA_END.date()}",
+    f"Sales used this year: {(df['Date'] >= YEAR_START).sum()}",
+    f"This year named projects: {df.loc[(df['Date'] >= YEAR_START) & ~df['Project'].isin(['Private', 'No project name', 'All projects']), 'Project'].nunique()}",
+    f"This year districts: {df.loc[df['Date'] >= YEAR_START, 'District'].nunique()}",
+    f"This year period rows: {(pt['Period'] == 'This year').sum()}",
     f"quarterly_prices.csv rows: {len(qt)}",
     f"period_prices.csv rows: {len(pt)}",
+    "Cheapest rank: This year uses Avg AED per sqft; other periods use Median AED per sqft.",
     "Rules: price per sqft = price / (sqm x 10.7639); full sales only; court-mandated excluded;",
     "extreme values (outside 1st-99th percentile per district+type+bedrooms) excluded;",
     f"rows with fewer than {MIN_SALES} sales marked 'Low sample' and not ranked.",

@@ -54,7 +54,9 @@ test("a partially delivered comparison is counted only when the remaining part s
   let attempts = 0;
   setup.orchestrator.fetchImpl = async (url, options) => {
     const response = await transport(url, options);
-    if (!url.includes("/wa/") && ++attempts === 2) return { ok: false, status: 503, json: async () => ({}) };
+    // Only message sends count: typing indicators and profile lookups are not parts.
+    const isMessage = Boolean(options.body && JSON.parse(options.body).message);
+    if (!url.includes("/wa/") && isMessage && ++attempts === 2) return { ok: false, status: 503, json: async () => ({}) };
     return response;
   };
   const event = { mid: "compare-parts", senderId: "buyer", text: "Budget 2M, 2 bedroom in Yas" };

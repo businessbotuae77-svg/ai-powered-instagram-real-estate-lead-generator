@@ -12,7 +12,9 @@ const MORTGAGE = /\bmortgage\b[^.?!]{0,60}\b(?:eligib|qualif|approv|non[- ]?resi
 const LEGAL = /\b(?:legal(?:ly)?|lawyer|solicitor|conveyancing|contract review|review the contract|sale and purchase agreement|tax(?:es)?|inheritance|sharia|power of attorney|title deed|can foreigners (?:buy|own)|ownership rights)\b|محامي|ضريبة|ميراث|عقد البيع/i;
 const QUOTE = /\b(?:quote|quotation|final price|best price|exact price|price breakdown|all[- ]in (?:price|cost)|total cost (?:including|with) fees|offer letter)\b|عرض سعر|السعر النهائي/i;
 const DISCOUNT = /\b(?:discount|negotia\w*|lower the price|best deal|any deals?|promotion|waive)\b|خصم|تفاوض/i;
-const BUYING = /\b(?:(?:i )?want to buy (?:it|this|that|this one|that one|the (?:unit|apartment|villa|townhouse|property))|ready to (?:buy|proceed|move forward|go ahead|reserve)|i'?ll take it|let'?s (?:do it|go ahead|proceed)|how (?:do|can) i (?:reserve|book|buy|proceed|secure)|what(?:'s| is| are) the next steps?|next step to (?:buy|reserve)|i want (?:this|that) (?:one|unit|apartment|villa|property))\b|أريد شراء|جاهز للشراء|كيف أحجز/i;
+const BUYING = /\b(?:(?:i )?want to buy (?:it|this|that|this one|that one|the (?:unit|apartment|villa|townhouse|property))|ready to (?:buy|proceed|move forward|go ahead|reserve)|i'?ll take (?:it|this|this one|that one)|let'?s (?:do it|go ahead|proceed|book it|reserve it)|how (?:do|can) i (?:reserve|book|buy|proceed|secure)|what(?:'s| is| are) the next steps?|next step to (?:buy|reserve)|i want (?:this|that) (?:one|unit|apartment|villa|property)|(?:want|like|keen|going|wish|need) to (?:reserve|book|secure|purchase)(?: (?:it|this|that|this one|that one|one|a unit|the unit|a home|the apartment))?|(?:reserve|book|secure|hold) (?:it|this|that|this one|that one|a unit|the unit|one) (?:for me|please)?|can (?:i|we) (?:reserve|book|secure)(?: (?:it|this|that|one|a unit))?)\b|أريد شراء|جاهز للشراء|كيف أحجز|كيف احجز|(?:ابي|ابغى|ابغي|أبي|أبغى|اريد|أريد|ودي|بغيت|ممكن)\s*(?:احجز|أحجز|نحجز|اشتريها|أشتريها|اشتريه|أشتريه|اخذها|آخذها|اخذه)|احجز(?:ها|ه|لي)(?:\s|$)|بحجز|بشتري(?:ها|ه)/i;
+const VIEWING = /\b(?:book|arrange|schedule|set up|organi[sz]e|want|like|need|request|can (?:i|we) (?:book|have|get|do|arrange))\b.{0,20}\b(?:viewing|site visit|visit|tour|show ?(?:flat|apartment|unit|home))\b|\b(?:see|view|visit) (?:it|the (?:unit|apartment|property|villa|townhouse|show ?flat|site)) (?:in person|this week|this weekend|tomorrow|today)\b|^(?:a )?viewing(?: please)?[.!?]*$|معاينة|(?:ابي|أبي|ابغى|أبغى|ودي|ممكن|اريد|أريد)\s*(?:اشوف|أشوف|نشوف|ازور|أزور|نزور|اعاين|أعاين)(?:ها|ه)?(?:\s|$)|زيارة (?:للمشروع|للموقع|للشقة)/i;
+const MEETING = /\b(?:book|arrange|schedule|set up|have|want|need|request|can (?:i|we) (?:book|have|get))\b.{0,15}\b(?:meeting|appointment|video call|zoom call)\b|\bmeet (?:you|your team|the agent|in person|someone)\b|^(?:a )?(?:meeting|appointment)(?: please)?[.!?]*$|موعد|اجتماع|نتقابل|اقابل|أقابل|لقاء/i;
 const TAILORED = /\b(?:tailor(?:ed)?|personali[sz]ed|bespoke|custom(?:ised|ized)? (?:advice|plan|recommendation|search)|someone (?:who )?(?:can|could) (?:look|review)|professional advice|expert advice)\b/i;
 const QUESTION = /[?؟]|^(?:what|which|how|can|could|do|does|is|are|will|would|should|may)\b|^(?:هل|كيف|ما|متى)/i;
 
@@ -35,6 +37,8 @@ export function judgmentTopic(message) {
 export function transactionMoment(message) {
   const text = normalizeBuyerText(message);
   if (/\b(?:don'?t|do not|not|never)\s+(?:want|ready|going)\b.{0,20}\b(?:buy|reserve|proceed|quote)\b/i.test(text)) return null;
+  if (VIEWING.test(text) && !/\b(?:don'?t|do not|no|cancel)\b.{0,20}\b(?:viewing|visit|tour)\b/i.test(text)) return "viewing";
+  if (MEETING.test(text)) return "meeting";
   if (BUYING.test(text)) return "buying";
   if (DISCOUNT.test(text)) return "discount";
   if (QUOTE.test(text)) return "quote";
@@ -53,6 +57,8 @@ export function isBareDecline(message) {
 
 const OFFERS = {
   buying: ["can check live availability for the exact unit, confirm the current price and walk you through reserving", "يمكنه التحقق من توفر الوحدة والسعر الحالي وشرح خطوات الحجز"],
+  viewing: ["can arrange the viewing with you at a time that suits you", "يقدر يرتب معك المعاينة بالوقت اللي يناسبك"],
+  meeting: ["can set up a meeting with you at a time that suits you", "يقدر يرتب معك موعد بالوقت اللي يناسبك"],
   quote: ["can confirm the exact unit price, fees and availability and send you a written quote", "يمكنه تأكيد سعر الوحدة والرسوم والتوفر وإرسال عرض سعر مكتوب"],
   discount: ["can check with the developer whether any current offer applies", "يمكنه التحقق مع المطور من وجود أي عرض حالي"],
   tailored: ["can look at your situation in detail and shortlist with you", "يمكنه دراسة وضعك بالتفصيل وإعداد قائمة مناسبة معك"],
@@ -69,16 +75,20 @@ const OFFERS = {
  * One connection offer, or null when it would be unwelcome: the buyer paused
  * the conversation, declined contact or this offer, or was just asked.
  */
-export function handoffOffer({ buyer, broker, reason, lastAskedField = null }) {
+export function handoffOffer({ buyer, broker, reason, lastAskedField = null, brief = false }) {
   if (!OFFERS[reason]) return null;
   if (buyer.salesPathStopped || buyer.contactDeclined || buyer.declinedSuggestions?.includes("handoff")) return null;
   if (lastAskedField === "handoffOffer") return null;
   const ar = buyer.language === "ar";
   const label = brokerSubject(broker, buyer.language);
   const [en, arabic] = OFFERS[reason];
-  const prompt = ar ? "هل تريد أن أوصلك به؟" : "Want me to connect you?";
-  const line = ar ? `${label} ${arabic}. ${prompt}` : `${capitalize(label)} ${en}. ${prompt}`;
-  return { line, prompt, nextQuestion: { field: "handoffOffer", prompt }, pendingOffer: { type: "handoff_offer", reason } };
+  const prompt = ar ? "تبي أوصلك فيهم؟" : "Want me to connect you?";
+  // When the answer already said what the team will do, the offer is just the question.
+  const line = brief ? `\n${prompt}` : ar ? `${label} ${arabic}. ${prompt}` : `${capitalize(label)} ${en}. ${prompt}`;
+  const choices = ar
+    ? [{ id: "connect_yes", label: "إي، وصلني", value: "نعم" }, { id: "not_now", label: "مو الحين", value: "لاحقا" }]
+    : [{ id: "connect_yes", label: "Yes, connect me", value: "Yes please" }, { id: "not_now", label: "Not now", value: "Not now" }];
+  return { line, prompt, nextQuestion: { field: "handoffOffer", prompt, choices }, pendingOffer: { type: "handoff_offer", reason } };
 }
 
 /** Plain account of what this assistant is. Never claims to be a person or licensed. */
@@ -113,14 +123,18 @@ export function transactionAnswer({ moment, buyer, pack = null, broker }) {
   if (ar) {
     if (moment === "discount") return "لا يمكنني تأكيد أي خصم؛ تنطبق فقط شروط العرض الحالية من المطور.";
     if (moment === "quote") return name && price ? `${name} يبدأ من ${price} حسب القائمة الحالية، والسعر النهائي للوحدة والرسوم يحتاجان إلى تأكيد.` : "عرض السعر الدقيق يحتاج إلى تحديد الوحدة وتأكيد السعر والرسوم الحالية.";
-    if (moment === "buying") return `${name ? `للمضي في ${name}، ` : ""}الخطوة التالية هي تأكيد توفر الوحدة والسعر وشروط الحجز الحالية. لم يتم حجز أي شيء بعد.`;
+    if (moment === "buying") return `اختيار موفق 👍 ${name ? `عشان تحجز في ${name}، ` : ""}فريقنا يؤكد معك الوحدة وسعر اليوم وخطوات الحجز أول. ولا ينحجز شي إلا بموافقتك.`;
+    if (moment === "viewing") return `أكيد 👍 فريقنا يرتب المعاينة${name ? ` في ${name}` : ""} ويتفق معك على الوقت اللي يناسبك.`;
+    if (moment === "meeting") return "أكيد 👍 فريقنا يرتب معك موعد بالوقت اللي يناسبك.";
     return "يمكنني متابعة المساعدة هنا أيضاً.";
   }
   if (moment === "discount") return "I can't confirm any discount; only the developer's current offer terms apply.";
   if (moment === "quote") return name && price
     ? `On the current listing, ${name} starts from ${price}. The final price for a specific unit, plus registration and other fees, needs confirming before a quote can be issued.`
     : "An exact quote needs a specific unit, plus confirmation of the current price and fees.";
-  if (moment === "buying") return `${name ? `To move ahead on ${name}, the` : "The"} next step is confirming the exact unit's availability, the current price and the reservation terms. Nothing has been reserved yet${who === "our team" ? "" : `, and ${who} would confirm each step with you first`}.`;
+  if (moment === "buying") return `Great choice 👍 ${name ? `To move ahead on ${name}, the` : "The"} next step is confirming the exact unit's availability, today's price and the reservation terms with you. Nothing has been reserved yet${who === "our team" ? "" : `, and ${who} would confirm each step with you first`}.`;
+  if (moment === "viewing") return `Happy to set that up 👍 Our team arranges viewings${name ? ` for ${name}` : ""} and will agree a time that suits you.`;
+  if (moment === "meeting") return "Sure 👍 Our team will set up a meeting at a time that suits you.";
   return "I can keep helping here too.";
 }
 
@@ -129,6 +143,8 @@ export function handoffTopic(reason, pack = null) {
   const name = pack?.name?.value;
   return {
     buying: `Next steps to buy${name ? ` ${name}` : ""}`,
+    viewing: `Arrange a viewing${name ? ` of ${name}` : ""}`,
+    meeting: "Arrange a meeting",
     quote: `Exact quote${name ? ` for ${name}` : ""}`,
     discount: `Whether any current offer applies${name ? ` to ${name}` : ""}`,
     tailored: "Tailored recommendation",

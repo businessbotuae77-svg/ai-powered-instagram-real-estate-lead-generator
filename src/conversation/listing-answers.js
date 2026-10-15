@@ -4,6 +4,7 @@ import { sourcedCandidatePrice } from "./comparison-evidence.js";
 import { compareProperties } from "./comparison.js";
 import { comparisonReply } from "./comparison-reply.js";
 import { isAffirmation } from "./affirmation.js";
+import { areaLabel, cardChoices, NEXT_PROMPT, nextChoice, projectCard } from "./concierge.js";
 
 const lowest = text => /\b(?:cheapest|lowest[- ]priced?|least expensive|most affordable)\b|أرخص|ارخص|أقل سعر|اقل سعر/i.test(text);
 const ready = text => /\bready\b|جاهز|جاهزة/i.test(text);
@@ -128,12 +129,18 @@ export function answerListingRequest({ message, catalog, buyer, pendingOffer = n
   }
   const first = rows[0], pack = first.factPack;
   const second = rows.find(row => sameHome(first, row) && row.factPack.startingPriceAed.value > pack.startingPriceAed.value);
-  const text = ar
-    ? `أقل خيار${filters.readyOnly ? " جاهز" : ""} أقدر أؤكده ضمن ${scopeLabel} هو ${first.project.name} في ${pack.area.value}، بسعر يبدأ من ${pack.startingPriceText.value} لـ${listingLabel(pack, "ar")}؛ ${sizeText(pack, true)}.`
-    : `The lowest-priced ${filters.readyOnly ? "ready " : ""}match I can confirm within ${scopeLabel} is ${first.project.name} in ${pack.area.value}, from ${pack.startingPriceText.value} for a ${listingLabel(pack)}; ${sizeText(pack, false)}.`;
-  const prompt = second ? (ar ? "تبي أقارنه بأقرب خيار أعلى سعراً من نفس نوع الوحدة وعدد الغرف؟" : "Want me to compare it with the next-priced option of the same home type and bedroom count?") : null;
-  return { text: [text, prompt].filter(Boolean).join("\n"), stage: "matched", factPacks: [pack], listingMatches: [first], suppressCommercial: true,
+  const where = scope.areas.length ? scope.areas.map(area => areaLabel(area, ar)).join(ar ? "، " : ", ") : null;
+  const lead = ar
+    ? `أرخص خيار${filters.readyOnly ? " جاهز" : ""} أقدر أؤكده${where ? ` في ${where}` : ""} 👇`
+    : `The lowest-priced ${filters.readyOnly ? "ready " : ""}home I can confirm${where ? ` in ${where}` : ""} 👇`;
+  // The buyer asked for one kind of home: no other home types beside it.
+  const text = `${lead}\n\n${projectCard(pack, { ar })}`;
+  // With a like-for-like next option, offer the comparison; otherwise the usual next steps.
+  const prompt = second ? (ar ? "تبي أقارنه بالخيار اللي بعده بالسعر من نفس النوع؟" : "Want me to compare it with the next-cheapest home of the same type?") : (ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en);
+  const choices = second ? [{ id: "compare", label: ar ? "قارن" : "Compare", value: ar ? "قارن" : "Compare" }, nextChoice("more", ar), nextChoice("agent", ar)] : cardChoices(ar);
+  return { text: `${text}\n\n${prompt}`, stage: "matched", factPacks: [pack], listingMatches: [first], suppressCommercial: true,
     buyerPatch: { activeRecommendationProjectId: first.project.id, activeRecommendationUnitId: first.unit.id },
-    nextQuestion: prompt ? { field: "advisoryNextAction", prompt } : null,
-    pendingOffer: second ? { type: "listing_comparison", pair: [identity(first), identity(second)], scope, filters } : null, callRequest: null };
+    nextQuestion: { field: second ? "advisoryNextAction" : "conciergeNext", prompt, choices },
+    pendingOffer: second ? { type: "listing_comparison", pair: [identity(first), identity(second)], scope, filters }
+      : { type: "concierge_card", projectId: first.project.id, unitId: first.unit.id }, callRequest: null };
 }

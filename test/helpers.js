@@ -38,6 +38,8 @@ export const ALERT_ENV = { META_PAGE_ACCESS_TOKEN: "test", META_PAGE_ID: "page",
 export function fakeTransport(calls, state = {}) {
   return async (url, options) => {
     const service = url.includes("resend") ? "email" : url.includes("/wa/") ? "whatsapp" : "instagram";
+    // Typing indicators and profile lookups are not messages; tests count messages.
+    if (!options.body || JSON.parse(options.body).sender_action) return { ok: true, json: async () => ({}) };
     calls.push({ service, body: JSON.parse(options.body) });
     if (state.down?.includes(service)) return { ok: false, status: 503, json: async () => ({ error: { message: "outage" } }) };
     return { ok: true, json: async () => ({ id: `email-${calls.length}`, message_id: "ig-out", messages: [{ id: `wa-${calls.length}` }] }) };

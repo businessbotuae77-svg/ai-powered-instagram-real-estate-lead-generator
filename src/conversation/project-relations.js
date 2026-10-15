@@ -23,14 +23,33 @@ function known(project, now) {
 export function buildProjectRelations(projects = [], { units = [], intelligence = {}, factPacks = [], now = Date.now() } = {}) {
   const nodes = [...new Map(projects.filter(project => known(project, now)).map(project => [project.id, project])).values()];
   const edges = [];
+  // Every pair of projects is visited, so lookups are indexed: a linear search
+  // over all edges for each pair took seconds per buyer message with ~100 projects.
+  const edgeIndex = new Map();
   const add = (from, to, relationship, evidence, extra = {}) => {
-    const existing = edges.find(edge => edge.from === from.id && edge.to === to.id && edge.relationship === relationship);
+    const key = `${from.id}\u0000${to.id}\u0000${relationship}`;
+    const existing = edgeIndex.get(key);
     if (existing) {
       existing.evidence.push(...evidence.filter(row => !existing.evidence.some(prior => prior.sourceRecordId === row.sourceRecordId && prior.field === row.field)));
       Object.assign(existing, extra);
     } else {
-      edges.push({ from: from.id, to: to.id, relationship, evidence, ...extra });
+      const edge = { from: from.id, to: to.id, relationship, evidence, ...extra };
+      edges.push(edge);
+      edgeIndex.set(key, edge);
     }
+  };
+  const activeUnits = new Map();
+  for (const unit of units) {
+    if (unit.active === false) continue;
+    if (!activeUnits.has(unit.projectId)) activeUnits.set(unit.projectId, []);
+    activeUnits.get(unit.projectId).push(unit);
+  }
+  const unitsById = new Map(units.map(unit => [unit.id, unit]).reverse());
+  const prices = new Map();
+  const pricesFor = project => {
+    if (!prices.has(project.id)) prices.set(project.id, factPacks.filter(pack => pack.projectId === project.id).map(pack =>
+      sourcedCandidatePrice({ project, factPack: pack, unit: unitsById.get(pack.unitId) }, { now })).filter(Boolean));
+    return prices.get(project.id);
   };
   const bidirectional = (a, b, relationship, evidence, extra) => {
     add(a, b, relationship, evidence, extra); add(b, a, relationship, evidence, extra);
@@ -55,10 +74,10 @@ export function buildProjectRelations(projects = [], { units = [], intelligence 
         const field = a.developerId && b.developerId ? "developerId" : "developerName";
         bidirectional(a, b, "same_developer", [provenance(a, field), provenance(b, field)]);
       }
-      const aUnits = units.filter(unit => unit.projectId === a.id && unit.active !== false);
-      const bUnits = units.filter(unit => unit.projectId === b.id && unit.active !== false);
-      const pair = aUnits.flatMap(unit => bUnits.filter(other => same(unit.propertyType, other.propertyType) &&
-        numeric(unit.bedrooms) && unit.bedrooms === other.bedrooms).map(other => [unit, other]))[0];
+      const aUnits = activeUnits.get(a.id) || [];
+      const bUnits = activeUnits.get(b.id) || [];
+      const pair = firstPair(aUnits, bUnits, (unit, other) => same(unit.propertyType, other.propertyType) &&
+        numeric(unit.bedrooms) && unit.bedrooms === other.bedrooms);
       if (pair) {
         const evidence = pair.map((unit, index) => ({ ...provenance(index ? b : a, "product"),
           sourceRecordId: unit.id, unitId: unit.id, field: "propertyType_and_bedrooms", scope: "unit_type_knowledge",
@@ -72,10 +91,8 @@ export function buildProjectRelations(projects = [], { units = [], intelligence 
           add(ready, offPlan, "off_plan_alternative", evidenceWithStatus);
         }
       }
-      const pricesFor = project => factPacks.filter(pack => pack.projectId === project.id).map(pack =>
-        sourcedCandidatePrice({ project, factPack: pack, unit: units.find(unit => unit.id === pack.unitId) }, { now })).filter(Boolean);
-      const pricePair = pricesFor(a).flatMap(left => pricesFor(b).filter(right =>
-        Math.abs(left.value - right.value) / Math.min(left.value, right.value) <= 0.1).map(right => [left, right]))[0];
+      const pricePair = firstPair(pricesFor(a), pricesFor(b), (left, right) =>
+        Math.abs(left.value - right.value) / Math.min(left.value, right.value) <= 0.1);
       if (pricePair) {
         bidirectional(a, b, "similar_price_band", pricePair.map(row => row.evidence),
           { basis: "documented_starting_prices_within_10_percent_not_comparable_valuation" });
@@ -102,6 +119,12 @@ export function buildProjectRelations(projects = [], { units = [], intelligence 
       (relationship === "off_plan_alternative" && /^ready$/i.test(a.status || ""))) add(b, a, inverse, [evidence], context);
   }
   return { nodes: nodes.map(project => ({ projectId: project.id })), edges };
+}
+
+// The first [left, right] pair in list order that satisfies the test, or undefined.
+function firstPair(lefts, rights, test) {
+  for (const left of lefts) for (const right of rights) if (test(left, right)) return [left, right];
+  return undefined;
 }
 
 export function relationsBetween(graph, projectAId, projectBId) {

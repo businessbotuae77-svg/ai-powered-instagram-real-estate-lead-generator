@@ -60,6 +60,22 @@ Docs:
 - [Off-plan research integration](docs/OFF-PLAN-RESEARCH-INTEGRATION.md): evidence boundaries, optional tables and rollout.
 - [Broker behaviour](docs/BROKER-BEHAVIOUR.md): your contact details, complementary services, upgrades and handoff rules.
 
+## Average prices per square foot
+
+The bundled `data/market-prices` tables load once at startup. Average AED/sqft
+questions default to the current calendar year, from January 1 through the file's
+latest sale date. For 2026, the available data runs through October 14. Averages
+are calculated from the underlying sales, rather than averaging quarterly figures.
+
+Try `Average price of 2 bedroom apartments in Reem this year`,
+`Cheapest 3 areas for ready apartments`, or
+`Compare Reem vs Yas average apartment prices in 2026`.
+Replies give average AED/sqft, property filters, sales count and source cutoff.
+Total unit prices appear only when requested.
+Market-table coverage is also reported by `/api/health`.
+See [project coverage](docs/MARKET-PRICE-COVERAGE.md) and
+[lookup rules](data/market-prices/bot_lookup_rules.md).
+
 ## Sample listings
 
 `data/seed` is demo Abu Dhabi stock for tests. It is not live inventory. Replace it in Airtable later. Matching code stays the same.

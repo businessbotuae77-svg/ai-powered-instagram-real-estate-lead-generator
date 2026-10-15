@@ -201,9 +201,16 @@ test("invest then budget shows one priced project without a strategy menu in Eng
       for (const message of messages) result = await engine.handleMessage("invest-budget", message);
       assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
       assert.match(result.reply, /I found a project that fits your budget|لقيت لك مشروع يناسب ميزانيتك/);
-      assert.match(result.reply, /AED [\d,]+/);
-      assert.equal(result.reply.split("\n").length, 2);
-      assert.equal(result.nextQuestion, null);
+      assert.match(result.reply, /AED [\d,]+|[\d,]+ درهم/);
+      if (historicalOnly) {
+        assert.equal(result.reply.split("\n").length, 2);
+        assert.equal(result.nextQuestion, null);
+      } else {
+        // One project card with the payment amounts, then buttons for the next step.
+        assert.match(result.reply, /💳/);
+        assert.equal(result.nextQuestion.field, "conciergeNext");
+        assert.ok(result.nextQuestion.choices.length >= 2);
+      }
       assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة/);
       assert.equal(result.callRequestSubmitted, false);
       if (historicalOnly) {

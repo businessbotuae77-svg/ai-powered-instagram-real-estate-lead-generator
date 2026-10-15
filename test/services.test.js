@@ -195,7 +195,7 @@ test("the real engine binds a proactive service offer without consuming a proper
   const { engine } = await setupConversation();
   engine.services = services;
   const first = await engine.handleMessage("proactive", "Budget 2M, 2 bedrooms in Yas to live in");
-  assert.equal(engine.memory.getPendingOffer("proactive").type, "advisory_next_action");
+  assert.equal(engine.memory.getPendingOffer("proactive").type, "concierge_card");
   assert.doesNotMatch(first.reply, /help arranging/);
   const propertyAnswer = await engine.handleMessage("proactive", "yes");
   assert.equal(propertyAnswer.buyer.serviceRequest, null);

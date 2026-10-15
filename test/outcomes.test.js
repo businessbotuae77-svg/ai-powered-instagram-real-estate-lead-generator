@@ -53,7 +53,7 @@ test("missing project details: says what is unknown, offers verification, record
 test("missing details in Arabic: the unknown is named and verification is offered in Arabic", async () => {
   const { turns, last } = await talk(["كم سعر Yas Waterfront Residences؟", "نعم", "هنا على إنستغرام"]);
   assert.match(turns[0].reply, /سعر البداية غير مؤكد بعد/);
-  assert.match(turns[0].reply, /هل تريد أن أوصلك به؟/);
+  assert.match(turns[0].reply, /تبي أوصلك فيهم؟/);
   assert.doesNotMatch(turns[0].reply, /not confirmed/);
   assert.equal(turns[1].stage, "follow_up_channel");
   assert.equal(last.stage, "follow_up_requested");
@@ -183,4 +183,36 @@ test("outcome precedence, finality and a returning buyer", () => {
   assert.equal(classifyTurn({ stage: "investment_risk" }), "info_provided");
   assert.equal(classifyTurn({ stage: "exploring", buyer: { budgetAed: 2000000 } }), "qualifying");
   assert.equal(classifyTurn({ stage: "exploring" }), "browsing");
+});
+
+test("after a card, 'yes' offers the team, and 'I want to reserve it' goes straight to how to reach the buyer", async () => {
+  const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", "yes", "I want to reserve it", "WhatsApp", "0501234567"]);
+  assert.equal(turns[1].nextQuestion.field, "handoffOffer");
+  assert.equal(turns[1].followUpSubmitted, false);
+  assert.equal(turns[2].stage, "follow_up_channel");
+  assert.deepEqual(turns[2].nextQuestion.choices.map(c => c.label), ["WhatsApp", "Phone call", "Here on Instagram"]);
+  assert.equal(turns[3].stage, "follow_up_phone");
+  assert.equal(last.outcome, "follow_up_requested");
+  assert.equal(last.check.ok, true);
+});
+
+test("Gulf Arabic requests for a person, a viewing or a booking reach the contact step in Arabic", async () => {
+  for (const ask of ["ابي اكلم احد", "كلم موظف"]) {
+    const { last } = await talk([ask]);
+    assert.equal(last.stage, "follow_up_channel", ask);
+    assert.match(last.reply, /كيف تحب/);
+    assert.deepEqual(last.nextQuestion.choices.map(c => c.label), ["WhatsApp", "مكالمة", "هنا في إنستغرام"]);
+  }
+  for (const ask of ["ابي احجز", "ابي معاينة", "ابي موعد"]) {
+    const { last } = await talk(["ميزانيتي 2 مليون غرفتين في ياس", ask]);
+    assert.equal(last.stage, "transaction_next_step", ask);
+    assert.equal(last.nextQuestion.field, "handoffOffer");
+    assert.equal(last.followUpSubmitted, false);
+  }
+});
+
+test("a time given after an offer to connect is a yes, and the time is kept for the team", async () => {
+  const { last } = await talk(["Budget 2M, 2 bedroom in Yas", "book a meeting", "tomorrow 5pm"]);
+  assert.equal(last.stage, "follow_up_channel");
+  assert.match(last.buyer.requestedAction, /preferred time: tomorrow 5pm/);
 });

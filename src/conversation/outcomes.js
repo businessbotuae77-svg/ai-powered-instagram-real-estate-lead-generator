@@ -53,7 +53,7 @@ export function higherOutcome(a, b) {
 const BROWSING_STAGES = new Set(["exploring", "welcome_back", "area_guide", "education", "identity", "acknowledged",
   "conversation_repair", "trust_check", "investment_advice", "qualifying", "clarify", "advisor_discovery"]);
 const ANSWER_STAGES = new Set(["comparison", "knowledge_answer", "research_answer", "investment_risk", "professional_topic",
-  "transaction_next_step"]);
+  "transaction_next_step", "market_prices"]);
 
 function sharedRequirements(buyer = {}) {
   return Boolean(buyer.budgetAed || buyer.preferredAreas?.length || buyer.bedrooms?.length || buyer.propertyTypes?.length ||

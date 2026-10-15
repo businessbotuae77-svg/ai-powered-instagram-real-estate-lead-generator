@@ -1,51 +1,51 @@
 {
   "useType": {
     "field": "useType",
-    "prompt": "Are you looking to buy, invest, or just exploring?",
+    "prompt": "Is it a home to live in, or an investment?",
     "choices": [
-      { "id": "buy", "label": "Buy", "aliases": ["buy", "buying", "purchase", "end use", "live in"], "value": "end_use" },
-      { "id": "invest", "label": "Invest", "aliases": ["invest", "investment", "investor", "rental"], "value": "investment" },
-      { "id": "explore", "label": "Just exploring", "aliases": ["just exploring", "exploring", "browse", "looking around"], "value": "unknown" }
+      { "id": "buy", "label": "To live in", "labelAr": "للسكن", "aliases": ["buy", "buying", "purchase", "end use", "live in", "to live in", "home to live in", "للسكن", "سكن", "للعيش", "بيت للسكن"], "value": "end_use" },
+      { "id": "invest", "label": "Investment", "labelAr": "للاستثمار", "aliases": ["invest", "investment", "investor", "rental", "للاستثمار", "استثمار", "استثماري"], "value": "investment" },
+      { "id": "explore", "label": "Not sure yet", "labelAr": "ما قررت بعد", "aliases": ["just exploring", "exploring", "browse", "looking around", "not sure yet", "not sure", "ما قررت بعد", "ما قررت", "مو متأكد", "لسه ما قررت"], "value": "unknown" }
     ]
   },
   "propertyTypes": {
     "field": "propertyTypes",
     "prompt": "Which property type fits best?",
     "choices": [
-      { "id": "apartment", "label": "Apartment", "aliases": ["apartment", "apartments", "flat", "flats", "apt"], "value": "apartment" },
-      { "id": "villa", "label": "Villa", "aliases": ["villa", "villas"], "value": "villa" },
-      { "id": "townhouse", "label": "Townhouse", "aliases": ["townhouse", "townhouses", "th"], "value": "townhouse" }
+      { "id": "apartment", "label": "Apartment", "labelAr": "شقة", "aliases": ["apartment", "apartments", "flat", "flats", "apt", "شقة", "شقق"], "value": "apartment" },
+      { "id": "villa", "label": "Villa", "labelAr": "فيلا", "aliases": ["villa", "villas", "فيلا", "فلل"], "value": "villa" },
+      { "id": "townhouse", "label": "Townhouse", "labelAr": "تاون هاوس", "aliases": ["townhouse", "townhouses", "th", "تاون هاوس"], "value": "townhouse" }
     ]
   },
   "financing": {
     "field": "financing",
     "prompt": "How do you want to pay?",
     "choices": [
-      { "id": "cash", "label": "Cash", "aliases": ["cash", "all cash", "full cash", "cash buyer"], "value": "cash" },
-      { "id": "mortgage", "label": "Mortgage", "aliases": ["mortgage", "bank finance", "bank loan"], "value": "mortgage" },
-      { "id": "payment_plan", "label": "Payment plan", "aliases": ["payment plan", "instalment", "installment", "plan"], "value": "payment_plan" }
+      { "id": "cash", "label": "Cash", "labelAr": "كاش", "aliases": ["cash", "all cash", "full cash", "cash buyer", "كاش", "نقدي", "نقداً"], "value": "cash" },
+      { "id": "mortgage", "label": "Mortgage", "labelAr": "تمويل بنكي", "aliases": ["mortgage", "bank finance", "bank loan", "تمويل بنكي", "تمويل عقاري", "قرض"], "value": "mortgage" },
+      { "id": "payment_plan", "label": "Payment plan", "labelAr": "خطة سداد", "aliases": ["payment plan", "instalment", "installment", "plan", "خطة سداد", "أقساط", "اقساط"], "value": "payment_plan" }
     ]
   },
   "preferredAreas": {
     "field": "preferredAreas",
     "prompt": "Which area are you looking at?",
     "choices": [
-      { "id": "yas", "label": "Yas", "aliases": ["yas", "yas island"], "value": "Yas Island" },
-      { "id": "saadiyat", "label": "Saadiyat", "aliases": ["saadiyat", "saadiyat island"], "value": "Saadiyat Island" },
-      { "id": "reem", "label": "Reem", "aliases": ["reem", "al reem", "reem island", "al reem island"], "value": "Al Reem Island" },
-      { "id": "hudayriyat", "label": "Hudayriyat", "aliases": ["hudayriyat", "hudayriyat island", "al hudayriyat"], "value": "Hudayriyat Island" },
-      { "id": "other", "label": "Other", "aliases": ["other", "somewhere else"], "value": null }
+      { "id": "yas", "label": "Yas", "labelAr": "ياس", "aliases": ["yas", "yas island", "ياس", "جزيرة ياس"], "value": "Yas Island" },
+      { "id": "saadiyat", "label": "Saadiyat", "labelAr": "السعديات", "aliases": ["saadiyat", "saadiyat island", "السعديات", "جزيرة السعديات"], "value": "Saadiyat Island" },
+      { "id": "reem", "label": "Reem", "labelAr": "الريم", "aliases": ["reem", "al reem", "reem island", "al reem island", "الريم", "جزيرة الريم"], "value": "Al Reem Island" },
+      { "id": "hudayriyat", "label": "Hudayriyat", "labelAr": "الحديريات", "aliases": ["hudayriyat", "hudayriyat island", "al hudayriyat", "الحديريات", "جزيرة الحديريات"], "value": "Hudayriyat Island" },
+      { "id": "other", "label": "Other", "labelAr": "منطقة ثانية", "aliases": ["other", "somewhere else", "منطقة ثانية", "مكان ثاني"], "value": null }
     ]
   },
   "bedrooms": {
     "field": "bedrooms",
     "prompt": "How many bedrooms?",
     "choices": [
-      { "id": "studio", "label": "Studio", "aliases": ["studio", "studios"], "value": 0 },
-      { "id": "1", "label": "1 bedroom", "aliases": ["1", "1br", "1 bedroom", "one bedroom"], "value": 1 },
-      { "id": "2", "label": "2 bedrooms", "aliases": ["2", "2br", "2 bedroom", "2 bedrooms", "two bedroom", "two bedrooms"], "value": 2 },
-      { "id": "3", "label": "3 bedrooms", "aliases": ["3", "3br", "3 bedroom", "3 bedrooms", "three bedroom", "three bedrooms"], "value": 3 },
-      { "id": "4", "label": "4+ bedrooms", "aliases": ["4", "4br", "4 bedroom", "4 bedrooms", "four bedroom"], "value": 4 }
+      { "id": "studio", "label": "Studio", "labelAr": "استوديو", "aliases": ["studio", "studios", "استوديو", "ستوديو"], "value": 0 },
+      { "id": "1", "label": "1 bedroom", "labelAr": "غرفة نوم", "aliases": ["1", "1br", "1 bedroom", "one bedroom", "غرفة نوم", "غرفة وحدة", "غرفة واحدة"], "value": 1 },
+      { "id": "2", "label": "2 bedrooms", "labelAr": "غرفتين", "aliases": ["2", "2br", "2 bedroom", "2 bedrooms", "two bedroom", "two bedrooms", "غرفتين", "غرفتان"], "value": 2 },
+      { "id": "3", "label": "3 bedrooms", "labelAr": "3 غرف", "aliases": ["3", "3br", "3 bedroom", "3 bedrooms", "three bedroom", "three bedrooms", "3 غرف", "ثلاث غرف"], "value": 3 },
+      { "id": "4", "label": "4+ bedrooms", "labelAr": "4 غرف أو أكثر", "aliases": ["4", "4br", "4 bedroom", "4 bedrooms", "four bedroom", "4+ bedrooms", "4 غرف", "4 غرف أو أكثر", "أربع غرف"], "value": 4 }
     ]
   },
   "investmentObjective": {

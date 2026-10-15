@@ -121,8 +121,10 @@ export function applyChoiceFacts(message, facts = {}, { buyer = null, lastAskedF
   return next;
 }
 
-export function choicesForField(field) {
+/** Quick replies for a question, labelled in the buyer's language. */
+export function choicesForField(field, language = "en") {
   const groups = loadQualificationChoices();
+  const ar = language === "ar";
   for (const group of Object.values(groups)) {
     if (group.field === field) {
       return {
@@ -130,7 +132,7 @@ export function choicesForField(field) {
         prompt: group.prompt,
         choices: (group.choices || []).map((choice) => ({
           id: choice.id,
-          label: choice.label,
+          label: ar && choice.labelAr ? choice.labelAr : choice.label,
           value: choice.value
         }))
       };

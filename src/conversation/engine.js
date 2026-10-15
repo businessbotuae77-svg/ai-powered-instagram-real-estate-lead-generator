@@ -1,3 +1,5 @@
+import { marketPriceAnswer, isMarketPriceQuestion } from "./market-price-answer.js";
+import { loadMarketPrices } from "../facts/market-prices.js";
 import { registeredSalesAnswer } from "./registered-sales-answer.js";
 import { registeredProjectNames } from "../facts/registered-sales.js";
 import { localizeDraft } from "./localize.js";
@@ -6,7 +8,7 @@ import { KeyedQueue } from "./keyed-queue.js";
 import { normalizeBuyerText, buyerLanguage } from "./text.js";
 import { decideConversation, isClosingRemark } from "./decision.js";
 import { conversationalScope } from "./question-scope.js";
-import { contactDecision, wantsHuman, agentEducationReply } from "./contact.js";
+import { contactDecision, wantsHuman, agentEducationReply, suggestsTime } from "./contact.js";
 import { missingDataHandoff, validateMessage } from "../facts/checker.js";
 import { extractFactsFromMessage } from "./extract.js";
 import { ConversationMemory } from "./memory.js";
@@ -37,6 +39,7 @@ import { brokerProfile, directContactLine, permittedContactDetails } from "./bro
 import { declinesOffer, isBareDecline, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
 import { routeServiceTurn } from "./service-flow.js";
+import { conciergeTurn } from "./concierge.js";
 import { loadBuyerDecisionsConfig } from "./buyer-decisions-config.js";
 import { buildBuyerDecisionTurn, decorateBuyerDecisionDraft, decisionControlKind, budgetPermissionFacts, decisionScope, inspectDecisionComparison } from "./buyer-decision-flow.js";
 import {
@@ -67,10 +70,12 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
-  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null, buyerDecisions = null } = {}) {
+  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null, buyerDecisions = null, marketPrices = undefined } = {}) {
     if (!buyers || !properties) throw new Error("ConversationEngine requires buyers and properties");
     this.buyers = buyers;
     this.properties = properties;
+    // Bundled statistics are indexed once at startup, before any buyer waits.
+    this.marketPrices = marketPrices === undefined ? loadMarketPrices() : marketPrices;
     this.memory = memory || new ConversationMemory();
     // Advisor options affect deterministic ranking, never model/API calls.
     this.advisorOptions = advisorOptions;
@@ -94,11 +99,18 @@ export class ConversationEngine {
     let recentTurns = this.memory.recentContext(instagramUserId, 6);
 
     const initialCatalog = this.properties.catalog();
+    // Words inside an exact project name (for example Saadiyat Reserve) are
+    // identities, not permission to reserve or accept a pending handoff.
+    const withoutProjectNames = (this.marketPrices?.places || []).filter(place => place.level === "Project")
+      .sort((a, b) => b.name.length - a.name.length).reduce((message, place) => message.replace(
+        new RegExp(`(^|[^\\p{L}\\p{N}])${place.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\p{L}\\p{N}])`, "giu"), "$1 "), text);
+    const marketQuestion = isMarketPriceQuestion(withoutProjectNames, this.marketPrices);
+    const permissionText = marketQuestion ? withoutProjectNames : text;
     const projectNames = [...initialCatalog.projects.map(project => project.name), ...registeredProjectNames(initialCatalog.registeredSales)];
-    let base = extractFactsFromMessage(text, { buyer: existingBuyer, lastAskedField, projectNames });
+    let base = extractFactsFromMessage(permissionText, { buyer: existingBuyer, lastAskedField, projectNames });
     const scope = conversationalScope(text);
 
-    const localUnderstanding = understandMessageLocally(text, {
+    const localUnderstanding = understandMessageLocally(permissionText, {
       buyer: existingBuyer,
       lastAskedField
     });
@@ -192,7 +204,7 @@ export class ConversationEngine {
     if ((facts.area || facts.areas) && facts.openToOtherAreas !== true) {
       facts.openToOtherAreas = false;
     }
-    const refined = refineTurnIntent({ intents, signals, facts, message: text });
+    const refined = refineTurnIntent({ intents, signals, facts, message: permissionText });
     facts = refined.facts;
     signals = refined.signals;
     intents = refined.intents;
@@ -231,15 +243,17 @@ export class ConversationEngine {
       delete facts.salesPathStopped;
       delete facts.contactDeclined;
     }
-    const humanRequest = wantsHuman(text);
+    const humanRequest = wantsHuman(permissionText);
     if (pendingAtStart?.type === "handoff_offer" && declinesOffer(text) && !humanRequest && !declinedServiceIds(text, this.services).length) {
       intents = [...intents.filter(i => !["stop", "decline_call", "decline_contact"].includes(i)), "decline_handoff"];
       delete facts.salesPathStopped;
       facts.contactDeclined = true;
       facts.declinedSuggestions = ["handoff"];
     }
-    if (pendingAtStart?.type === "handoff_offer" && isAffirmation(text)) {
+    if (pendingAtStart?.type === "handoff_offer" && (isAffirmation(text) || suggestsTime(text))) {
       facts.requestedAction = existingBuyer.handoffTopics?.at(-1) || "Accepted an offer to connect";
+      // "Tomorrow 5pm" answers the offer and tells the team when.
+      if (suggestsTime(text) && !isAffirmation(text)) facts.requestedAction = `${facts.requestedAction} (preferred time: ${text.slice(0, 60)})`;
     }
     if (humanRequest) {
       intents = [...new Set([...intents.filter(i => !["stop", "decline_contact"].includes(i)), "agent"])];
@@ -361,6 +375,14 @@ export class ConversationEngine {
       callRequestSubmitted = false;
     }
 
+    // A statistical comparison describes its own scope, not a new home search.
+    if (marketQuestion && !intents.some(intent => protectedIntents.has(intent))) {
+      const controls = new Set(["language", "name", "phone", "noCalls", "salesPathStopped", "preferredContactChannel", "contactDeclined", "requestedAction"]);
+      facts = Object.fromEntries(Object.entries(facts).filter(([field]) => controls.has(field)));
+      unsure = [];
+      signals = signals.filter(signal => signal !== "area_flexible");
+      ack = null;
+    }
     let buyer = await this.buyers.remember(instagramUserId, facts);
     this.memory.recordPreferenceStates?.(instagramUserId, buyer.preferenceStates);
     const explicitResume = buyerWouldResume(deterministic.facts, deterministic.intents) ||
@@ -407,7 +429,7 @@ export class ConversationEngine {
     const offerCallRequest =
       Boolean(options.offerCallRequest) ||
       intents.includes("request_call") ||
-      wantsCallRequest(text);
+      wantsCallRequest(permissionText);
     let catalogError = null;
     if (this.properties.refresh) {
       try { await this.properties.refresh(); } catch (error) { catalogError = error.message; }
@@ -415,7 +437,7 @@ export class ConversationEngine {
     const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog({
       suppressAvailability: true });
     const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
-    if (!decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
+    if (!marketQuestion && !decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
       facts.project = namedProjects[0].name;
       buyer = await this.buyers.remember(instagramUserId, { project: facts.project });
@@ -494,7 +516,7 @@ export class ConversationEngine {
       }
       if (subject && !intents.includes("ask_facts")) intents = [...intents, "ask_facts"];
     }
-    const contact = contactDecision({ message: text, buyer,
+    const contact = contactDecision({ message: permissionText, buyer,
       pending: this.memory.getPendingOffer(instagramUserId),
       explicitCall: intents.includes("request_call"),
       highIntent: highIntent && !intents.includes("eoi_info"),
@@ -513,8 +535,26 @@ export class ConversationEngine {
     const turnObjections = (facts.objections || []).map(o => o.category);
     const askedFields = new Set(this.memory.getTurns(instagramUserId).map(turn => turn.role === "assistant" && turn.questionField).filter(Boolean));
     const serviceDraft = routeServiceTurn({ message: text, buyer, services: this.services, pendingOffer: pendingAtStart });
-    let draft = (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
+    // The concierge answers the turns buyers ask most (cheapest, more options,
+    // why we ask, how buying works, fees, an area) before anything else.
+    const conciergeDraft = !contact && !serviceDraft && !catalogError ? conciergeTurn({ message: text, buyer, catalog, advisor,
+      pendingOffer: pendingAtStart, lastAskedField, intents }) : null;
+    let draft = conciergeDraft || (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
       askedFields, pendingOffer: pendingAtStart });
+    // Market averages answer explicit price questions before listing advice.
+    // Permission changes and handoffs retain priority over informational answers.
+    if (!contact && !serviceDraft && !buyer.salesPathStopped && !intents.includes("start_fresh") &&
+        !["paused", "permissions_updated", "welcome_back", "handoff_declined"].includes(draft?.stage)) {
+      const market = marketPriceAnswer({ message: text, buyer, catalog, data: this.marketPrices });
+      if (market) {
+        const missingPrice = market.marketPrices?.unavailable || market.marketPrices?.missingScope ||
+          !market.marketPrices?.rows?.some(row => row.Reliability === "OK");
+        draft = { ...market, factMissing: missingPrice ? [{ topic: "market_prices" }] : [] };
+        this.memory.setPendingOffer(instagramUserId, null);
+        packs = [];
+        matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
+      }
+    }
     if (!contact && !serviceDraft && isNegatedBuying(text) && !searchUpdateForDecision(facts)) draft = { text: buyer.language === "ar" ? "بالتأكيد. يمكنك تصفح المشاريع أو السؤال عنها متى أردت." : "Of course. You can browse or ask about a project whenever you’re ready.", stage: "paused_advice", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
     // "Yes" to "Want me to break down the payment plan?" offered about a project
     // the engine has not picked: answer it from that project's listings.
@@ -686,7 +726,8 @@ export class ConversationEngine {
       else if (step) draft = { ...draft, handoffReason: step.handoffReason, handoffTopic: draft.handoffTopic || step.handoffTopic };
     }
     if (draft.handoffReason) {
-      const offer = handoffOffer({ buyer, broker: this.broker, reason: draft.handoffReason, lastAskedField });
+      const offer = handoffOffer({ buyer, broker: this.broker, reason: draft.handoffReason, lastAskedField,
+        brief: draft.stage === "transaction_next_step" && ["buying", "viewing", "meeting"].includes(draft.handoffReason) });
       if (offer) draft = { ...draft, text: `${draft.text}\n${offer.line}`, nextQuestion: offer.nextQuestion, pendingOffer: offer.pendingOffer };
       else if (draft.handoffReason === "buying" && !buyer.salesPathStopped) {
         // The buyer declined a follow-up earlier: give direct details instead of asking again.
@@ -903,7 +944,7 @@ export class ConversationEngine {
       : null;
     // Explicit human, call or purchase intent tells the broker about the lead,
     // once per session, without treating it as permission to contact the buyer.
-    let intentAlert = intentAlertFor({ message: text, intents, moment, buyer, followUpSubmitted,
+    let intentAlert = intentAlertFor({ message: permissionText, intents, moment, buyer, followUpSubmitted,
       sessionId: buyer.conversation?.sessionId || null });
     if (intentAlert) {
       buyer = await this.buyers.patchBuyer(instagramUserId, { intentAlert: { kind: intentAlert.kind, sessionId: buyer.conversation?.sessionId || null,
