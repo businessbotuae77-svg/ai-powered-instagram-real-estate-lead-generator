@@ -1,3 +1,4 @@
+import { emptyRegisteredSales } from "../facts/registered-sales.js";
 import { safeCatalog } from "../facts/freshness.js";
 import { criteriaFromBuyer, matchInventory } from "../matching/matcher.js";
 import { retrieveFacts } from "../facts/retrieval.js";
@@ -20,7 +21,7 @@ export class PropertyService {
     // Production stores no units; each priced project is one project-level listing.
     const units = [...stored, ...projectListings(projects, stored)];
     const intelligence = this.store.listIntelligence ? this.store.listIntelligence() : emptyIntelligence();
-    const catalog = { developers, projects, units, intelligence };
+    const catalog = { developers, projects, units, intelligence, registeredSales: this.store.listRegisteredSales ? this.store.listRegisteredSales() : this.store.registeredSales || emptyRegisteredSales() };
     const scopedOffers = offerUnits(catalog);
     // A linked offer supersedes that unit's legacy quote. Quote-only scopes
     // remain separate so one offer cannot contaminate the whole project.

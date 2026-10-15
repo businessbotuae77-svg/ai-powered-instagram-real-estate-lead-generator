@@ -3,3 +3,7 @@ node_modules/
 data/runtime/
 *.log
 .DS_Store
+
+# Private transaction exports and derived datasets stay outside public git.
+data/registered-sales*.json*
+data/registered-project-aliases.json

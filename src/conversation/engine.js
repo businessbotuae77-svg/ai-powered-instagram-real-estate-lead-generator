@@ -1,3 +1,5 @@
+import { registeredSalesAnswer } from "./registered-sales-answer.js";
+import { registeredProjectNames } from "../facts/registered-sales.js";
 import { localizeDraft } from "./localize.js";
 import { asksAvailability, isListingRequest, acceptsListingComparison } from "./listing-answers.js";
 import { KeyedQueue } from "./keyed-queue.js";
@@ -91,7 +93,8 @@ export class ConversationEngine {
     const existingBuyer = await this.buyers.getOrCreate(instagramUserId);
     let recentTurns = this.memory.recentContext(instagramUserId, 6);
 
-    const projectNames = this.properties.catalog().projects.map(project => project.name);
+    const initialCatalog = this.properties.catalog();
+    const projectNames = [...initialCatalog.projects.map(project => project.name), ...registeredProjectNames(initialCatalog.registeredSales)];
     let base = extractFactsFromMessage(text, { buyer: existingBuyer, lastAskedField, projectNames });
     const scope = conversationalScope(text);
 
@@ -600,6 +603,15 @@ export class ConversationEngine {
     if (!contact && !draft?.buyerDecision && !draft?.suppressCommercial && !concreteComparison && !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "catalog_unavailable", "welcome_back", "area_guide"].includes(draft?.stage)) {
       const research = researchReply({ buyer, catalog, message: text, advisor });
       if (research) draft = research;
+    }
+    if (!contact && !buyer.salesPathStopped && !draft?.suppressCommercial && !draft?.buyerDecision &&
+        !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "welcome_back", "identity", "handoff_declined", "transaction_next_step"].includes(draft?.stage)) {
+      const recorded = registeredSalesAnswer({ message: text, buyer, catalog, draft });
+      if (recorded) {
+        draft = recorded;
+        packs = [];
+        matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
+      }
     }
     if (!draft && !contact && strategy && (advisoryReady(buyer) || strategy.type === "no_push")) {
       draft = buildAdvisorReply({ buyer, advisor, strategy, message: text, turnObjections, lastAskedField, askedFields, activePack: activeRecommendationPack(catalog, buyer) });

@@ -1,3 +1,4 @@
+import { registeredSalesFromRecords, emptyRegisteredSales } from "../facts/registered-sales.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -245,6 +246,7 @@ export class AirtableStore {
       ]);
       const linked = projectRecords.some((row) => Array.isArray(row.fields.Developer) && /^rec/.test(row.fields.Developer[0] || ""));
       const legacyNames = linked ? await this.legacyDeveloperNames() : new Map();
+      this.registeredSales = registeredSalesFromRecords(projectRecords);
       this.projects = projectRecords.map((row) => this.mapProject(row, legacyNames));
       this.units = unitRecords.map((row) => this.mapUnit(row));
       this.catalogLoadedAt = Date.now();
@@ -311,6 +313,8 @@ export class AirtableStore {
   areaRows() {
     return this.optionalTables.areas ? this.optionalState.areas?.records || [] : this.areaRecords || [];
   }
+
+  listRegisteredSales() { return this.registeredSales || emptyRegisteredSales(); }
 
   listIntelligence() {
     // Reapply time-sensitive evidence checks at read time as well as refresh.
