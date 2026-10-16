@@ -129,8 +129,8 @@ test("a named statistic keeps the detailed figures, without a source link", asyn
   const { engine } = await setupConversation();
   const stat = await engine.handleMessage("stat", "What is the average price per sqft in Merito over the last 12 months?");
   assert.equal(stat.check.ok, true, JSON.stringify(stat.check.violations));
-  assert.match(stat.reply, /average AED [\d,]+\/sqft/);
-  assert.match(stat.reply, /Data through 2026-10-14\./);
+  assert.match(stat.reply, /^📊 Merito · Al Shamkhah\nDeveloper sales, off-plan · last 12 months\n🏠 Apartments: average AED [\d,]+\/sq ft · [\d,]+ developer sales\n/u);
+  assert.match(stat.reply, /data through 14 Oct 2026/);
   assert.doesNotMatch(stat.reply, SOURCES);
 });
 

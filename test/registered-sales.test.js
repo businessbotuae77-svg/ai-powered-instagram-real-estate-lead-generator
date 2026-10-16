@@ -200,12 +200,14 @@ test("invest then budget shows one priced project without a strategy menu in Eng
       let result;
       for (const message of messages) result = await engine.handleMessage("invest-budget", message);
       assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
-      assert.match(result.reply, /I found a project that fits your budget|لقيت لك مشروع يناسب ميزانيتك/);
-      assert.match(result.reply, /AED [\d,]+|[\d,]+ درهم/);
+      assert.match(result.reply, /AED [\d,]+|[\d,]+ درهم|مليون درهم/);
       if (historicalOnly) {
-        assert.equal(result.reply.split("\n").length, 2);
-        assert.equal(result.nextQuestion, null);
+        // No listed home: the projects whose recorded sales fit the budget, as cards with buttons.
+        assert.match(result.reply, /I don't have a listed price in your range right now|ما عندي سعر معلن ضمن ميزانيتك حالياً/);
+        assert.match(result.reply, /^🏙️ /mu);
+        assert.equal(result.nextQuestion.field, "conciergeNext");
       } else {
+        assert.match(result.reply, /I found a project that fits your budget|لقيت لك مشروع يناسب ميزانيتك/);
         // One project card with the payment amounts, then buttons for the next step.
         assert.match(result.reply, /💳/);
         assert.equal(result.nextQuestion.field, "conciergeNext");
@@ -214,9 +216,7 @@ test("invest then budget shows one priced project without a strategy menu in Eng
       assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة/);
       assert.equal(result.callRequestSubmitted, false);
       if (historicalOnly) {
-        assert.equal(result.stage, "recorded_sales");
-        assert.match(result.reply, /Cove Test/);
-        assert.match(result.reply, /AED 300,000/);
+        assert.equal(result.stage, "project_knowledge");
       } else {
         assert.equal(result.stage, "matched");
         assert.equal(result.packs.length, 1);

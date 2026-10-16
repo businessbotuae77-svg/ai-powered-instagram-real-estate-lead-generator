@@ -12,8 +12,9 @@ import { normalizeBuyerText, buyerLanguage } from "./text.js";
 import { normalizeArea, sameText } from "../matching/normalize.js";
 import { answerListingRequest, isListingRequest } from "./listing-answers.js";
 import { isAffirmation } from "./affirmation.js";
-import { lookupProjectSales, projectKnowledgeCoverage } from "../facts/project-knowledge.js";
+import { lookupProjectSales, projectKnowledgeCoverage, projectKnowledgeInMessage } from "../facts/project-knowledge.js";
 import { areaKey } from "../matching/area-names.js";
+import { askedSubject, looksLikeProjectName, projectFamilyIn, projectsNamed, similarProjects } from "./project-families.js";
 
 const fmt = amount => Number(amount).toLocaleString("en-US");
 export const aed = (amount, ar = false) => ar ? `${fmt(amount)} درهم` : `AED ${fmt(amount)}`;
@@ -261,7 +262,11 @@ export const nextChoice = (key, ar) => ({ ...(ar ? NEXT_AR : NEXT_EN)[key] });
 
 // Instagram buttons hold 20 characters: cut a long project name at a word, not mid-word.
 export function buttonLabel(name) {
-  const text = String(name).trim().replace(/\s+/g, " ");
+  let text = String(name).trim().replace(/\s+/g, " ");
+  if (text.length <= 20) return text;
+  // "Al Reeman 2 - Phase 2 (Plots)" → "Al Reeman 2 Phase 2"; "Residence" → "Res", "Phase" → "Ph" when still long.
+  text = text.replace(/\s+[-–—]\s+/g, " ").replace(/\s*\([^)]*\)\s*$/, "").trim();
+  if (text.length > 20) text = text.replace(/\bResidences?\b/g, "Res").replace(/\bPhase\b/g, "Ph");
   if (text.length <= 20) return text;
   // Keep a closing number or letter ("Residence 25", "Tara A"): it tells phases apart.
   const tail = text.match(/ (\d+|[A-Z])$/)?.[1] || "";
@@ -315,7 +320,7 @@ const MORE = /^(?:(?:can you |could you |please )?(?:show|give|send)(?: me)? |(?
 const WHY_ASK = /^(?:why|why\??|why do you (?:need|want|ask)(?: (?:that|this|it|my \w+))?|why (?:are you asking|is that (?:needed|important)|does it matter|my budget)|what(?:'s| is) it to you|none of your business|ليش|لماذا|ليش تسأل|ليش تبي.*|ليه|شدخلك|وش دخلك|شو دخلك|ليش الميزانية|لماذا الميزانية)[.!?؟]*$/i;
 const PROCESS = /\b(?:how (?:does|do) (?:buying |it )?(?:off[- ]?plan|the (?:buying )?process|buying) work|(?:off[- ]?plan|buying) process|steps? to buy|how (?:do|can) i buy(?: off[- ]?plan)?|what(?:'s| is| are) the (?:buying )?(?:steps|process)|how to buy)\b|(?:كيف|ايش|وش|شو) (?:اشتري|أشتري|الشراء|طريقة الشراء|خطوات الشراء)|خطوات الشراء|طريقة الشراء|كيف يتم الشراء/i;
 const FEES = /\b(?:what|which|any|extra|other|hidden|additional) (?:fees?|charges?|costs?)\b|\bfees?\b.{0,20}\b(?:pay|apply|are there|involved)\b|\b(?:registration|dld|service charges?|admin fees?)\b.{0,25}\?|(?:رسوم|الرسوم|تكاليف إضافية|تكاليف اضافية|رسوم التسجيل)/i;
-const AREA_QUESTION = /\b(?:is|are)\b.{0,30}\b(?:good|nice|safe|worth it|a good (?:area|place|location|choice|investment area)|family[- ]friendly)\b|\btell me (?:more )?about\b|\bwhat(?:'s| is)\b.{0,20}\b(?:like|known for)\b|\babout the area\b|\barea guide\b|^about (?:the )?area$|(?:وش|شو|ايش|كيف) (?:رايك|رأيك) (?:في|ب)|(?:زين|حلو|مناسب|امان|آمن).{0,20}(?:للسكن|للعائلات|للاستثمار)?\s*[؟?]$|عن المنطقة|حدثني عن|عطني نبذة عن/i;
+const AREA_QUESTION = /\b(?:is|are)\b.{0,30}\b(?:good|nice|safe|worth it|a good (?:area|place|location|choice|investment area)|family[- ]friendly)\b|\btell me (?:more )?about\b|^(?:what|how) about\b|\bwhat(?:'s| is)\b.{0,20}\b(?:like|known for)\b|\babout the area\b|\barea guide\b|^about (?:the )?area$|(?:وش|شو|ايش|كيف) (?:رايك|رأيك) (?:في|ب)|(?:زين|حلو|مناسب|امان|آمن).{0,20}(?:للسكن|للعائلات|للاستثمار)?\s*[؟?]$|عن المنطقة|حدثني عن|عطني نبذة عن/i;
 
 export function wantsCheapest(text) { return CHEAPEST.test(normalizeBuyerText(text)); }
 // "Hmm. Whats other projects", "ok what else do you have?", "في مشاريع ثانية؟"
@@ -769,9 +774,10 @@ export function salesKnowledgeReply({ answer, message = "", buyer = {}, data, ca
     // An area with no developer sales still has its resales to show.
     return salesAreaReply({ knowledge: { ...knowledge, askedResale }, data, buyer, catalog, ar, resale: askedResale || !knowledge.projects?.length });
   }
-  if (!["project", "home_types"].includes(knowledge.intent) || knowledge.projects?.length !== 1 || STATISTIC_QUESTION.test(text)) return null;
+  if (!["project", "home_types"].includes(knowledge.intent) || knowledge.projects?.length !== 1) return null;
   const project = data.projects.find(row => row.name === knowledge.projects[0].name && row.area === knowledge.projects[0].area);
   if (!project) return null;
+  if (STATISTIC_QUESTION.test(text)) return knowledge.intent === "project" ? statCardDraft({ knowledge, project, data, buyer, catalog, message: text, ar }) : null;
   // A project we list with today's prices gets its listing card: a live price beats a recorded one.
   const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
   const listing = listed ? openProjectReply({ text: listed.name, buyer, catalog, advisor: null, ar }) : null;
@@ -785,6 +791,58 @@ export function salesKnowledgeReply({ answer, message = "", buyer = {}, data, ca
     factMissing: card.projectKnowledge.rows.some(row => row.reliability === "OK") ? [] : [{ topic: "project_sales" }] };
 }
 
+const STAT_PERIOD = { "Last 12 months": ["last 12 months", "آخر 12 شهراً"], "Last 3 months": ["last 3 months", "آخر 3 أشهر"] };
+
+function statSaleWords(filters, ar) {
+  const ready = filters.saleType === "Ready", offPlan = filters.saleType === "Off-plan";
+  if (filters.saleSequence === "Primary") return ar ? `مبيعات المطور${offPlan ? " على الخارطة" : ready ? " للوحدات الجاهزة" : ""}` : `Developer sales${offPlan ? ", off-plan" : ready ? ", ready homes" : ""}`;
+  if (filters.saleSequence === "Secondary") return ar ? `إعادة البيع${offPlan ? " على الخارطة" : ready ? " للوحدات الجاهزة" : ""}` : `Resales${offPlan ? " of off-plan homes" : ready ? " of ready homes" : ""}`;
+  return ar ? `كل المبيعات${ready ? " للوحدات الجاهزة" : offPlan ? " على الخارطة" : ""}` : `All sales${ready ? " of ready homes" : offPlan ? ", off-plan" : ""}`;
+}
+
+/** "Apartments", "1-bed apartments", "Villa plots" / "شقق"، "شقق غرفة نوم". */
+function statHomeLabel(row, ar) {
+  if (row.bedrooms === "Studio") return ar ? "استوديوهات" : "Studios";
+  const plural = TYPE_PLURAL[row.type]?.[ar ? 1 : 0] || capitalize(String(row.type));
+  if (!BED_ORDER.includes(row.bedrooms)) return plural;
+  return ar ? homePhrase(row, true) : capitalize(homePhrase(row));
+}
+
+/**
+ * A statistic asked for by name ("average price per sqft in Merito") as a card:
+ * the same checked figures as the detailed answer, laid out to read on a phone.
+ */
+function statCardDraft({ knowledge, project, data, buyer, catalog, message, ar }) {
+  const rows = knowledge.rows || [], filters = knowledge.filters || {};
+  if (!rows.length || knowledge.unavailable || !filters.period) return null;
+  const median = /\bmedian\b|وسيط/i.test(message), both = median && /\b(?:average|avg|mean)\b|متوسط/i.test(message);
+  const total = /\b(?:total|unit|whole[- ]property)\s+(?:sale\s+|property\s+)?prices?\b|\bprices?\s+per\s+(?:unit|home|apartment|villa)\b|السعر الإجمالي|السعر الاجمالي|سعر الوحدة|إجمالي السعر|اجمالي السعر/i.test(message);
+  const kind = filters.saleSequence === "Secondary" ? "resale" : filters.saleSequence === "Primary" ? "primary" : "all";
+  const count = n => kind === "all" ? (ar ? `${fmt(n)} ${n === 1 ? "عملية بيع" : n <= 10 ? "عمليات بيع" : "عملية بيع"}` : `${fmt(n)} ${n === 1 ? "sale" : "sales"}`) : salesCount(n, kind, ar);
+  const year = String(data.source?.dataUpTo || "").slice(0, 4);
+  const period = STAT_PERIOD[filters.period]?.[ar ? 1 : 0] || (ar ? `${year} حتى الآن` : `${year} so far`);
+  const value = (perSqft, price) => ar ? `${fmt(perSqft)} درهم/قدم²${total ? ` (${fmt(price)} درهم للوحدة)` : ""}` : `AED ${fmt(perSqft)}/sq ft${total ? ` (AED ${fmt(price)} per home)` : ""}`;
+  const display = AREA_DISPLAY[areaId(project.area)] || project.area;
+  const lines = [`📊 ${project.name} · ${areaLabel(display, ar)}`, `${statSaleWords(filters, ar)} · ${period}`];
+  for (const row of rows) {
+    if (row.reliability === "Low sample") {
+      lines.push(ar ? `🏠 ${statHomeLabel(row, true)}: ${count(row.sales)} فقط، قليلة لمتوسط موثوق` : `🏠 ${statHomeLabel(row)}: only ${count(row.sales)}, too few for a reliable average`);
+      continue;
+    }
+    const avg = `${ar ? "المتوسط" : "average"} ${value(row.averageAedPerSqft, row.averagePriceAed)}`;
+    const med = `${ar ? "الوسيط" : "median"} ${value(row.medianAedPerSqft, row.medianPriceAed)}`;
+    lines.push(`🏠 ${statHomeLabel(row, ar)}: ${both ? `${avg} · ${med}` : median ? med : avg} · ${count(row.sales)}`);
+  }
+  const first = rows.reduce((min, row) => !min || row.firstSale < min ? row.firstSale : min, ""), last = rows.reduce((max, row) => row.lastSale > max ? row.lastSale : max, "");
+  lines.push(`🗓️ ${dayLabel(first, ar)} – ${dayLabel(last, ar)} · ${ar ? "البيانات حتى" : "data through"} ${dayLabel(data.source?.dataUpTo || last, ar)}`);
+  const block = lines.join("\n");
+  const choices = [{ id: "todays_price", label: ar ? "سعر اليوم" : "Get today's price", value: ar ? "كلم موظف" : "Talk to an agent" }, nextChoice("more", ar)];
+  return draft(block, "project_knowledge", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices,
+    extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, rows, [project])] }],
+      projectKnowledge: { ...knowledge, intent: "project_stats" }, factMissing: rows.some(row => row.reliability === "OK") ? [] : [{ topic: "project_sales" }],
+      handoffTopic: `Today's price and payment plan for ${project.name}` } });
+}
+
 /** The sales list as a checked reply: every figure is a recorded statistic, labelled as such. */
 function salesOptionsReply({ buyer, data, catalog, ar, first = false, message = "" }) {
   const shownNames = (buyer.shownProjects || []).filter(id => String(id).startsWith("sales:")).map(id => String(id).slice(6));
@@ -796,7 +854,9 @@ function salesOptionsReply({ buyer, data, catalog, ar, first = false, message = 
   if (!picks.length) return null;
   const source = data.source || {}, dataUpTo = source.dataUpTo || projectKnowledgeCoverage(data).dataUpTo;
   const sample = picks[0];
-  const what = buyer.bedrooms?.length || buyer.propertyTypes?.length ? homePhrase(sample, ar) : (ar ? "عقارات" : "homes");
+  // The buyer's own words: "2-bed apartments" when they gave a size, "apartments" when only the type.
+  const what = buyer.bedrooms?.length ? homePhrase(sample, ar) : buyer.propertyTypes?.length && TYPE_PLURAL[sample.type]
+    ? (ar ? TYPE_PLURAL[sample.type][1] : TYPE_PLURAL[sample.type][0].toLowerCase()) : (ar ? "عقارات" : "homes");
   const marks = ["1️⃣", "2️⃣", "3️⃣"];
   const top = data.projects.find(project => project.name === picks[0].project && project.area === picks[0].area);
   const topCard = top ? salesProjectCard({ project: top, data, buyer, catalog, ar, focus: { bedrooms: picks[0].bedrooms, type: picks[0].type } }) : null;
@@ -1031,6 +1091,97 @@ function areaReply({ text, buyer, catalog, ar, pendingOffer = null, projectKnowl
     pendingOffer: { type: "concierge_area", area: entry.area }, extra: { areaGuideAreas: [entry.area] } });
 }
 
+// ---------------------------------------------------------------- project names
+
+/** One sold project the buyer means: its listing card when we list it, else its sales card. */
+function soldProjectReply({ project, data, buyer, catalog, ar }) {
+  const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
+  return (listed && openProjectReply({ text: listed.name, buyer, catalog, advisor: null, ar })) || salesProjectCardDraft({ project, data, buyer, catalog, ar });
+}
+
+/** A few sold projects: the busiest as a card, the next two as one line each. */
+function soldProjectsDraft({ projects, data, buyer, catalog, ar, lead }) {
+  const shown = projects.slice(0, 3);
+  const top = salesProjectCard({ project: shown[0], data, buyer, catalog, ar }) || soldIdentityCard({ project: shown[0], catalog, ar });
+  if (!top) return null;
+  const marks = ["2️⃣", "3️⃣"], manyAreas = new Set(shown.map(project => project.area)).size > 1;
+  const others = shown.slice(1).map((project, index) => {
+    const row = projectCardRows(data, project).rows.filter(item => item.bedrooms !== "All" && item.reliability === "OK").sort((a, b) => b.sales - a.sales)[0];
+    const kind = project.primaryOffPlanSales ? "primary" : "resale", count = kind === "primary" ? project.primaryOffPlanSales : project.secondarySales;
+    return { project, row, line: row ? soldLine(row, marks[index], ar, { area: manyAreas }) : `${marks[index]} ${project.name} — ${salesCount(count, kind, ar)}` };
+  });
+  const rows = [...top.rows, ...others.map(entry => entry.row).filter(Boolean)];
+  const note = rows.length ? (ar ? SALES_NOTE.ar : SALES_NOTE.en) : top.note;
+  const block = [lead, "", ...top.lines, ...(others.length ? ["", ar ? "وكمان:" : "Also:", ...others.map(entry => entry.line)] : []), "", note].join("\n");
+  const choices = [...shown.map(project => ({ id: `sales_${areaKey(project.name).replace(/[^a-z0-9]+/g, "_")}`.slice(0, 60), label: buttonLabel(project.name), value: project.name })),
+    nextChoice("agent", ar)];
+  return draft(block, "project_knowledge", { question: ar ? "أي مشروع تبي تعرف عنه أكثر؟" : "Which one would you like to know more about?", choices,
+    advisoryExposure: { projectIds: shown.map(project => `sales:${project.name}`), primaryProjectId: null, primaryUnitId: null, upgradeProjectId: null, upgradeUnitId: null },
+    extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, rows, shown)] }],
+      projectKnowledge: { intent: "project_family", rows, projects: shown.map(project => ({ name: project.name, area: project.area })) } } });
+}
+
+/**
+ * A name that is not a full project name: a family ("What about Reeman?"), part
+ * of a name ("Tell me about Yas Park Views"), a near miss, or one we do not have.
+ */
+function soldNameReply({ text, buyer, catalog, data, ar }) {
+  if (!data?.projects?.length || projectKnowledgeInMessage(text, data).length) return null;
+  const family = projectFamilyIn(text, data);
+  const subject = family ? null : askedSubject(text);
+  const found = family ? family.projects : subject ? projectsNamed(subject.name, data) : [];
+  // Projects that sold what the buyer is looking for come first; the order is otherwise kept.
+  const wanted = (buyer.bedrooms || []).map(count => BED_LABEL[Math.min(Number(count), 5)]).filter(Boolean);
+  const types = (buyer.propertyTypes || []).map(type => SALES_TYPE[String(type).toLowerCase()]).filter(Boolean);
+  const fits = project => wanted.length || types.length ? projectCardRows(data, project).rows.some(row => row.saleSequence === "Primary" &&
+    (!wanted.length || wanted.includes(row.bedrooms)) && (!types.length || types.includes(row.type))) : false;
+  const named = [...found].sort((a, b) => Number(fits(b)) - Number(fits(a)));
+  if (named.length === 1) return soldProjectReply({ project: named[0], data, buyer, catalog, ar });
+  if (named.length > 1) {
+    const label = family ? family.label : subject.name, n = named.length, areas = [...new Set(named.map(project => project.area))];
+    const where = areas.length === 1 ? (ar ? ` في ${salesArea(areas[0], true)}` : ` in ${salesArea(areas[0])}`) : "";
+    const look = ar ? (n > 3 ? "هذي الأكثر مبيعاً 👇" : "هذي هي 👇") : (n > 3 ? "Here are the busiest 👇" : n === 2 ? "Here are both 👇" : "Here they are 👇");
+    const lead = ar ? `${fmt(n)} ${n <= 10 ? "مشاريع" : "مشروعاً"} باسم ${label}${where} انباعت فيها وحدات خلال آخر 12 شهراً. ${look}`
+      : `${fmt(n)} ${label} projects${where} had sales in the last 12 months. ${look}`;
+    return soldProjectsDraft({ projects: named, data, buyer, catalog, ar, lead });
+  }
+  if (!subject?.about || !looksLikeProjectName(subject.name)) return null;
+  const similar = similarProjects(subject.name, data);
+  if (similar.length) {
+    const lines = similar.map((project, index) => `${["1️⃣", "2️⃣", "3️⃣"][index]} ${project.name} · ${salesArea(project.area, ar)}`);
+    const body = ar ? `ما لقيت ${subject.name} بهذا الاسم بالضبط.\n${lines.join("\n")}` : `I don't have ${subject.name} under that exact name.\n${lines.join("\n")}`;
+    return draft(body, "project_knowledge", { question: ar ? "تقصد واحد من هذي؟" : "Did you mean one of these?",
+      choices: [...similar.map(project => ({ id: `sales_${areaKey(project.name).replace(/[^a-z0-9]+/g, "_")}`.slice(0, 60), label: buttonLabel(project.name), value: project.name })), nextChoice("agent", ar)] });
+  }
+  const body = ar ? `ما عندي ${subject.name} في سجلاتي حالياً. فريقنا يقدر يتحقق لك منه.` : `I don't have ${subject.name} in my records yet. Our team can check it for you.`;
+  return draft(body, "project_knowledge", { question: ar ? "تبي أوصلك بفريقنا؟" : "Want me to connect you with our team?", field: "handoffOffer",
+    choices: [nextChoice("connect", ar), nextChoice("notNow", ar)], pendingOffer: { type: "handoff_offer", reason: "match" },
+    extra: { handoffTopic: `Asked about ${subject.name}`.slice(0, 120) } });
+}
+
+// "Do you have my number?", "عندك رقمي؟"
+const CONTACT_ON_FILE = /\b(?:do|did|have) you (?:have|got|get|save|saved|keep|know|receive|received) my (?:number|phone(?: number)?|whatsapp(?: number)?|contact(?: details)?|details)\b|\b(?:is|was) my (?:number|phone|whatsapp) (?:saved|there|with you)\b|(?:عندك|معك|حفظت|سجلت|وصلك) (?:رقمي|رقم جوالي|رقم تلفوني|الرقم)/i;
+
+/** Whether we hold the buyer's number: the last digits only, and how the team will use it. */
+function contactOnFileReply({ buyer, ar }) {
+  const digits = String(buyer.phone || "").replace(/\D/g, "");
+  if (digits.length >= 7) {
+    const channel = buyer.preferredContactChannel === "phone" ? (ar ? "باتصال" : "with a call") : (ar ? "على الواتساب" : "on WhatsApp");
+    const body = ar ? `إي 👍 عندي رقمك اللي ينتهي بـ ${digits.slice(-4)}. فريقنا بيتواصل معك ${channel}.` : `Yes 👍 I have your number ending in ${digits.slice(-4)}. Our team will reach you ${channel}.`;
+    return draft(body, "acknowledged", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices: [nextChoice("more", ar), nextChoice("plans", ar)] });
+  }
+  const body = ar ? "لا، ما عندي رقمك للحين. إذا تبي فريقنا يتواصل معك، اضغط «كلّم موظف»." : "Not yet. If you'd like our team to reach you, tap Talk to an agent.";
+  return draft(body, "acknowledged", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices: [nextChoice("agent", ar), nextChoice("more", ar)] });
+}
+
+/** A message that is not a search, ending where a search found nothing: the next steps, not "no option". */
+export function openEndedReply(buyer = {}) {
+  const ar = buyer.language === "ar", budget = Boolean(buyer.budgetAed);
+  const body = ar ? `أكيد 🙂 أقدر أوريك عقارات ${budget ? "ثانية ضمن ميزانيتك" : "تناسبك"}، أو أشرح لك خطط السداد، أو أوصلك بفريقنا.`
+    : `Happy to help 🙂 I can show you ${budget ? "more homes within your budget" : "homes that fit what you need"}, explain payment plans, or connect you with our team.`;
+  return draft(body, "acknowledged", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices: [nextChoice("more", ar), nextChoice("plans", ar), nextChoice("agent", ar)] });
+}
+
 const QUALIFYING_FIELDS = new Set(["budgetAed", "bedrooms", "propertyTypes", "preferredAreas", "useType", "cashAvailableAed", "financing",
   "investmentObjective", "exitHorizon", "investmentRoute", "budgetFlexibility", "riskTolerance", "cashDeploymentPreference"]);
 
@@ -1063,7 +1214,13 @@ export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = nul
   }
   if (PROCESS.test(text)) return processReply(ar);
   if (FEES.test(text) && !/\bservice\b.*\b(?:management|furnish)/i.test(text)) return feesReply(ar);
+  if (CONTACT_ON_FILE.test(text)) return contactOnFileReply({ buyer, ar });
   const namesProject = (catalog.projects || []).some(project => project.name && text.toLowerCase().includes(String(project.name).toLowerCase()));
+  // "What about Reeman?", "Tell me about Yas Park Views": the projects that name points to.
+  if (!namesProject && projectKnowledge) {
+    const named = soldNameReply({ text, buyer, catalog, data: projectKnowledge, ar });
+    if (named) return named;
+  }
   if (AREA_QUESTION.test(text) && !namesProject) {
     const area = areaReply({ text, buyer, catalog, ar, pendingOffer, projectKnowledge });
     if (area) return area;
