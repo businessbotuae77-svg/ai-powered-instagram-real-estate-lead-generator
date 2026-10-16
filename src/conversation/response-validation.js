@@ -40,7 +40,8 @@ export function inferQuestionField(question) {
   // Choosing an explanation topic is different from declaring a search area.
   if (/which (?:of these|area).*(?:hear|learn|sounds)|(?:أي|اي) منطقة تود التعرف عليها/i.test(question)) return "areaInterest";
   const text = normalizeBuyerText(question).toLowerCase();
-  if (/^(?:تبي|تبغى|هل تريد|هل تبي)\s+(?:أقارن|اقارن|نقارن|أراجع|اراجع|أشرح|اشرح)/.test(text)) return "advisoryNextAction";
+  // "Shall I show you…" in Arabic is an offered next step, as in English.
+  if (/^(?:تبي|تبغى|هل تريد|هل تبي|هل)\s+(?:أقارن|اقارن|نقارن|أراجع|اراجع|أشرح|اشرح|أعرض|اعرض|أوريك|اوريك)/.test(text)) return "advisoryNextAction";
   if (/ready[^.!?؟]*off[- ]?plan|جاهز[^.!?؟]*على الخارطة/.test(text)) return "investmentRoute";
   // Comparing an option's cash requirements is a next step, not another
   // request for the buyer's personal available cash or investment preference.

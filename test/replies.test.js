@@ -134,7 +134,8 @@ test("personal-information refusals are acknowledged and never repeated during p
     assert.equal(declined.nextQuestion, null, refusal);
     assert.equal(engine.memory.getPendingOffer("buyer"), null);
     const last = await engine.handleMessage("buyer", "What is the price of Yas Studio One?");
-    assert.match(last.reply, /AED 850,000/);
+    // The project's card, in the language the buyer has been using.
+    assert.match(last.reply, /AED 850,000|850,000 درهم/);
     assert.doesNotMatch(last.reply, /phone|nationality|number|connect you|رقم|جنسي/i);
     assert.equal(last.buyer.contactDeclined, true);
     assert.equal(last.check.ok, true);

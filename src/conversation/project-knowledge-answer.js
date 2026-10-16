@@ -151,7 +151,8 @@ function rowLine(row, { ar, includeTotal, median, both }) {
 function draft(lines, data, details, ar) {
   const source = data?.source || {}, coverage = projectKnowledgeCoverage(data);
   const dataUpTo = source.dataUpTo || coverage.dataUpTo;
-  const text = [...lines.filter(Boolean), ar ? `البيانات حتى ${dataUpTo}.\nالمصدر: ADREC — ${SOURCE}` : `Data through ${dataUpTo}.\nSource: ADREC — ${SOURCE}`].join("\n");
+  // The cutoff date stays visible; the source link lives in the evidence record, not the chat.
+  const text = [...lines.filter(Boolean), ar ? `البيانات حتى ${dataUpTo}.` : `Data through ${dataUpTo}.`].join("\n");
   const rowKeys = (details.rows || []).map(row => row.key);
   const evidence = { field: "marketPriceEvidence", value: text, source: SOURCE,
     sourceRecordId: `market-prices:${dataUpTo}:project-knowledge:${source.sha256 || ""}:${rowKeys.join("||") || details.intent}`,

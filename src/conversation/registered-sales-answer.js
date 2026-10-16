@@ -141,7 +141,7 @@ export function registeredSalesAnswer({ message, buyer = {}, catalog = {}, draft
       : `${project.name}: ${label}; recorded median ${amount(stats.medianPriceAed)} across ${stats.rows} rows, ${stats.periodStart} to ${stats.periodEnd} (${basis}).`;
   });
   const location = [...new Set(selected.map(p => p.district))].join(" / ");
-  const header = detailed ? (ar ? `ADREC recorded sales — ${location}.` : `Recorded sales — ${location}.`)
+  const header = detailed ? (ar ? `مبيعات مسجلة — ${location}.` : `Recorded sales — ${location}.`)
     : (ar ? `${[...canonical][0]} في ${location}.` : `${[...canonical][0]} is in ${location}.`);
   const footer = detailed && observations.some(({ stats }) => stats.rows !== stats.distinctRows)
     ? (ar ? "عدد السجلات لا يثبت عدد الصفقات الفريدة؛ لا يتضمن الملف معرفات المعاملات." : "Rows are not certified unique transactions; the export contains no transaction IDs.") : null;

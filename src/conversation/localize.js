@@ -48,7 +48,8 @@ export function localizeDraft(draft, buyer, packs) {
   } else if (draft.stage === "transaction_next_step") {
     text = "يسعدني ذلك. سيؤكد لك فريقنا السعر الحالي والوحدات المتاحة وخطوات الحجز.";
   } else if (draft.stage === "no_match") {
-    text = "لا أجد حالياً خياراً مؤكداً يطابق كل ما ذكرته. هل نجرب عدد غرف مختلفاً أو منطقة أخرى أو ميزانية أعلى قليلاً؟";
+    // A statement, as in English: the one question is the draft's own or the connection offer added later.
+    text = ["ما عندي حالياً خيار مؤكد يطابق كل طلبك. أقدر أشيك على عدد غرف قريب، أو أقارن مع منطقة ثانية في أبوظبي فيها عقارات متاحة.", nextQuestion?.prompt].filter(Boolean).join(" ");
   } else text = nextQuestion?.prompt
     ? `يسعدني مساعدتك. ${nextQuestion.prompt}`
     : "يسعدني مساعدتك. أخبرني بميزانية تقريبية أو منطقة أو اسم مشروع، وسأعطيك التفاصيل المؤكدة.";

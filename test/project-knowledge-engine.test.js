@@ -42,20 +42,28 @@ test("bare area comparisons recover explicit bedroom scope from conversations sa
   assert.equal(result.check.ok, true);
 });
 
-test("project aliases answer checked primary averages and preserve an explicit bedroom follow-up", async () => {
+test("project aliases answer with the project's card and preserve an explicit bedroom follow-up", async () => {
   const { engine } = await setupBab();
   const first = await engine.handleMessage("bab-alias", "Tell me about bab alqasr25");
   assert.equal(first.stage, "project_knowledge", first.reply);
-  assert.match(first.reply, /Primary off-plan sales/);
-  assert.match(first.reply, /average AED 1,528\/sqft; 30 sales/);
-  assert.doesNotMatch(first.reply, /isn't released|not released|per unit|handover/i);
+  assert.match(first.reply, /^🏙️ Bab Al Qasr Residence 25\n📍 Yas Island/u);
+  assert.match(first.reply, /🏠 1-bed apartment · about 984 sq ft · typically about AED 1\.59M/);
+  assert.match(first.reply, /📊 51 developer sales in the last 12 months/);
+  assert.doesNotMatch(first.reply, /isn't released|not released|per unit|handover|adrec\.gov\.ae|Source:/i);
   assert.equal(first.check.ok, true);
   const second = await engine.handleMessage("bab-alias", "And the 1 BR price?");
   assert.equal(second.stage, "project_knowledge", second.reply);
-  assert.match(second.reply, /average AED 1,629\/sqft; 13 sales/);
+  assert.match(second.reply, /🏠 1-bed apartment · about 984 sq ft · typically about AED 1\.59M/);
+  assert.doesNotMatch(second.reply, /2-bed|3-bed/);
   assert.equal(second.check.ok, true);
   assert.deepEqual(second.buyer.bedrooms, []);
   assert.deepEqual(engine.memory.getTurns("bab-alias").at(-1).projectScope.projects, [{ name: "Bab Al Qasr Residence 25" }]);
+  // Asking for the statistic by name still gets the checked averages.
+  const third = await engine.handleMessage("bab-alias", "What is the average price per sqft in bab alqasr25?");
+  assert.match(third.reply, /Primary off-plan sales/);
+  assert.match(third.reply, /average AED 1,528\/sqft; 30 sales/);
+  assert.doesNotMatch(third.reply, /adrec\.gov\.ae|Source:/i);
+  assert.equal(third.check.ok, true);
 });
 
 test("missing unit prices never establish a release status in English or Arabic", async () => {
@@ -106,7 +114,7 @@ test("a project name cannot accept a pending handoff, while an explicit call sti
   assert.equal(result.followUpSubmitted, false);
   assert.equal(result.callRequestSubmitted, false);
   assert.equal(result.intentAlert, null);
-  assert.equal(result.pendingOffer, null);
+  assert.notEqual(result.pendingOffer?.type, "handoff_offer");
   const call = await engine.handleMessage("reserve-call", "Call me about Saadiyat Reserve - The Dunes");
   assert.notEqual(call.stage, "project_knowledge");
   assert.equal(call.check.ok, true);
