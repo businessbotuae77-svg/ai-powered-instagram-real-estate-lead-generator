@@ -18,6 +18,7 @@ import { askedSubject, looksLikeProjectName, projectFamilyIn, projectsNamed, sim
 import { searchProperties, propertySearchScope } from "./property-search.js";
 import { projectCommunity, searchAreasIn } from "../facts/project-geography.js";
 import { registeredSalesAnswer } from "./registered-sales-answer.js";
+import { BUDGET_CHOICES, priceWithinBudget, wantsBudgetSelection } from "./budget.js";
 import { GUIDE_PRICE_NOTE, priceInquiryOffer } from "./price-inquiry.js";
 
 const fmt = amount => Number(amount).toLocaleString("en-US");
@@ -288,14 +289,7 @@ export const NEXT_PROMPT = { en: "What would you like to do next?", ar: "كيف 
 
 // ---------------------------------------------------------------- qualifying copy
 
-export const BUDGET_CHOICES = [
-  { id: "budget_1m", label: "Under AED 1M", labelAr: "أقل من مليون", value: "budget 1M" },
-  { id: "budget_1_5m", label: "AED 1M–1.5M", labelAr: "1 – 1.5 مليون", value: "budget 1.5M" },
-  { id: "budget_2m", label: "AED 1.5M–2M", labelAr: "1.5 – 2 مليون", value: "budget 2M" },
-  { id: "budget_3m", label: "AED 2M–3M", labelAr: "2 – 3 مليون", value: "budget 3M" },
-  { id: "budget_5m", label: "AED 3M–5M", labelAr: "3 – 5 ملايين", value: "budget 5M" },
-  { id: "budget_5m_plus", label: "AED 5M+", labelAr: "أكثر من 5 ملايين", value: "budget 5M" }
-];
+export { BUDGET_CHOICES } from "./budget.js";
 
 export function budgetChoices(ar = false) {
   return BUDGET_CHOICES.map(choice => ({ id: choice.id, label: ar ? choice.labelAr : choice.label, value: choice.value }));
@@ -530,7 +524,7 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
   const weight = row => (wanted.includes(row.bedrooms) ? 0 : 2) + (!types.length || types.includes(row.type) ? 0 : 1);
   // "And the 1 BR price?": only that size when it sold here.
   const focused = focus.bedrooms ? rows.filter(row => row.bedrooms === focus.bedrooms) : [];
-  const inBudget = buyer.budgetAed && !wanted.length && limit <= 3 ? rows.filter(row => row.medianPriceAed <= buyer.budgetAed) : [];
+  const inBudget = buyer.budgetAed && !wanted.length && limit <= 3 ? rows.filter(row => priceWithinBudget(row.medianPriceAed, buyer)) : [];
   const shown = [...(focused.length ? focused : inBudget.length ? inBudget : rows)].sort((a, b) => weight(a) - weight(b) || b.sales - a.sales).slice(0, limit)
     .sort((a, b) => weight(a) - weight(b) || BED_ORDER.indexOf(a.bedrooms) - BED_ORDER.indexOf(b.bedrooms));
   const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
@@ -553,8 +547,8 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
     })
   ];
   const lead = shown[0];
-  if (buyer.budgetAed && lead.reliability === "OK" && lead.medianPriceAed <= buyer.budgetAed && (!wanted.length || wanted.includes(lead.bedrooms))) {
-    const fitting = shown.filter(row => row.reliability === "OK" && row.medianPriceAed <= buyer.budgetAed &&
+  if (buyer.budgetAed && lead.reliability === "OK" && priceWithinBudget(lead.medianPriceAed, buyer) && (!wanted.length || wanted.includes(lead.bedrooms))) {
+    const fitting = shown.filter(row => row.reliability === "OK" && priceWithinBudget(row.medianPriceAed, buyer) &&
       (!wanted.length || wanted.includes(row.bedrooms)) && (!types.length || types.includes(row.type)));
     const labels = fitting.map(row => soldHomeLabel(row, ar).toLowerCase());
     lines.push(ar ? `✨ حسب الأسعار الاسترشادية، ${labels.join(" و")} ضمن ميزانيتك وتستاهل نطالع تفاصيلها.`
@@ -624,7 +618,7 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
   if (!picks.length) {
     // Older approved imports may cover a project outside the precomputed index.
     // Keep that source's own evidence and wording instead of declaring no match.
-    const recorded = !more && !priceBelow ? registeredSalesAnswer({ message: message || "Find a project within my budget", buyer, catalog }) : null;
+    const recorded = !buyer.budgetRange && !more && !priceBelow ? registeredSalesAnswer({ message: message || "Find a project within my budget", buyer, catalog }) : null;
     if (recorded?.recordedSales?.budgetFit) return { ...recorded, buyerPatch: { projectInterest: recorded.recordedSales.recommendedProjectName } };
     const body = more && seen.length
       ? (ar ? "هذي كل الخيارات المسعّرة اللي تطابق طلبك حالياً." : "You've seen all the priced projects matching this search.")
@@ -642,7 +636,7 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
     return `${heading}\n${details}`;
   });
   const lead = more && seen.length ? (ar ? `خيارات ثانية في ${where} 👇` : `More options in ${where} 👇`)
-    : scope.budget ? (ar ? `لقيت لك هذي المشاريع ضمن ميزانيتك في ${where} 👇` : `I found these projects within your budget in ${where} 👇`)
+    : scope.budget || scope.budgetMin ? (ar ? `لقيت لك هذي المشاريع ضمن ميزانيتك في ${where} 👇` : `I found these projects within your budget in ${where} 👇`)
       : (ar ? `هذي خيارات بأسعار أقل في ${where} 👇` : `Here are lower-priced options in ${where} 👇`);
   const sales = picks.filter(row => row.kind === "recorded_sale");
   const evidence = picks.flatMap((row, index) => row.sale ? [salesEvidence(blocks[index], data, [row.sale], [{ name: row.name, area: row.district }])] : []);
@@ -1184,6 +1178,9 @@ export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = nul
   if (isListingRequest(text)) return null;
   if (pendingOffer?.type === "concierge_card" && pendingOffer.cheapest && READY_WORD.test(text) && text.split(/\s+/).length <= 4) {
     return cheapestReadyReply({ catalog, buyer, ar });
+  }
+  if (wantsBudgetSelection(text)) {
+    return draft(ar ? "أكيد، خلنا نحدد الميزانية." : "Sure, let's find the right price range.", "qualifying", { question: budgetPrompt(ar), field: "budgetAed", choices: budgetChoices(ar) });
   }
   if (propertyDiscovery && wantsCheapest(text)) return propertySearchReply({ message: text, buyer, catalog, data: projectKnowledge, ar });
   if (propertyDiscovery && wantsMoreOptions(text) && pendingOffer?.type !== "more_like_project") return moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge });

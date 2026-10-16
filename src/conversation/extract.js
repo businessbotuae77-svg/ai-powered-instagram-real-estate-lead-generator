@@ -9,6 +9,7 @@ import {
 } from "../matching/normalize.js";
 import { FINANCING_VALUES, USE_TYPES } from "../schema/fields.js";
 import { applyChoiceFacts } from "./choices.js";
+import { parseBudgetRange } from "./budget.js";
 import { refineTurnIntent } from "./intent-policy.js";
 import { parseAdvisoryFacts } from "./advisory-memory.js";
 import { parseFlexiblePreferences } from "./preference-state.js";
@@ -162,6 +163,8 @@ export function extractFactsFromMessage(message, { buyer = null, lastAskedField 
   if (facts.investmentGoal || facts.investmentStrategy || facts.investmentObjective || facts.objections?.length || facts.budgetFlexible !== undefined) intents.push("advisory");
   // "Another broker said 2.2M" quotes someone else's offer; it is not the buyer's budget.
   if (OTHER_OFFER.test(text)) delete facts.budget;
+  const budgetRange = !OTHER_OFFER.test(text) && parseBudgetRange(text);
+  if (budgetRange) { facts.budgetRange = budgetRange; facts.budget = budgetRange.max ?? budgetRange.min; }
   const refined = refineTurnIntent({ intents, signals, facts, message: text });
   return {
     facts: refined.facts,

@@ -64,6 +64,19 @@ These links establish location only. They do not import new commercial figures.
 - Arabic **مصدر السعر** means the source of the price and must not move the
   buyer's search to Masdar.
 
+## Budget discovery
+
+**Explore by budget** asks for a range before returning projects. Budget buttons
+retain both bounds: **AED 1.5M-2M** searches that band, **Under AED 1M** retains
+the ceiling behavior, and **AED 5M+** supplies a lower bound without an invented
+upper limit. The same bounds apply to fresh unit quotes and recorded-sale guide
+prices, including pagination and project-card follow-ups. Empty bands do not
+silently fall back to cheaper homes outside the requested range.
+
+**Different budget** / **Change my budget** explicitly permits reopening that
+question. The previous area, bedroom and home-type requirements remain in place.
+A later single budget amount clears the old band; a fresh start clears both.
+
 ## Price and availability requests on Instagram
 
 Normal project cards present home types, approximate sizes and guide prices.

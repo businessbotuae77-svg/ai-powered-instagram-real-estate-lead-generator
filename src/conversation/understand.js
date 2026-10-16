@@ -170,6 +170,7 @@ export function mergeUnderstanding(baseExtract, understanding) {
   const rawFacts = u.facts || {};
 
   if (rawFacts.budget != null) facts.budget = rawFacts.budget;
+  if (facts.budgetRange) facts.budget = facts.budgetRange.max ?? facts.budgetRange.min;
   if (rawFacts.cash != null) facts.cash = rawFacts.cash;
   if (rawFacts.area) facts.area = normalizeArea(rawFacts.area);
   if (Array.isArray(rawFacts.areas) && rawFacts.areas.length) {
