@@ -191,7 +191,7 @@ test("budget-first English and Gulf Arabic turns give a recommendation instead o
   }
 });
 
-test("invest then budget shows one priced project without a strategy menu in English and Arabic", async () => {
+test("invest then budget explores source-backed projects before asking for a strategy or contact", async () => {
   for (const messages of [["Hi", "Invest", "Around AED 2M"], ["مرحبا", "استثمار", "ميزانيتي 2 مليون"]]) {
     for (const historicalOnly of [false, true]) {
       const { engine, store } = await setupConversation();
@@ -200,28 +200,15 @@ test("invest then budget shows one priced project without a strategy menu in Eng
       let result;
       for (const message of messages) result = await engine.handleMessage("invest-budget", message);
       assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
-      assert.match(result.reply, /AED [\d,]+|[\d,]+ درهم|مليون درهم/);
-      if (historicalOnly) {
-        // No listed home: the projects whose recorded sales fit the budget, as cards with buttons.
-        assert.match(result.reply, /I don't have a listed price in your range right now|ما عندي سعر معلن ضمن ميزانيتك حالياً/);
-        assert.match(result.reply, /^🏙️ /mu);
-        assert.equal(result.nextQuestion.field, "conciergeNext");
-      } else {
-        assert.match(result.reply, /I found a project that fits your budget|لقيت لك مشروع يناسب ميزانيتك/);
-        // One project card with the payment amounts, then buttons for the next step.
-        assert.match(result.reply, /💳/);
-        assert.equal(result.nextQuestion.field, "conciergeNext");
-        assert.ok(result.nextQuestion.choices.length >= 2);
-      }
-      assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة/);
+      assert.equal(result.stage, "soft_match");
+      assert.match(result.reply, /within your budget|ضمن ميزانيتك/);
+      assert.match(result.reply, /Recent sales|مبيعات مسجلة/);
+      assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة|💳/);
+      assert.equal(result.nextQuestion.field, "conciergeNext");
+      assert.ok(result.nextQuestion.choices.length >= 3);
+      assert.equal(result.projectKnowledge.projectNames.length, 3);
       assert.equal(result.callRequestSubmitted, false);
-      if (historicalOnly) {
-        assert.equal(result.stage, "project_knowledge");
-      } else {
-        assert.equal(result.stage, "matched");
-        assert.equal(result.packs.length, 1);
-        assert.equal(result.buyer.shownProjects.length, 1);
-      }
+      assert.equal(result.followUpSubmitted, false);
     }
   }
 });

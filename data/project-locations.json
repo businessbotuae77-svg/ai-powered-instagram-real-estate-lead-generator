@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "locations": [
+    {
+      "project": "Plaza 1",
+      "district": "Khalifa City",
+      "community": "Masdar City",
+      "source": "https://reportagegroup.com/projects/residential-apartments/plaza-1/",
+      "verifiedOn": "2026-10-16"
+    },
+    {
+      "project": "Plaza 2",
+      "district": "Khalifa City",
+      "community": "Masdar City",
+      "source": "https://reportagegroup.com/projects/residential-apartments/plaza-2/",
+      "verifiedOn": "2026-10-16"
+    },
+    {
+      "project": "Royal Park",
+      "district": "Khalifa City",
+      "community": "Masdar City",
+      "source": "https://reportagegroup.com/projects/residential-communities/royal-park/",
+      "verifiedOn": "2026-10-16"
+    },
+    {
+      "project": "The Gate, Masdar City",
+      "district": "Khalifa City",
+      "community": "Masdar City",
+      "source": "https://reportagegroup.com/projects/residential-apartments/the-gate/",
+      "verifiedOn": "2026-10-16"
+    }
+  ]
+}

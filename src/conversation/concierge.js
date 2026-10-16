@@ -15,6 +15,9 @@ import { isAffirmation } from "./affirmation.js";
 import { lookupProjectSales, projectKnowledgeCoverage, projectKnowledgeInMessage } from "../facts/project-knowledge.js";
 import { areaKey } from "../matching/area-names.js";
 import { askedSubject, looksLikeProjectName, projectFamilyIn, projectsNamed, similarProjects } from "./project-families.js";
+import { searchProperties, propertySearchScope } from "./property-search.js";
+import { projectCommunity, searchAreasIn } from "../facts/project-geography.js";
+import { registeredSalesAnswer } from "./registered-sales-answer.js";
 
 const fmt = amount => Number(amount).toLocaleString("en-US");
 export const aed = (amount, ar = false) => ar ? `${fmt(amount)} درهم` : `AED ${fmt(amount)}`;
@@ -315,14 +318,13 @@ export const WELCOME_PROMPT = { en: "What can I help you with?", ar: "كيف أ�
 
 const CHEAPEST = /\b(?:cheapest|lowest[- ]priced?|lowest price|least expensive|most affordable|cheaper (?:options?|homes?|ones?)|anything cheaper|show (?:me )?(?:the )?cheapest)\b|(?:^|\s)(?:ارخص|أرخص|الأرخص|الارخص|اقل سعر|أقل سعر|ارخص شي|أرخص شي)(?:\s|$|[؟?!.])/i;
 const READY_WORD = /\bready\b|\bcompleted\b|(?:^|\s)(?:جاهز|جاهزة|الجاهز|جاهزه)(?:\s|$|[؟?!.])/i;
-const STUDIO_WORD = /\bstudios?\b|ستوديو/i;
 const MORE = /^(?:(?:can you |could you |please )?(?:show|give|send)(?: me)? |(?:do you have|have you got|you got|got|any) )?(?:more|more options|some more|other options|something else|anything else|other projects|other homes|another (?:one|option|project)|different (?:options?|projects?|ones?)|alternatives?|next one)(?: please)?[.!?]*$|^(?:خيارات أكثر|خيارات اكثر|خيارات ثانية|خيارات ثانيه|خيارات أخرى|خيارات اخرى|غيره|غيرها|شي ثاني|شي غير|عندك غيره|عندك غيرها|في غيره|فيه غيره|بدائل|بديل|مشاريع ثانية|وريني غيره)[.!?؟]*$/i;
 const WHY_ASK = /^(?:why|why\??|why do you (?:need|want|ask)(?: (?:that|this|it|my \w+))?|why (?:are you asking|is that (?:needed|important)|does it matter|my budget)|what(?:'s| is) it to you|none of your business|ليش|لماذا|ليش تسأل|ليش تبي.*|ليه|شدخلك|وش دخلك|شو دخلك|ليش الميزانية|لماذا الميزانية)[.!?؟]*$/i;
 const PROCESS = /\b(?:how (?:does|do) (?:buying |it )?(?:off[- ]?plan|the (?:buying )?process|buying) work|(?:off[- ]?plan|buying) process|steps? to buy|how (?:do|can) i buy(?: off[- ]?plan)?|what(?:'s| is| are) the (?:buying )?(?:steps|process)|how to buy)\b|(?:كيف|ايش|وش|شو) (?:اشتري|أشتري|الشراء|طريقة الشراء|خطوات الشراء)|خطوات الشراء|طريقة الشراء|كيف يتم الشراء/i;
 const FEES = /\b(?:what|which|any|extra|other|hidden|additional) (?:fees?|charges?|costs?)\b|\bfees?\b.{0,20}\b(?:pay|apply|are there|involved)\b|\b(?:registration|dld|service charges?|admin fees?)\b.{0,25}\?|(?:رسوم|الرسوم|تكاليف إضافية|تكاليف اضافية|رسوم التسجيل)/i;
 const AREA_QUESTION = /\b(?:is|are)\b.{0,30}\b(?:good|nice|safe|worth it|a good (?:area|place|location|choice|investment area)|family[- ]friendly)\b|\btell me (?:more )?about\b|^(?:what|how) about\b|\bwhat(?:'s| is)\b.{0,20}\b(?:like|known for)\b|\babout the area\b|\barea guide\b|^about (?:the )?area$|(?:وش|شو|ايش|كيف) (?:رايك|رأيك) (?:في|ب)|(?:زين|حلو|مناسب|امان|آمن).{0,20}(?:للسكن|للعائلات|للاستثمار)?\s*[؟?]$|عن المنطقة|حدثني عن|عطني نبذة عن/i;
 
-export function wantsCheapest(text) { return CHEAPEST.test(normalizeBuyerText(text)); }
+export function wantsCheapest(text) { return CHEAPEST.test(normalizeBuyerText(text)) || /\b(?:affordable options|budget[- ]friendly (?:homes|options))\b|خيارات بأسعار أقل/i.test(text); }
 // "Hmm. Whats other projects", "ok what else do you have?", "في مشاريع ثانية؟"
 const FILLER = /^(?:(?:hmm+|hm+|um+|uh+|ok(?:ay)?|so|well|and|but|right|alright|cool|nice|thanks?|thank you|yeah|yes|no)[\s,.!?]+)+/i;
 const OTHER_PROJECTS = /^(?:(?:what(?:'s|s| are| about)?|which|any|got any|do you have(?: any)?|have you got(?: any)?|show me|give me|list|send me)\s+)?(?:the\s+)?(?:other|more|else|different)\s+(?:projects?|options?|ones?|homes?|properties|developments?)(?:\s+(?:do you have|you have|have you got|are there|is there|available|please))?[.!?]*$|^what else(?: (?:do you have|is there|have you got|you got))?[.!?]*$/i;
@@ -399,44 +401,6 @@ function cardDraftFor(row, text, ar, { choices = cardChoices(ar), extra = {}, pe
     extra: { listingMatches: [listingMatch(row)], ...extra } });
 }
 
-/** The cheapest priced home in scope; "studio", an area, the buyer's size and home type narrow it. */
-function cheapestReply({ text, buyer, catalog, advisor, ar }) {
-  const all = priced(listingPacks(catalog, advisor)).filter(row => !rejected(buyer, row.project.id));
-  const askedArea = areaFromText(text);
-  const studio = STUDIO_WORD.test(text);
-  let scope = all;
-  const notes = [];
-  const area = askedArea || buyer.preferredAreas?.[0] || null;
-  if (area) {
-    const inArea = scope.filter(row => sameArea(row.project.area, area));
-    if (inArea.length) { scope = inArea; notes.push(ar ? ` في ${areaLabel(area, true)}` : ` ${/\bisland$/i.test(area) ? "on" : "in"} ${area}`); }
-  }
-  const anything = /\b(?:any|anything)\b|أي شي|اي شي/i.test(text);
-  if (studio) scope = scope.filter(row => Number(value(row.pack, "bedrooms")) === 0);
-  else if (!anything) {
-    if (buyer.bedrooms?.length) {
-      const beds = scope.filter(row => buyer.bedrooms.includes(Number(value(row.pack, "bedrooms"))));
-      if (beds.length) scope = beds;
-    }
-    if (buyer.propertyTypes?.length) {
-      const types = scope.filter(row => buyer.propertyTypes.some(type => sameText(type, value(row.pack, "propertyType"))));
-      if (types.length) scope = types;
-    }
-  }
-  const best = [...scope].sort(byPrice)[0];
-  if (!best) {
-    const what = studio ? (ar ? "استوديو" : "a studio") : (ar ? "خيار مسعّر" : "a priced home");
-    const body = ar ? `ما عندي ${what}${notes.join("")} في القائمة الحالية. فريقنا يقدر يدوّر لك خارج القائمة.`
-      : `I don't have ${what}${notes.join("")} in my current listings. Our team can look beyond them for you.`;
-    return draft(body, "no_match", { question: ar ? "تبي أوصلك بفريقنا؟" : "Want me to connect you with our team?", field: "handoffOffer",
-      choices: [nextChoice("connect", ar), nextChoice("notNow", ar)], pendingOffer: { type: "handoff_offer", reason: "match" } });
-  }
-  const kind = studio ? (ar ? " (استوديو)" : " studio") : "";
-  const lead = ar ? `أرخص خيار${kind} عندي حالياً${notes.join("")} 👇` : `The lowest-priced${kind} home I have right now${notes.join("")} 👇`;
-  return cardDraftFor(best, `${lead}\n\n${projectCard(best.pack, { ar, catalog })}`, ar,
-    { choices: [nextChoice("ready", ar), nextChoice("more", ar), nextChoice("agent", ar)], pending: { cheapest: true } });
-}
-
 /** "Cheapest ready", tapped or asked after a cheapest card: the strict ready-listing search. */
 function cheapestReadyReply({ catalog, buyer, ar }) {
   return answerListingRequest({ message: ar ? "أرخص جاهز" : "cheapest ready", catalog, buyer });
@@ -452,25 +416,6 @@ const HOME_TYPES_SOLD = new Set(["Apartment", "Villa", "Townhouse", "Duplex", "P
 const AREA_SAME = { hidayriyyat: "hudayriyat", rahah: "raha", "yas bay": "yas", "yas canal": "yas", ghantoot: "ghantout" };
 const areaId = name => { const key = areaKey(name).replace(/^al\s+/, "").replace(/\s+island$/, "").replace(/\s+beach$/, "").trim(); return AREA_SAME[key] || key; };
 const AREA_DISPLAY = { hudayriyat: "Hudayriyat Island", raha: "Al Raha", saadiyat: "Saadiyat Island", jubail: "Jubail Island" };
-// Everyday spellings of registry districts, matched as whole words in a buyer's message.
-const AREA_WORDS = { shamkhah: ["shamkha", "shamkhah", "al shamkha", "الشامخة", "شامخة"], hudayriyat: ["hudayriyat", "hidayriyyat", "الحديريات"],
-  raha: ["al raha", "raha beach", "al raha beach", "الراحة"], saadiyat: ["saadiyat", "السعديات"], reem: ["reem", "al reem", "الريم"],
-  yas: ["yas", "ياس"], "khalifa city": ["khalifa city", "مدينة خليفة"], "zayed city": ["zayed city", "madinat zayed", "مدينة زايد"],
-  maryah: ["maryah", "al maryah", "المارية"], jubail: ["jubail", "الجبيل"], ghantout: ["ghantout", "ghantoot", "غنتوت"],
-  bahyah: ["bahia", "al bahia", "bahyah", "الباهية"], fahid: ["fahid", "فاهد"], ramhan: ["ramhan", "رمحان"], masdar: ["masdar", "مصدر"] };
-const wholeWord = (text, word) => new RegExp(`(^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\p{L}\\p{N}])`, "u").test(text);
-
-// The name stored as the buyer's area when they name one of these districts.
-const AREA_NAME = { shamkhah: "Al Shamkhah", hudayriyat: "Hudayriyat Island", raha: "Al Raha Beach", saadiyat: "Saadiyat Island", reem: "Al Reem Island",
-  yas: "Yas Island", "khalifa city": "Khalifa City", "zayed city": "Zayed City", maryah: "Al Maryah Island", jubail: "Jubail Island",
-  ghantout: "Ghantoot", bahyah: "Al Bahyah", fahid: "Fahid Island", ramhan: "Ramhan Island", masdar: "Masdar City" };
-
-/** Areas a buyer names in this message, as registry district ids. */
-function salesAreasIn(message = "") {
-  const text = areaKey(message);
-  return Object.entries(AREA_WORDS).filter(([, words]) => words.some(word => wholeWord(text, areaKey(word)))).map(([id]) => id);
-}
-
 /** The everyday name of a registry district, in the buyer's language. */
 function salesArea(area, ar) {
   const display = AREA_DISPLAY[areaId(area)] || area;
@@ -494,31 +439,6 @@ function homePhrase(row, ar, plural = true) {
   if (beds === "Studio") return plural ? "studios" : "studio";
   if (/^\d/.test(beds)) return `${bedWord(beds)} ${type}`;
   return type;
-}
-
-/**
- * Projects with developer (primary off-plan) sales in the last 12 months whose
- * typical sale price for the buyer's kind of home sits within their budget.
- * Busiest first: a project many buyers chose is the safer next look.
- */
-export function salesOptions({ buyer = {}, data, exclude = [], limit = 3, areaIds = null } = {}) {
-  if (!data?.projects?.length || !buyer.budgetAed) return { picks: [], total: 0 };
-  const types = [...new Set((buyer.propertyTypes || []).map(type => SALES_TYPE[String(type).toLowerCase()]).filter(Boolean))];
-  const beds = [...new Set((buyer.bedrooms || []).map(count => BED_LABEL[Math.min(Number(count), 5)]).filter(Boolean))];
-  const areas = areaIds || (buyer.preferredAreas || []).map(areaId);
-  const skip = new Set(exclude.map(name => areaKey(name)));
-  const rows = lookupProjectSales(data, { period: "Last 12 months", saleSequence: "Primary", saleType: "Off-plan" })
-    .filter(row => HOME_TYPES_SOLD.has(row.type) && row.bedrooms !== "All" && row.bedrooms !== "Not stated" &&
-      (!types.length || types.includes(row.type)) && (!beds.length || beds.includes(row.bedrooms)) &&
-      row.medianPriceAed > 0 && row.medianPriceAed <= buyer.budgetAed && !skip.has(areaKey(row.project)) &&
-      (!areas.length || areas.includes(areaId(row.area)) || areas.some(area => wholeWord(areaKey(row.project), area))));
-  const best = new Map();
-  for (const row of rows) {
-    const key = `${row.project}|${row.area}`, held = best.get(key);
-    if (!held || row.sales > held.sales || (row.sales === held.sales && row.medianPriceAed < held.medianPriceAed)) best.set(key, row);
-  }
-  const ranked = [...best.values()].sort((a, b) => Number(b.reliability === "OK") - Number(a.reliability === "OK") || b.sales - a.sales || a.medianPriceAed - b.medianPriceAed);
-  return { picks: ranked.slice(0, limit), total: ranked.length, filters: { types, bedrooms: beds, areas: buyer.preferredAreas || [], budgetAed: buyer.budgetAed } };
 }
 
 // "about AED 1.98M", "about AED 873K": a median read as a typical price, not a quote.
@@ -613,7 +533,8 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
     .sort((a, b) => weight(a) - weight(b) || BED_ORDER.indexOf(a.bedrooms) - BED_ORDER.indexOf(b.bedrooms));
   const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
   const developer = listed?.developerName || null;
-  const display = AREA_DISPLAY[areaId(project.area)] || project.area;
+  const community = projectCommunity(project.name, project.area);
+  const display = AREA_DISPLAY[areaId(community)] || community;
   const tagline = areaTagline(display, ar);
   const count = kind === "primary" ? project.primaryOffPlanSales : kind === "resale" ? project.secondarySales : project.primaryReadySales;
   const latest = rows.reduce((max, row) => row.lastSale > max ? row.lastSale : max, "");
@@ -652,7 +573,8 @@ function soldIdentityCard({ project, catalog = {}, ar = false, resale = false })
   if (!kind) return null;
   const count = kind === "primary" ? project.primaryOffPlanSales : kind === "resale" ? project.secondarySales : project.primaryReadySales;
   const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
-  const display = AREA_DISPLAY[areaId(project.area)] || project.area;
+  const community = projectCommunity(project.name, project.area);
+  const display = AREA_DISPLAY[areaId(community)] || community;
   const tagline = areaTagline(display, ar);
   const homes = (project.homeTypes || []).map(home => {
     const beds = (home.bedrooms || []).filter(bed => BED_ORDER.includes(bed)).sort((a, b) => BED_ORDER.indexOf(a) - BED_ORDER.indexOf(b));
@@ -671,8 +593,8 @@ function soldIdentityCard({ project, catalog = {}, ar = false, resale = false })
   return { lines, rows: [], kind, hasGuide: Boolean(tagline), note };
 }
 
-const SALES_NOTE = { en: "💡 Recorded sale prices from the last 12 months, not today's asking price. Our team can confirm today's price and payment plan.",
-  ar: "💡 أسعار بيع مسجلة خلال آخر 12 شهراً، وليست سعر اليوم. فريقنا يؤكد لك سعر اليوم وخطة السداد." };
+const SALES_NOTE = { en: "Prices shown are recorded sales over the last 12 months.",
+  ar: "الأسعار من المبيعات المسجلة خلال آخر 12 شهر." };
 
 function salesEvidence(block, data, rows, projects) {
   const source = data.source || {}, dataUpTo = source.dataUpTo || projectKnowledgeCoverage(data).dataUpTo;
@@ -685,19 +607,96 @@ function salesEvidence(block, data, rows, projects) {
     evidenceClass: "CALCULATION", usable: true, commercialQuote: false, confidence: rows.some(row => row.reliability === "Low sample") ? "Low" : "Medium" };
 }
 
-/** A sold project as a card with buttons: today's price from the team, more options, the area. */
+/** One search and one continuation path, irrespective of which source has a match. */
+export function propertySearchReply({ message = "", buyer = {}, catalog = {}, data = null, ar = buyer.language === "ar", more = false, priceBelow = null }) {
+  const previous = buyer.discoverySearch;
+  if (more && !message && previous?.scope?.projects?.length) message = previous.scope.projects.join(" ");
+  const criteriaKey = JSON.stringify(propertySearchScope({ buyer, message, data, catalog }));
+  if (more && previous?.criteriaKey === criteriaKey) priceBelow = previous.priceBelow ?? null;
+  const scopeKey = JSON.stringify([criteriaKey, priceBelow]);
+  const seen = more && previous?.scopeKey === scopeKey ? previous.shownIds || [] : [];
+  const result = searchProperties({ buyer, message, data, catalog, exclude: seen, priceBelow });
+  const { picks, scope } = result;
+  const where = scope.areas.length ? scope.areas.map(area => areaLabel(area, ar)).join(ar ? " أو " : " or ") : (ar ? "أبوظبي" : "Abu Dhabi");
+  const state = { criteriaKey, scopeKey, scope, priceBelow, shownIds: [...seen, ...picks.map(row => row.id)],
+    lastPrices: picks.length ? picks.map(row => row.price) : previous?.lastPrices || [] };
+  if (!picks.length) {
+    // Older approved imports may cover a project outside the precomputed index.
+    // Keep that source's own evidence and wording instead of declaring no match.
+    const recorded = !more && !priceBelow ? registeredSalesAnswer({ message: message || "Find a project within my budget", buyer, catalog }) : null;
+    if (recorded?.recordedSales?.budgetFit) return { ...recorded, buyerPatch: { projectInterest: recorded.recordedSales.recommendedProjectName } };
+    const body = more && seen.length
+      ? (ar ? "هذي كل الخيارات المسعّرة اللي تطابق طلبك حالياً." : "You've seen all the priced projects matching this search.")
+      : priceBelow ? (ar ? `ما لقيت خيار بسعر أقل يطابق طلبك في ${where}.` : `I couldn't find a lower-priced project matching your requirements in ${where}.`)
+        : (ar ? `ما لقيت خيار يطابق طلبك في ${where} بالبيانات اللي عندي.` : `I couldn't find a price match for your requirements in ${where}.`);
+    return draft(body, "no_match", { question: ar ? "تبي نغيّر المنطقة أو الميزانية؟" : "Would you like to change the area or budget?",
+      choices: [nextChoice("homes", ar), nextChoice("agent", ar)], pendingOffer: { type: "property_search", scopeChange: true, ...state },
+      extra: { propertySearch: true, buyerPatch: { discoverySearch: state } } });
+  }
+  const blocks = picks.map((row, index) => {
+    const heading = `${["1️⃣", "2️⃣", "3️⃣"][index]} ${row.name} · ${areaLabel(row.area, ar)}`;
+    const details = row.kind === "listing"
+      ? `${homeLabel(row.pack, ar)} · ${ar ? "يبدأ من" : "From"} ${aed(row.price, ar)}`
+      : `${soldHomeLabel(row.sale, ar)} · ${ar ? "مبيعات مسجلة (12 شهر):" : "Recent sales (12 months):"} ${approx(row.price, ar)}`;
+    return `${heading}\n${details}`;
+  });
+  const lead = more && seen.length ? (ar ? `خيارات ثانية في ${where} 👇` : `More options in ${where} 👇`)
+    : scope.budget ? (ar ? `لقيت لك هذي المشاريع ضمن ميزانيتك في ${where} 👇` : `I found these projects within your budget in ${where} 👇`)
+      : (ar ? `هذي خيارات بأسعار أقل في ${where} 👇` : `Here are lower-priced options in ${where} 👇`);
+  const sales = picks.filter(row => row.kind === "recorded_sale");
+  const evidence = picks.flatMap((row, index) => row.sale ? [salesEvidence(blocks[index], data, [row.sale], [{ name: row.name, area: row.district }])] : []);
+  const choices = picks.map(row => ({ id: `search_${areaKey(row.name).replace(/[^a-z0-9]+/g, "_")}`.slice(0, 60), label: buttonLabel(row.name),
+    value: row.kind === "listing" ? `${ar ? "افتح" : "Open"} ${row.name}` : row.name }));
+  if (result.remaining > picks.length) choices.push(nextChoice("more", ar));
+  state.choices = choices;
+  const named = searchAreasIn(message, data);
+  return draft(`${lead}\n\n${blocks.join("\n\n")}`, "soft_match", {
+    question: ar ? "أي مشروع تبي نبدأ فيه؟" : "Which project would you like to explore?", choices,
+    packs: picks.filter(row => row.pack).map(row => row.pack),
+    advisoryExposure: { projectIds: picks.map(row => row.project?.id || `sales:${row.name}`), primaryProjectId: null, primaryUnitId: null },
+    pendingOffer: { type: "property_search", ...state },
+    extra: { propertySearch: true, areaGuideAreas: [...new Set(picks.map(row => row.area))],
+      buyerPatch: { discoverySearch: state, activeRecommendationProjectId: null, activeRecommendationUnitId: null,
+        ...(named.length ? { preferredAreas: named } : {}) },
+      listingMatches: picks.filter(row => row.pack).map(listingMatch),
+      investmentTheses: [{ projectId: "property-search", evidenceRegistry: evidence }],
+      ...(sales.length ? { projectKnowledge: { intent: "search_options", rows: sales.map(row => row.sale),
+        projects: sales.map(row => ({ name: row.name, area: row.district })) } } : {}) } });
+}
+
+/** A sold project as a card with buttons for its plan, alternatives and community. */
 export function salesProjectCardDraft({ project, data, buyer = {}, catalog = {}, ar = false, focus = {}, limit = 3 }) {
   const card = salesProjectCard({ project, data, buyer, catalog, ar, focus, limit }) || soldIdentityCard({ project, catalog, ar });
   if (!card) return null;
   const block = [...card.lines, "", card.note || (ar ? SALES_NOTE.ar : SALES_NOTE.en)].join("\n");
-  const choices = [{ id: "todays_price", label: ar ? "سعر اليوم" : "Get today's price", value: ar ? "كلم موظف" : "Talk to an agent" },
+  const choices = [{ id: "project_plan", label: ar ? "خطة السداد" : "Payment plan", value: ar ? `شو خطة السداد في ${project.name}؟` : `What's the payment plan for ${project.name}?` },
     nextChoice("more", ar), ...(card.hasGuide ? [nextChoice("area", ar)] : [])];
   return draft(block, "project_knowledge", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices,
     pendingOffer: { type: "concierge_card", projectName: project.name },
     advisoryExposure: { projectIds: [`sales:${project.name}`], primaryProjectId: null, primaryUnitId: null, upgradeProjectId: null, upgradeUnitId: null },
-    extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, card.rows, [project])] }],
+    extra: { areaGuideAreas: [projectCommunity(project.name, project.area)],
+      buyerPatch: card.rows[0] ? { discoverySearch: { ...buyer.discoverySearch, lastPrices: [card.rows[0].medianPriceAed] } } : {},
+      investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, card.rows, [project])] }],
       projectKnowledge: { intent: "project_card", rows: card.rows, projects: [{ name: project.name, area: project.area }] },
       handoffTopic: `Today's price and payment plan for ${project.name}` } });
+}
+
+function recordedProjectDetail({ text, buyer, catalog, data, pendingOffer, ar }) {
+  const named = projectKnowledgeInMessage(text, data);
+  const project = named.length === 1 ? named[0] : !named.length && pendingOffer?.projectName
+    ? data.projects.find(row => row.name === pendingOffer.projectName) : null;
+  if (!project || (catalog.projects || []).some(row => areaKey(row.name) === areaKey(project.name))) return null;
+  const topic = /\bpayment\s*plans?\b|خطة السداد|خطة سداد|خطة الدفع/i.test(text) ? "paymentPlan"
+    : /\b(?:handover|completion)\b|تسليم/i.test(text) ? "handover"
+      : /\b(?:availability|available|units? left)\b|متوفر|متاح|التوفر/i.test(text) ? "availability" : null;
+  if (!topic) return null;
+  const label = { paymentPlan: ["payment plan", "خطة السداد"], handover: ["handover date", "موعد التسليم"], availability: ["current availability", "التوفر الحالي"] }[topic][ar ? 1 : 0];
+  const body = ar ? `عندي أسعار المبيعات المسجلة في ${project.name}، بس ${label} مو مؤكدة عندي.`
+    : `I have recorded sale prices for ${project.name}, but no confirmed ${label}.`;
+  return draft(body, "fact_answer", { question: ar ? "تبي فريقنا يشيك لك عليها؟" : "Would you like our team to check it?", field: "handoffOffer",
+    choices: [nextChoice("connect", ar), nextChoice("more", ar), nextChoice("notNow", ar)],
+    pendingOffer: { type: "handoff_offer", reason: "missing_fact", projectName: project.name },
+    extra: { factTopic: topic, factMissing: [{ topic, project: project.name }], handoffTopic: `${label} for ${project.name}` } });
 }
 
 function soldLine(row, mark, ar, { area = true } = {}) {
@@ -784,6 +783,21 @@ export function salesKnowledgeReply({ answer, message = "", buyer = {}, data, ca
   if (listing) return listing;
   const filters = knowledge.filters || {};
   const focus = { ...(filters.bedrooms && filters.bedrooms !== "All" ? { bedrooms: filters.bedrooms } : {}), ...(filters.type ? { type: filters.type } : {}) };
+  if (focus.bedrooms && /\b(?:price|cost|how much)\b|سعر|بكم/i.test(text)) {
+    const { rows } = projectCardRows(data, project);
+    const matching = rows.filter(row => row.bedrooms === focus.bedrooms && (!focus.type || row.type === focus.type));
+    if (matching.length === 1 && matching[0].reliability === "OK") {
+      const row = matching[0];
+      const block = ar ? `${project.name}: ${soldHomeLabel(row, true)} — المبيعات المسجلة خلال آخر 12 شهر ${approx(row.medianPriceAed, true)}.`
+        : `${project.name}: ${soldHomeLabel(row)} — recent sales over the last 12 months were ${approx(row.medianPriceAed)}.`;
+      return draft(block, "project_knowledge", { question: ar ? "تبي نطالع خيارات ثانية بنفس الحجم؟" : "Would you like more options of the same size?",
+        choices: [nextChoice("more", ar), nextChoice("area", ar)],
+        pendingOffer: { type: "more_like_project", projectName: project.name, bedrooms: [row.bedrooms === "Studio" ? 0 : Number(row.bedrooms[0])], propertyTypes: [row.type.toLowerCase()] },
+        extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, [row], [project])] }],
+          buyerPatch: { discoverySearch: { ...buyer.discoverySearch, lastPrices: [row.medianPriceAed] } },
+          projectKnowledge: { ...knowledge, rows: [row], filters } } });
+    }
+  }
   const card = salesProjectCardDraft({ project, data, buyer, catalog, ar, focus, limit: knowledge.intent === "home_types" ? 5 : 3 });
   if (!card) return null;
   // The scope stays with the conversation, so "and per sqft?" next keeps the size asked about.
@@ -822,7 +836,8 @@ function statCardDraft({ knowledge, project, data, buyer, catalog, message, ar }
   const year = String(data.source?.dataUpTo || "").slice(0, 4);
   const period = STAT_PERIOD[filters.period]?.[ar ? 1 : 0] || (ar ? `${year} حتى الآن` : `${year} so far`);
   const value = (perSqft, price) => ar ? `${fmt(perSqft)} درهم/قدم²${total ? ` (${fmt(price)} درهم للوحدة)` : ""}` : `AED ${fmt(perSqft)}/sq ft${total ? ` (AED ${fmt(price)} per home)` : ""}`;
-  const display = AREA_DISPLAY[areaId(project.area)] || project.area;
+  const community = projectCommunity(project.name, project.area);
+  const display = AREA_DISPLAY[areaId(community)] || community;
   const lines = [`📊 ${project.name} · ${areaLabel(display, ar)}`, `${statSaleWords(filters, ar)} · ${period}`];
   for (const row of rows) {
     if (row.reliability === "Low sample") {
@@ -843,47 +858,6 @@ function statCardDraft({ knowledge, project, data, buyer, catalog, message, ar }
       handoffTopic: `Today's price and payment plan for ${project.name}` } });
 }
 
-/** The sales list as a checked reply: every figure is a recorded statistic, labelled as such. */
-function salesOptionsReply({ buyer, data, catalog, ar, first = false, message = "" }) {
-  const shownNames = (buyer.shownProjects || []).filter(id => String(id).startsWith("sales:")).map(id => String(id).slice(6));
-  const catalogNames = (catalog.projects || []).filter(project => (buyer.shownProjects || []).includes(project.id) || project.id === buyer.activeRecommendationProjectId).map(project => project.name);
-  // An area named now wins; otherwise the areas the buyer chose earlier.
-  const named = salesAreasIn(message);
-  const areaIds = named.length ? named : (buyer.preferredAreas || []).map(areaId);
-  const { picks, total } = salesOptions({ buyer, data, exclude: [...shownNames, ...catalogNames], areaIds });
-  if (!picks.length) return null;
-  const source = data.source || {}, dataUpTo = source.dataUpTo || projectKnowledgeCoverage(data).dataUpTo;
-  const sample = picks[0];
-  // The buyer's own words: "2-bed apartments" when they gave a size, "apartments" when only the type.
-  const what = buyer.bedrooms?.length ? homePhrase(sample, ar) : buyer.propertyTypes?.length && TYPE_PLURAL[sample.type]
-    ? (ar ? TYPE_PLURAL[sample.type][1] : TYPE_PLURAL[sample.type][0].toLowerCase()) : (ar ? "عقارات" : "homes");
-  const marks = ["1️⃣", "2️⃣", "3️⃣"];
-  const top = data.projects.find(project => project.name === picks[0].project && project.area === picks[0].area);
-  const topCard = top ? salesProjectCard({ project: top, data, buyer, catalog, ar, focus: { bedrooms: picks[0].bedrooms, type: picks[0].type } }) : null;
-  const lines = picks.map((row, index) => soldLine(row, marks[index], ar));
-  const footer = ar ? SALES_NOTE.ar : SALES_NOTE.en;
-  // The best fit as a full card, the next ones as one line each.
-  const block = topCard
-    ? [...topCard.lines, ...(lines.length > 1 ? ["", ar ? "كمان ضمن ميزانيتك:" : "Also within your budget:", ...lines.slice(1)] : []), "", footer].join("\n")
-    : [...lines, "", footer].join("\n");
-  const lead = ar
-    ? (first ? `ما عندي سعر معلن ضمن ميزانيتك حالياً، بس هذي مشاريع انباعت فيها ${what} ضمن ميزانيتك خلال آخر 12 شهراً 👇` : `هذي ${picks.length} مشاريع ثانية انباعت فيها ${what} ضمن ميزانيتك خلال آخر 12 شهراً 👇`)
-    : (first ? `I don't have a listed price in your range right now, but these projects sold ${what} within your budget in the last 12 months 👇` : `Here are ${picks.length} more projects where ${what} sold within your budget in the last 12 months 👇`);
-  const rowKeys = [...new Set([...picks.map(row => row.key), ...(topCard?.rows || []).map(row => row.key)])];
-  const evidence = { field: "marketPriceEvidence", value: block, source: SALES_SOURCE,
-    sourceRecordId: `market-prices:${dataUpTo}:project-knowledge:${source.sha256 || ""}:${rowKeys.join("||")}`,
-    verifiedOn: dataUpTo, scope: { basis: "precomputed_market_prices", table: "project_knowledge.json", rowKeys, sourceSha256: source.sha256,
-      dataUpTo, windowStart: source.windowStart, windowEnd: source.windowEnd, projects: picks.map(row => ({ name: row.project, area: row.area })),
-      filters: { period: "Last 12 months", saleSequence: "Primary", saleType: "Off-plan", budgetAed: buyer.budgetAed } },
-    evidenceClass: "CALCULATION", usable: true, commercialQuote: false, confidence: picks.some(row => row.reliability === "Low sample") ? "Low" : "Medium" };
-  const choices = [...picks.map(row => ({ id: `sales_${areaKey(row.project).replace(/[^a-z0-9]+/g, "_")}`.slice(0, 60), label: buttonLabel(row.project), value: row.project })),
-    ...(total > picks.length ? [nextChoice("more", ar)] : []), nextChoice("agent", ar)];
-  return draft(`${lead}\n\n${block}`, "project_knowledge", { question: ar ? "أي مشروع تبي تعرف عنه أكثر؟" : "Which one would you like to know more about?", choices,
-    advisoryExposure: { projectIds: picks.map(row => `sales:${row.project}`), primaryProjectId: null, primaryUnitId: null, upgradeProjectId: null, upgradeUnitId: null },
-    extra: { ...(named.length ? { buyerPatch: { preferredAreas: named.map(id => AREA_NAME[id]).filter(Boolean) } } : {}), investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [evidence] }],
-      projectKnowledge: { intent: "budget_options", dataUpTo, rows: picks, projects: picks.map(row => ({ name: row.project, area: row.area })) } } });
-}
-
 /** Listed homes within the buyer's budget, size, area and home type: one per project, cheapest first. */
 function listedWithinBudget({ buyer, catalog, advisor }) {
   const types = (buyer.propertyTypes || []).map(type => String(type).toLowerCase());
@@ -901,6 +875,7 @@ function listedWithinBudget({ buyer, catalog, advisor }) {
  * otherwise what sold within the budget. Null when nothing fits either.
  */
 export function deadEndReply({ buyer, data, catalog = {}, advisor = null, message = "" }) {
+  if (data?.projects?.length && buyer.budgetAed) return propertySearchReply({ buyer, data, catalog, message });
   const ar = buyer.language === "ar";
   const listed = buyer.budgetAed ? listedWithinBudget({ buyer, catalog, advisor }) : [];
   if (listed.length === 1) {
@@ -917,11 +892,14 @@ export function deadEndReply({ buyer, data, catalog = {}, advisor = null, messag
       advisoryExposure: exposure(options), pendingOffer: { type: "concierge_options", projectIds: options.map(row => row.project.id) },
       extra: { listingMatches: options.map(listingMatch) } });
   }
-  return salesOptionsReply({ buyer, data, catalog, ar, first: true, message });
+  return null;
 }
 
 /** Two or three more homes within the buyer's scope that they have not seen. */
 function moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge = null }) {
+  if (projectKnowledge?.projects?.length || buyer.discoverySearch) {
+    return propertySearchReply({ buyer, catalog, data: projectKnowledge, ar, more: true });
+  }
   const shown = new Set([...(buyer.shownProjects || []), buyer.activeRecommendationProjectId].filter(Boolean));
   const assessed = advisor?.assessments?.length
     ? advisor.assessments.filter(row => !row.hardConstraintFailures?.length).map(row => ({ project: row.candidate.project, unit: row.candidate.unit, pack: row.candidate.factPack, gaps: row.preferenceGaps?.length || 0 }))
@@ -931,11 +909,7 @@ function moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge = null
   const perProject = new Map();
   for (const row of [...rows].sort((a, b) => a.gaps - b.gaps || byPrice(a, b))) if (!perProject.has(row.project.id)) perProject.set(row.project.id, row);
   let options = [...perProject.values()].sort((a, b) => a.gaps - b.gaps || byPrice(a, b)).slice(0, 3);
-  // Listed homes that fit come first; then the projects whose recorded sales fit
-  // the budget; listed homes that miss a preference only after those run out.
   const fitting = options.filter(row => !row.gaps);
-  const sold = fitting.length ? null : salesOptionsReply({ buyer, data: projectKnowledge, catalog, ar, message: "" });
-  if (sold) return sold;
   // A home that misses the size or type the buyer asked for is not "another option".
   const strict = Boolean(buyer.bedrooms?.length || buyer.propertyTypes?.length);
   if (fitting.length || strict) options = fitting;
@@ -948,8 +922,7 @@ function moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge = null
   const marks = ["1️⃣", "2️⃣", "3️⃣"];
   const lines = options.map((row, index) => `${marks[index]} ${compactLine(row.pack, ar)}`);
   const lead = ar ? (options.length === 1 ? "هذا خيار ثاني يناسبك 👇" : `هذي ${options.length} خيارات ثانية تناسبك 👇`) : `Here ${options.length === 1 ? "is 1 more option" : `are ${options.length} more options`} for you 👇`;
-  const moreSold = projectKnowledge && buyer.budgetAed ? [nextChoice("more", ar)] : [];
-  const choices = [...options.map(row => ({ id: `open_${row.project.id}`, label: buttonLabel(value(row.pack, "name")), value: `${ar ? "افتح" : "Open"} ${value(row.pack, "name")}` })), ...moreSold, nextChoice("agent", ar)];
+  const choices = [...options.map(row => ({ id: `open_${row.project.id}`, label: buttonLabel(value(row.pack, "name")), value: `${ar ? "افتح" : "Open"} ${value(row.pack, "name")}` })), nextChoice("agent", ar)];
   return draft(`${lead}\n${lines.join("\n")}`, "soft_match", { question: ar ? "أي واحد تبي أفتح لك تفاصيله؟" : "Which one should I open for you?", choices,
     packs: options.map(row => row.pack), advisoryExposure: exposure(options),
     pendingOffer: { type: "concierge_options", projectIds: options.map(row => row.project.id) },
@@ -1073,7 +1046,8 @@ export function findPropertyReply(ar) {
 function areaReply({ text, buyer, catalog, ar, pendingOffer = null, projectKnowledge = null }) {
   const guide = loadAreaGuide();
   const sold = pendingOffer?.projectName ? (projectKnowledge?.projects || []).find(project => project.name === pendingOffer.projectName) : null;
-  const soldArea = sold ? AREA_DISPLAY[areaId(sold.area)] || sold.area : null;
+  const community = sold ? projectCommunity(sold.name, sold.area) : null;
+  const soldArea = community ? AREA_DISPLAY[areaId(community)] || community : null;
   const asked = areaFromText(text) || (/about the area|عن المنطقة/i.test(text) ? (soldArea || (buyer.activeRecommendationProjectId
     ? (catalog.projects || []).find(project => project.id === buyer.activeRecommendationProjectId)?.area : buyer.preferredAreas?.[0])) : null);
   const entry = asked ? findAreaEntry(guide, asked) : null;
@@ -1191,10 +1165,11 @@ const QUALIFYING_FIELDS = new Set(["budgetAed", "bedrooms", "propertyTypes", "pr
  * lands here.
  */
 export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = null, pendingOffer = null, lastAskedField = null, intents = [],
-  projectKnowledge = null, updatedFields = [] } = {}) {
+  projectKnowledge = null, updatedFields = [], propertyDiscovery = true } = {}) {
   const text = normalizeBuyerText(message).trim();
   if (!text || buyer.salesPathStopped || intents.includes("stop")) return null;
   const ar = isArabic(buyer, message);
+  if (/\bdubai\b|دبي/i.test(text)) return null;
   if (asksWhy(text) && lastAskedField !== "nationality" && (QUALIFYING_FIELDS.has(lastAskedField) || lastAskedField === "conciergeNext" || !lastAskedField)) return whyReply({ buyer, lastAskedField, ar });
   // "Yes" or "I like it" right after a card is interest in that home.
   if (pendingOffer?.type === "concierge_card" && INTEREST.test(text)) return interestReply({ buyer, catalog, pendingOffer, ar });
@@ -1206,8 +1181,55 @@ export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = nul
   if (pendingOffer?.type === "concierge_card" && pendingOffer.cheapest && READY_WORD.test(text) && text.split(/\s+/).length <= 4) {
     return cheapestReadyReply({ catalog, buyer, ar });
   }
-  if (wantsCheapest(text)) return cheapestReply({ text, buyer, catalog, advisor, ar });
-  if (wantsMoreOptions(text)) return moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge });
+  if (propertyDiscovery && wantsCheapest(text)) return propertySearchReply({ message: text, buyer, catalog, data: projectKnowledge, ar });
+  if (propertyDiscovery && wantsMoreOptions(text) && pendingOffer?.type !== "more_like_project") return moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge });
+  if (propertyDiscovery && pendingOffer?.type === "more_like_project" && (isAffirmation(text) || wantsMoreOptions(text))) {
+    const patch = { bedrooms: pendingOffer.bedrooms, propertyTypes: pendingOffer.propertyTypes };
+    const answer = propertySearchReply({ buyer: { ...buyer, ...patch }, catalog, data: projectKnowledge, ar });
+    return { ...answer, buyerPatch: { ...answer.buyerPatch, ...patch } };
+  }
+  if (propertyDiscovery && buyer.discoverySearch?.lastPrices?.length && /\b(?:too expensive|too pricey|overpriced|out of my budget)\b|غالي|غالية|غاليه/i.test(text)) {
+    const patch = pendingOffer?.type === "more_like_project" ? { bedrooms: pendingOffer.bedrooms, propertyTypes: pendingOffer.propertyTypes } : {};
+    const answer = propertySearchReply({ buyer: { ...buyer, ...patch }, catalog, data: projectKnowledge, ar, priceBelow: Math.min(...buyer.discoverySearch.lastPrices) });
+    return { ...answer, buyerPatch: { ...answer.buyerPatch, ...patch } };
+  }
+  if (propertyDiscovery && buyer.discoverySearch && /\b(?:anywhere|any area|all areas|keep (?:the )?area flexible)\b|أي منطقة|اي منطقة|كل المناطق/i.test(text)) {
+    const patch = { areaFlexibility: "open", openToOtherAreas: true };
+    const answer = propertySearchReply({ buyer: { ...buyer, ...patch }, catalog, data: projectKnowledge, ar, priceBelow: buyer.discoverySearch.priceBelow });
+    return { ...answer, buyerPatch: { ...answer.buyerPatch, ...patch } };
+  }
+  if (pendingOffer?.type === "property_search" && (INTEREST.test(text) || isAffirmation(text))) {
+    if (pendingOffer.scopeChange) return draft(ar ? "أكيد، نقدر نعدّل البحث." : "Sure, we can adjust the search.", "acknowledged", {
+      question: ar ? "تبي نغيّر المنطقة ولا الميزانية؟" : "Would you prefer to change the area or the budget?",
+      choices: [{ id: "open_area", label: ar ? "أي منطقة" : "Other areas", value: "Keep area flexible" },
+        { id: "new_budget", label: ar ? "تغيير الميزانية" : "Adjust budget", value: "Change my budget" }] });
+    return draft(ar ? "أكيد، خلنا نطالع تفاصيل المشروع اللي عجبك." : "Sure, let's look more closely at the project you liked.", "acknowledged", {
+      question: ar ? "أي مشروع تقصد؟" : "Which project do you mean?", choices: buyer.discoverySearch?.choices || [], pendingOffer });
+  }
+  if (buyer.discoverySearch && /^(?:change my budget|غيّر ميزانيتي|غير ميزانيتي)[.!?؟]*$/i.test(text)) {
+    return draft(ar ? "تمام، نحدّث الميزانية ونحتفظ بباقي طلبك." : "Let's update the budget and keep the rest of your requirements.", "qualifying", {
+      question: budgetPrompt(ar), field: "budgetAed", choices: budgetChoices(ar) });
+  }
+  if (pendingOffer?.type === "property_search" && /\b(?:payment|handover|availability|available|deposit)\b|سداد|تسليم|متوفر|متاح|دفعة/i.test(text)) {
+    return draft(ar ? "أقدر أراجع تفاصيل كل مشروع على حدة." : "I can check those details project by project.", "fact_answer", {
+      question: ar ? "أي مشروع تبي أراجع لك؟" : "Which project would you like me to check?",
+      choices: (buyer.discoverySearch?.choices || []).filter(choice => choice.id !== "more_options"), pendingOffer });
+  }
+  if (projectKnowledge?.projects?.length) {
+    const detail = recordedProjectDetail({ text, buyer, catalog, data: projectKnowledge, pendingOffer, ar });
+    if (detail) return detail;
+  }
+  const namesKnownProject = (catalog.projects || []).some(project => project.name && text.toLowerCase().includes(project.name.toLowerCase())) ||
+    projectKnowledgeInMessage(text, projectKnowledge).length > 0;
+  const changedSearch = updatedFields.some(field => ["budget", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].includes(field));
+  const namedAreas = searchAreasIn(text, projectKnowledge);
+  const areaSearch = namedAreas.length && (/\b(?:projects?|homes?|options?|apartments?|studios?)\b|مشاريع|عقارات|شقق|استوديو/i.test(text) ||
+    (!AREA_QUESTION.test(text) && text.split(/\s+/).length <= 4));
+  const adviceOrFact = /\b(?:why|how|payment|plans?|handover|completion|deposit|cash|mortgage|growth|appreciation|roi|yields?|rental|strategy|best|recommend|compare)\b|سداد|تسليم|دفعة|تمويل|عائد|نمو|قارن|افضل|أفضل/i.test(text);
+  if (propertyDiscovery && projectKnowledge?.projects?.length && !namesKnownProject && !STATISTIC_QUESTION.test(text) && !adviceOrFact &&
+      ((changedSearch && buyer.budgetAed) || areaSearch)) {
+    return propertySearchReply({ message: text, buyer, catalog, data: projectKnowledge, ar });
+  }
   if (/^(?:open|show(?: me)?|details? (?:of|for|on)|افتح|وريني|ورني|تفاصيل)(?:\s|$)/i.test(text) || pendingOffer?.type === "concierge_options" || aboutListedProject(text, catalog)) {
     const open = openProjectReply({ text, buyer, catalog, advisor, ar });
     if (open) return open;

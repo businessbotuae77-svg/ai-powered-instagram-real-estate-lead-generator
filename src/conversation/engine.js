@@ -1,6 +1,7 @@
 import { projectKnowledgeAnswer } from "./project-knowledge-answer.js";
 import { loadProjectKnowledge, projectKnowledgeNames, projectKnowledgeInMessage } from "../facts/project-knowledge.js";
 import { botProjectCoverage } from "../facts/project-access.js";
+import { searchAreasIn } from "../facts/project-geography.js";
 import { marketPriceAnswer, isMarketPriceQuestion } from "./market-price-answer.js";
 import { loadMarketPrices } from "../facts/market-prices.js";
 import { registeredSalesAnswer } from "./registered-sales-answer.js";
@@ -100,6 +101,8 @@ export class ConversationEngine {
     if (this.memory.ensureReady) await this.memory.ensureReady();
     let lastAskedField = this.memory.getLastAskedField(instagramUserId) || this.memory.getLastMeaningfulQuestion?.(instagramUserId);
     const existingBuyer = await this.buyers.getOrCreate(instagramUserId);
+    if (this.memory.getPendingOffer(instagramUserId)?.type === "property_search" &&
+        /^(?:(?:AED|Dhs|Dh)\s*)?\d[\d,.]*\s*[MK]\s*$/i.test(text.trim())) lastAskedField = "budgetAed";
     let recentTurns = this.memory.recentContext(instagramUserId, 6);
 
     const initialCatalog = this.properties.catalog();
@@ -147,6 +150,11 @@ export class ConversationEngine {
 
     const merged = mergeUnderstanding(base, understanding);
     let { facts, signals, intents, unsure, ack } = merged;
+    // An Arabic request for the source is not a move to Masdar.
+    if (/مصدر\s+(?:السعر|الأسعار|الاسعار|البيانات|المعلومات)/.test(text) && !searchAreasIn(text, this.projectKnowledge).length) {
+      delete facts.area;
+      delete facts.areas;
+    }
     // Understanding output is advisory input, never permission. Only the local
     // interpretation of the buyer's actual words can authorize or revoke an
     // action/channel, reset a search, or resume a stopped sales path.
@@ -567,12 +575,12 @@ export class ConversationEngine {
     // The concierge answers the turns buyers ask most (cheapest, more options,
     // why we ask, how buying works, fees, an area) before anything else.
     const conciergeDraft = !contact && !serviceDraft && !catalogError ? conciergeTurn({ message: text, buyer, catalog, advisor,
-      pendingOffer: pendingAtStart, lastAskedField, intents, projectKnowledge: this.projectKnowledge, updatedFields }) : null;
+      pendingOffer: pendingAtStart, lastAskedField, intents, projectKnowledge: this.projectKnowledge, updatedFields, propertyDiscovery: !this.buyerDecisions.enabled && !marketQuestion }) : null;
     let draft = conciergeDraft || (!contact ? serviceDraft : null) || (!contact ? agentEducationReply(text, buyer) : null) || decideConversation({ message: text, buyer, catalog, packs, intents, catalogError, advisor, lastAskedField, broker: this.broker,
       askedFields, pendingOffer: pendingAtStart });
     // Market averages answer explicit price questions before listing advice.
     // Permission changes and handoffs retain priority over informational answers.
-    if (!contact && !serviceDraft && !buyer.salesPathStopped && !intents.includes("start_fresh") &&
+    if (!contact && !serviceDraft && !draft?.propertySearch && !buyer.salesPathStopped && !intents.includes("start_fresh") &&
         !["paused", "permissions_updated", "welcome_back", "handoff_declined"].includes(draft?.stage)) {
       const found = projectKnowledgeAnswer({ message: text, buyer, catalog, data: this.projectKnowledge,
         coverage: botProjectCoverage({ catalog, marketPrices: this.marketPrices, projectKnowledge: this.projectKnowledge }), context: projectContext });
@@ -772,7 +780,7 @@ export class ConversationEngine {
     }
     // "Do you know…?", "ok" or anything else that is not a search must not read as
     // "no option fits": say what the bot can do next instead.
-    if (!contact && draft?.stage === "no_match" && !searched && !updatedFields.length && !buyer.salesPathStopped &&
+    if (!contact && !draft?.propertySearch && draft?.stage === "no_match" && !searched && !updatedFields.length && !buyer.salesPathStopped &&
         !intents.some(intent => ["provide_facts", "update_requirement", "correction", "agent", "callback"].includes(intent))) {
       draft = openEndedReply(buyer);
       packs = [];

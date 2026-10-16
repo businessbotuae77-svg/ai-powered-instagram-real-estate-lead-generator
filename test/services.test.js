@@ -193,6 +193,7 @@ test("a proactive service prompt binds yes to its exact offer instead of a prope
 
 test("the real engine binds a proactive service offer without consuming a property answer", async () => {
   const { engine } = await setupConversation();
+  engine.projectKnowledge = null; // This fixture isolates the furnished listing and its service offer.
   engine.services = services;
   const first = await engine.handleMessage("proactive", "Budget 2M, 2 bedrooms in Yas to live in");
   assert.equal(engine.memory.getPendingOffer("proactive").type, "concierge_card");

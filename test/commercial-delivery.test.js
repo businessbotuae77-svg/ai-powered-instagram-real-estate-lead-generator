@@ -119,7 +119,7 @@ test("conversation logs contain categories and counts, without buyer criteria or
   const log = logs.find(row => row.integration === "conversation");
   assert.equal(log.meta.buyerState, undefined);
   assert.equal(log.meta.reply, undefined);
-  assert.equal(log.meta.matchCount > 0, true);
+  assert.equal(log.meta.matchCount + log.meta.sourceResultCount > 0, true);
 });
 
 test("replaying a delivered broker alert under a different request key counts one delivery", async () => {

@@ -10,25 +10,27 @@ const FILLER = /That's everything I have|No problem, take your time|No rush/;
 
 test("exact match shows a shortlist and offers one next step", async () => {
   const { last } = await talk(["Budget 2M, 2 bedroom in Yas"]);
-  assert.equal(last.stage, "matched");
+  assert.equal(last.stage, "soft_match");
   assert.equal(last.outcome, "shortlist_shown");
   assert.equal((last.reply.match(/\?/g) || []).length, 1);
   assert.equal(last.intentAlert, null, "a budget and a shortlist alone never alert the broker");
 });
 
-test("near match after an objection is still a shortlist, with the trade-off stated", async () => {
+test("a price objection cannot send the buyer back to a more expensive listing", async () => {
   const { last } = await talk(["Budget 2M, 2 bedroom in Yas", "That is too expensive"]);
-  assert.equal(last.stage, "soft_match");
-  assert.equal(last.outcome, "shortlist_shown");
-  assert.match(last.reply, /Keep in mind/);
+  assert.equal(last.stage, "no_match");
+  assert.equal(last.outcome, "shortlist_shown", "the prior delivered shortlist remains recorded");
+  assert.match(last.reply, /lower-priced project/);
+  assert.doesNotMatch(last.reply, /Yas Park Views/);
 });
 
-test("no match offers broker help instead of stopping", async () => {
+test("no match offers a scope change and optional broker help without implying contact", async () => {
   const { last } = await talk(["Villa on Hudayriyat, 6 bedrooms, budget 3M"]);
   assert.equal(last.stage, "no_match");
   assert.equal(last.outcome, "no_match");
-  assert.match(last.reply, /look beyond what I have listed here/);
-  assert.equal(last.buyer.handoff.status, "offered");
+  assert.match(last.reply, /change the area or budget/);
+  assert.ok(last.nextQuestion.choices.some(choice => choice.value === "Talk to an agent"));
+  assert.equal(last.buyer.handoff.status, "none");
   assert.equal(contactPermissions(last.buyer).contactRequested, false, "an offer is not a request");
 });
 
@@ -186,7 +188,7 @@ test("outcome precedence, finality and a returning buyer", () => {
 });
 
 test("after a card, 'yes' offers the team, and 'I want to reserve it' goes straight to how to reach the buyer", async () => {
-  const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", "yes", "I want to reserve it", "WhatsApp", "0501234567"]);
+  const { turns, last } = await talk(["Tell me about Yas Park Views", "yes", "I want to reserve it", "WhatsApp", "0501234567"]);
   assert.equal(turns[1].nextQuestion.field, "handoffOffer");
   assert.equal(turns[1].followUpSubmitted, false);
   assert.equal(turns[2].stage, "follow_up_channel");
