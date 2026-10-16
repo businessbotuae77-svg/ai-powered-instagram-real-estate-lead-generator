@@ -42,7 +42,7 @@ import { brokerProfile, directContactLine, permittedContactDetails } from "./bro
 import { declinesOffer, isBareDecline, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
 import { routeServiceTurn } from "./service-flow.js";
-import { conciergeTurn, deadEndReply, salesAnswerNextStep, salesKnowledgeReply } from "./concierge.js";
+import { conciergeTurn, deadEndReply, openEndedReply, salesAnswerNextStep, salesKnowledgeReply } from "./concierge.js";
 import { loadBuyerDecisionsConfig } from "./buyer-decisions-config.js";
 import { buildBuyerDecisionTurn, decorateBuyerDecisionDraft, decisionControlKind, budgetPermissionFacts, decisionScope, inspectDecisionComparison } from "./buyer-decision-flow.js";
 import {
@@ -574,8 +574,10 @@ export class ConversationEngine {
     // Permission changes and handoffs retain priority over informational answers.
     if (!contact && !serviceDraft && !buyer.salesPathStopped && !intents.includes("start_fresh") &&
         !["paused", "permissions_updated", "welcome_back", "handoff_declined"].includes(draft?.stage)) {
-      const knowledge = projectKnowledgeAnswer({ message: text, buyer, catalog, data: this.projectKnowledge,
+      const found = projectKnowledgeAnswer({ message: text, buyer, catalog, data: this.projectKnowledge,
         coverage: botProjectCoverage({ catalog, marketPrices: this.marketPrices, projectKnowledge: this.projectKnowledge }), context: projectContext });
+      // "What do you think of Yas?" asked for the area, not its list of projects.
+      const knowledge = found?.projectKnowledge?.intent === "discovery" && draft?.stage === "area_guide" ? null : found;
       const market = knowledge ? null : marketPriceAnswer({ message: text, buyer, catalog, data: this.marketPrices, comparisonContext });
       const sourced = knowledge || market;
       if (sourced) {
@@ -673,7 +675,15 @@ export class ConversationEngine {
     if (!contact && !buyer.salesPathStopped && !draft?.suppressCommercial && !draft?.buyerDecision &&
         !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "welcome_back", "identity", "handoff_declined", "transaction_next_step"].includes(draft?.stage)) {
       const recorded = registeredSalesAnswer({ message: text, buyer, catalog, draft, commercialRecommendation: Boolean(advisor.primary) });
-      if (recorded) {
+      // A budget search gets project cards (listed homes first, then recorded sales), not one line about one project.
+      const cards = recorded?.recordedSales?.budgetFit ? deadEndReply({ buyer, data: this.projectKnowledge, catalog, advisor, message: text }) : null;
+      if (cards) {
+        draft = cards;
+        packs = cards.factPacks || [];
+        const matches = cards.listingMatches || [];
+        matchResult = { ...matchResult, matches, matchCount: matches.length, ...(matches.length ? {} : { mode: "none", fitTier: "none", compromises: [], mismatches: [] }) };
+        this.memory.setPendingOffer(instagramUserId, null);
+      } else if (recorded) {
         if (recorded.recordedSales?.recommendedProjectName) buyer = await this.buyers.remember(instagramUserId, { project: recorded.recordedSales.recommendedProjectName });
         draft = recorded;
         packs = [];
@@ -746,7 +756,7 @@ export class ConversationEngine {
     // A search that ends in a dead end ("no match", a vague follow-up) shows the
     // listed homes that fit, otherwise the projects whose recorded sales fit.
     const searched = updatedFields.some(field => ["budget", "area", "bedrooms"].includes(field)) ||
-      ["budgetAed", "bedrooms", "preferredAreas", "propertyTypes"].includes(lastAskedField);
+      ["budgetAed", "bedrooms", "preferredAreas", "propertyTypes"].includes(lastAskedField) || intents.includes("search");
     if (!contact && searched && buyer.budgetAed && !buyer.salesPathStopped && !/[?؟]/.test(text) &&
         (draft.stage === "no_match" || draft.deadEnd || (draft.stage === "qualifying" && !draft.nextQuestion)) &&
         !draft.advisoryExposure && !draft.listingMatches?.length) {
@@ -759,6 +769,14 @@ export class ConversationEngine {
         matchResult = { ...matchResult, matches, matchCount: matches.length, ...(matches.length ? {} : { mode: "none", fitTier: "none", compromises: [], mismatches: [] }) };
         this.memory.setPendingOffer(instagramUserId, null);
       }
+    }
+    // "Do you know…?", "ok" or anything else that is not a search must not read as
+    // "no option fits": say what the bot can do next instead.
+    if (!contact && draft?.stage === "no_match" && !searched && !updatedFields.length && !buyer.salesPathStopped &&
+        !intents.some(intent => ["provide_facts", "update_requirement", "correction", "agent", "callback"].includes(intent))) {
+      draft = openEndedReply(buyer);
+      packs = [];
+      this.memory.setPendingOffer(instagramUserId, null);
     }
     // At most one relevant complementary service, then at most one connection
     // offer. Both are skipped when the buyer declined them or paused.

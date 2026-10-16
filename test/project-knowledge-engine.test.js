@@ -58,10 +58,10 @@ test("project aliases answer with the project's card and preserve an explicit be
   assert.equal(second.check.ok, true);
   assert.deepEqual(second.buyer.bedrooms, []);
   assert.deepEqual(engine.memory.getTurns("bab-alias").at(-1).projectScope.projects, [{ name: "Bab Al Qasr Residence 25" }]);
-  // Asking for the statistic by name still gets the checked averages.
+  // Asking for the statistic by name still gets the checked averages, as a card.
   const third = await engine.handleMessage("bab-alias", "What is the average price per sqft in bab alqasr25?");
-  assert.match(third.reply, /Primary off-plan sales/);
-  assert.match(third.reply, /average AED 1,528\/sqft; 30 sales/);
+  assert.match(third.reply, /^📊 Bab Al Qasr Residence 25 · Yas Island\nDeveloper sales, off-plan · 2026 so far\n/u);
+  assert.match(third.reply, /🏠 Apartments: average AED 1,528\/sq ft · 30 developer sales/);
   assert.doesNotMatch(third.reply, /adrec\.gov\.ae|Source:/i);
   assert.equal(third.check.ok, true);
 });
