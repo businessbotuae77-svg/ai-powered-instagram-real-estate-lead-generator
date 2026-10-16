@@ -7,10 +7,13 @@ import { renderSafeReply } from "../facts/safe-reply.js";
 import { emptyIntelligence } from "../facts/intelligence.js";
 import { offerUnits } from "../facts/commercial-offers.js";
 import { projectListings } from "../facts/project-listings.js";
+import { loadPriceLedger } from "../pricing/ledger.js";
 
 export class PropertyService {
-  constructor(store) {
+  constructor(store, { priceLedger = undefined } = {}) {
     this.store = store;
+    // Developer offers and resale asking prices live in data/pricing, apart from the catalogue.
+    this.priceLedger = priceLedger === undefined ? loadPriceLedger() : priceLedger;
   }
 
   catalog({ suppressAvailability = true } = {}) {
@@ -26,7 +29,8 @@ export class PropertyService {
     // A linked offer supersedes that unit's legacy quote. Quote-only scopes
     // remain separate so one offer cannot contaminate the whole project.
     const superseded = new Set(scopedOffers.map(unit => unit.inventoryUnitId).filter(Boolean));
-    return safeCatalog({ ...catalog, units: [...units.filter(unit => !superseded.has(unit.id)), ...scopedOffers] }, { suppressAvailability });
+    const safe = safeCatalog({ ...catalog, units: [...units.filter(unit => !superseded.has(unit.id)), ...scopedOffers] }, { suppressAvailability });
+    return { ...safe, pricing: this.priceLedger };
   }
 
   async refresh() {

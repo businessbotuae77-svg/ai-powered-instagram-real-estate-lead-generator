@@ -18,6 +18,9 @@
     "import-seed": "node scripts/import-seed.js",
     "airtable:demo": "node scripts/airtable-demo.js",
     "airtable:provision": "node scripts/provision-airtable.js",
-    "airtable:seed": "node scripts/seed-existing-airtable.js"
+    "airtable:seed": "node scripts/seed-existing-airtable.js",
+    "pricing:trace": "node scripts/pricing-trace.js",
+    "pricing:offers": "node scripts/offer-intake.js",
+    "pricing:audit": "python3 -I data/market-prices/build_transaction_audit.py"
   }
 }

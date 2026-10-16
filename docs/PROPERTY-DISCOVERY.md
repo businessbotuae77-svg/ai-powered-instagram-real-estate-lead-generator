@@ -15,10 +15,17 @@ both sources. Each project appears once, ordered by price. It does not silently
 relax an area or bedroom requirement to manufacture a result.
 
 A fresh quote supersedes the recorded median for the same project, area, home
-type and bedroom count. Quote lines say **From**; median lines say **Guide price
-around**. A single note explains that guide prices reflect recent sales and that
-exact prices and available units are confirmed on request. Historical medians never authorize availability, handover dates,
-booking amounts or a payment plan. Mixed-bedroom totals, thin samples and 5+
+type and bedroom count. Since 16 October 2026 the three kinds of price are kept
+apart (see `docs/PRICING-EVIDENCE.md`): listing lines say **From**, approved
+developer offers say their price with its terms, date and source, and median
+lines say **recent sales around**. Recorded sales only shortlist a home; a
+results list made only of them leads with "Recent sales at these projects came
+in under your budget. Today's prices still need checking", never "within your
+budget". A home is left off the shortlist when an approved current price, a
+current project-wide starting price, or an unusable price that sits above the
+budget (stale, ambiguous or unconfirmed) says the past sales are not enough.
+Historical medians never authorize availability, handover dates, booking
+amounts or a payment plan. Mixed-bedroom totals, thin samples and 5+
 bedroom buckets are excluded from this exact-home ranking. Those observations
 remain available in explicit statistical answers. Older approved CSV imports
 retain their own evidence-backed fallback when the price index has no match.
@@ -57,8 +64,10 @@ These links establish location only. They do not import new commercial figures.
 - A price objection searches below the prices shown. It cannot switch to a more
   expensive legacy listing. Broadening the area requires the buyer's words.
 - Yes after a multi-project list asks which project, without contact capture.
-- A bedroom-price follow-up gives that price directly. Accepting its offer of
-  more options retains the offered bedroom scope.
+- A bedroom-price follow-up gives that price directly, in English or Gulf
+  Arabic ("وسعر الغرفتين؟", "كم سعر غرفة وصالة؟"), even after a budget search.
+  A current price leads, with its terms; "yes" asks for that home's check, and
+  **More options** retains the bedroom scope.
 - A commercial-fact question about a selected recorded-sales project keeps its
   subject and names the missing fact. Verification is offered, never claimed.
 - Arabic **مصدر السعر** means the source of the price and must not move the
@@ -69,8 +78,8 @@ These links establish location only. They do not import new commercial figures.
 **Explore by budget** asks for a range before returning projects. Budget buttons
 retain both bounds: **AED 1.5M-2M** searches that band, **Under AED 1M** retains
 the ceiling behavior, and **AED 5M+** supplies a lower bound without an invented
-upper limit. The same bounds apply to fresh unit quotes and recorded-sale guide
-prices, including pagination and project-card follow-ups. Empty bands do not
+upper limit. The same bounds apply to fresh unit quotes and recorded-sale
+figures, including pagination and project-card follow-ups. Empty bands do not
 silently fall back to cheaper homes outside the requested range.
 
 **Different budget** / **Change my budget** explicitly permits reopening that
@@ -79,16 +88,22 @@ A later single budget amount clears the old band; a fresh start clears both.
 
 ## Price and availability requests on Instagram
 
-Normal project cards present home types, approximate sizes and guide prices.
-Sales counts and transaction dates are reserved for explicit statistics questions.
-When no bedroom count was specified, the initial card prioritizes the home types
-within the buyer's guide budget rather than advertising a larger, over-budget home.
+Normal project cards present home types, approximate sizes and recent-sales
+figures, with any approved current price first. Sales counts and transaction
+dates are reserved for explicit statistics questions. When no bedroom count was
+specified, the initial card prioritizes the home types whose recent sales came in
+under the budget rather than advertising a larger, over-budget home, and says
+that today's price is worth a check, not that the home fits.
 
 The next step offers **Check price & units**. Accepting that offer or explicitly
 requesting a current-price check saves the named project for a human answer in
 the same Instagram conversation. It never asks for a phone number or opens a
 channel chooser, even if another contact channel was previously saved. Browsing,
-interest alone and declining the offer do not create a request.
+interest alone and declining the offer do not create a request. A request made
+from a bedroom answer names that home ("the 2-bed apartment at Merito"). A
+declined check ("No thanks", "لا شكراً", "مو الحين") is not offered again for that
+project, and the owner's alert lists the figures the buyer saw with their source
+and a `npm run pricing:trace` command.
 
 The bot does not fetch or fabricate a confirmed quote. The account owner supplies
 the actual price and availability manually on Instagram after the buyer requests

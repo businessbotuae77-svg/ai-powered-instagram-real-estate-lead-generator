@@ -83,6 +83,12 @@ export function matchCriteria(project, unit, criteria = {}) {
       return reject(unit, project, "price_unconfirmed");
     }
     if (unit.startingPriceAed > criteria.budgetAed) return reject(unit, project, "budget");
+    // A project-wide starting price is the cheapest home anywhere in the project:
+    // it can rule a budget out, but it cannot price the bedroom count asked for.
+    const wantsBedrooms = criteria.bedrooms !== null && criteria.bedrooms !== undefined && criteria.bedrooms !== "";
+    if (unit.projectLevel && wantsBedrooms && !(unit.bedroomsMax !== null && unit.bedrooms === unit.bedroomsMax && (unit.propertyTypes || []).length <= 1)) {
+      return reject(unit, project, "bedroom_price_unconfirmed");
+    }
   }
 
   if (criteria.cashAvailableAed !== null && criteria.cashAvailableAed !== undefined) {

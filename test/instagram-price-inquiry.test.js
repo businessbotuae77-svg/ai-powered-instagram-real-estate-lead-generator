@@ -3,16 +3,18 @@ import test from "node:test";
 import { talk, setupOrchestrator } from "./helpers.js";
 import { retryResult } from "../src/integrations/orchestrator.js";
 
-test("normal buyer replies use guide prices once and keep statistics out of the project pitch", async () => {
+test("recorded prices read as past sales once, never as today's price, and keep statistics out of the pitch", async () => {
   const { turns, last } = await talk(["Under AED 1M", "Vista 2"]);
-  assert.match(turns[0].reply, /Studio · Guide price around AED 533K/);
-  assert.equal((turns[0].reply.match(/Guide prices reflect recent sales/g) || []).length, 1);
+  assert.match(turns[0].reply, /Studio · recent sales around AED 533K/);
+  assert.match(turns[0].reply, /^Recent sales at these projects in Abu Dhabi came in under your budget\. Today's prices still need checking/);
+  assert.doesNotMatch(turns[0].reply, /guide price|I found these projects within your budget/i);
+  assert.equal((turns[0].reply.match(/Recent sales show what homes sold for, not today's prices/g) || []).length, 1);
   assert.doesNotMatch(turns[0].reply, /Recent sales \(12 months\)/);
-  assert.match(last.reply, /guide price around AED 550K/);
-  assert.match(last.reply, /guide price around AED 619K/);
-  assert.match(last.reply, /take a closer look at the studio and 1-bed apartment/);
-  assert.doesNotMatch(last.reply, /108 developer sales|latest 2 Oct|typically about|1\.19M/);
-  assert.match(last.reply, /Exact prices and available units are confirmed on request/);
+  assert.match(last.reply, /recent sales around AED 550K/);
+  assert.match(last.reply, /recent sales around AED 619K/);
+  assert.match(last.reply, /Recent studio and 1-bed apartment sales here came in under your budget, so today's price is worth a check/);
+  assert.doesNotMatch(last.reply, /108 developer sales|latest 2 Oct|typically about|1\.19M|guide price|For your budget/i);
+  assert.match(last.reply, /not today's prices/);
   assert.match(last.reply, /confirmed here on Instagram\?$/);
   assert.equal(last.followUpSubmitted, false);
   assert.equal(last.check.ok, true);
@@ -33,8 +35,14 @@ test("only an accepted price-check offer creates an Instagram request, even with
   assert.match(sent("instagram").at(-1).body.message.text, /request for Vista 2 is saved/);
   assert.match(sent("instagram").at(-1).body.message.text, /reply here on Instagram once the details are checked/);
   assert.doesNotMatch(sent("instagram").at(-1).body.message.text, /number|How would|WhatsApp|confirmed price is|available now/);
-  assert.match(alertText(sent("whatsapp").at(-1)), /Confirm current price and availability for Vista 2/);
-  assert.match(alertText(sent("whatsapp").at(-1)), /Permitted next action: Reply on Instagram/);
+  const alert = alertText(sent("whatsapp").at(-1));
+  assert.match(alert, /Confirm current price and availability for Vista 2/);
+  assert.match(alert, /Permitted next action: Reply on Instagram/);
+  // The owner sees which figures the buyer saw and where each came from.
+  assert.match(alert, /Figures shown to the buyer:\n- Vista 2 · 1-bed apartment: recorded median AED 619,015, past sales, not a current price \(17 Primary off-plan sales, 2026-01-09 to 2026-08-27; ADREC a00fa4473c2d\)/);
+  assert.match(alert, /- Vista 2 · Studio: recorded median AED 550,000, past sales/);
+  assert.doesNotMatch(alert, /Plaza 1|Harmony Residence/, "only the project being checked");
+  assert.ok(alert.length <= 900 || /Trace: npm run pricing:trace -- "Vista 2"/.test(alert));
   assert.equal(retryResult(result.result).instagramPriceRequest.projectName, "Vista 2");
 });
 

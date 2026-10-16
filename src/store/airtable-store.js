@@ -161,6 +161,9 @@ export class AirtableStore {
       id: record.id,
       sheetProjectId: f["Sheet Project ID"] || null,
       name: f.Name,
+      // Registered names and district tie a listing to its recorded sales and offers.
+      officialDistrict: f["Official district"] || null,
+      registryLabels: String(f["ADREC project labels"] || "").split(/\r?\n/).map(label => label.trim()).filter(Boolean),
       developerId: developer ? developer.id : null,
       developerName: developer ? developer.name : null,
       developerActive: developer ? developer.active : false,

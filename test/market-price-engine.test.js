@@ -105,7 +105,8 @@ test("Reserve inside a project name cannot accept a handoff", async () => {
   assert.equal(last.followUpSubmitted, false);
   assert.equal(last.callRequestSubmitted, false);
   assert.equal(last.intentAlert, null);
-  assert.equal(last.pendingOffer, null);
+  // The statistic card only offers a price check here on Instagram; nothing is accepted.
+  assert.deepEqual(last.pendingOffer, { type: "instagram_price_offer", projectName: "Saadiyat Reserve - The Dunes", channel: "instagram" });
   assert.equal(last.buyer.projectInterest, null);
   assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
 });

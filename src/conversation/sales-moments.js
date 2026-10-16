@@ -52,7 +52,9 @@ export function declinesOffer(message) {
 }
 
 export function isBareDecline(message) {
-  return /^(?:no|nope|nah|no thanks?|no thank you|not now|not yet|not really|maybe later|later|not at the moment|i'?m ok(?:ay)?|no need|لا|لا شكرا|لاحقا|ليس الآن)[\s.!,]*(?:thanks?|thank you)?[.!]*$/i.test(normalizeBuyerText(message).trim());
+  // Diacritics dropped, so "لا شكراً" reads like "لا شكرا"; Gulf "مو الحين" and "بعدين" decline too.
+  const text = normalizeBuyerText(message).replace(/[\u064B-\u0652]/g, "").trim();
+  return /^(?:no|nope|nah|no thanks?|no thank you|not now|not yet|not really|maybe later|later|not at the moment|i'?m ok(?:ay)?|no need|لا|لا شكرا|لا مشكور|لا تسلم|لاحقا|بعدين|مو الحين|مب الحين|مو لازم|ما يحتاج|ليس الآن)[\s.!,،]*(?:thanks?|thank you|شكرا|مشكور)?[.!]*$/i.test(text);
 }
 
 const OFFERS = {

@@ -3,9 +3,9 @@ import test from "node:test";
 import { setupConversation, talk } from "./helpers.js";
 import { lookupProjectSales } from "../src/facts/project-knowledge.js";
 
-// When no listed home fits, the bot shows projects whose recorded developer
-// sales (last 12 months) fit the budget, labelled as sale prices, never quotes.
-// A project the bot knows from those sales is shown as a card, like a listing.
+// When no listed home fits, the bot shortlists projects whose recorded developer
+// sales (last 12 months) came in under the budget, labelled as past sales, never
+// as today's price or a fit. A project known from those sales gets a card.
 
 const SOURCES = /ADREC|adrec\.gov\.ae|Source:|المصدر/;
 
@@ -19,13 +19,15 @@ function typicalWithinBudget(engine, name, budget) {
   return rows.some(row => row.bedrooms !== "All" && row.medianPriceAed <= budget);
 }
 
-test("a budget search shows the lowest-priced matching projects from recorded developer sales", async () => {
+test("a budget search shortlists the lowest-priced matching projects from recorded developer sales, as past sales", async () => {
   const { engine } = await setupConversation();
   const first = await engine.handleMessage("sold", "2 bedroom in Shamkha under 1.5M");
   assert.equal(first.stage, "soft_match", first.reply);
   assert.equal(first.check.ok, true, JSON.stringify(first.check.violations));
-  assert.match(first.reply, /projects within your budget in Al Shamkhah/);
-  assert.match(first.reply, /1️⃣ PUD Residence 1 · Al Shamkhah\n2-bed apartment · Guide price around AED [\d.]+[MK]/u);
+  assert.match(first.reply, /^Recent sales at these projects in Al Shamkhah came in under your budget\. Today's prices still need checking 👇/u);
+  assert.match(first.reply, /1️⃣ PUD Residence 1 · Al Shamkhah\n2-bed apartment · recent sales around AED [\d.]+[MK]/u);
+  assert.match(first.reply, /Recent sales show what homes sold for, not today's prices\. I can check today's price and available units for any of these here on Instagram\./);
+  assert.doesNotMatch(first.reply, /within your budget|guide price/i);
   assert.doesNotMatch(first.reply, /not today's asking price|payment plan|handover/i);
   assert.doesNotMatch(first.reply, SOURCES);
   const names = listedProjects(first.reply);
@@ -49,7 +51,7 @@ test("a budget search includes cheaper recorded matches even when listings also 
   const { last } = await talk(["Hi", "budget 2M"]);
   assert.equal(last.stage, "soft_match", last.reply);
   assert.equal(last.check.ok, true, JSON.stringify(last.check.violations));
-  assert.match(last.reply, /^I found these projects within your budget/);
+  assert.match(last.reply, /^Recent sales at these projects in Abu Dhabi came in under your budget\. Today's prices still need checking/);
   assert.doesNotMatch(last.reply, /I don't have a listed price|Recorded sale prices/);
   assert.ok(last.projectKnowledge.projectNames.includes("Plaza 1"));
 });
@@ -62,9 +64,9 @@ test("a project known from recorded sales is shown as a card with buttons, not a
   assert.equal(card.stage, "project_knowledge", card.reply);
   assert.equal(card.check.ok, true, JSON.stringify(card.check.violations));
   assert.match(card.reply, new RegExp(`^🏙️ ${name}\\n📍 Al Reem Island`, "u"));
-  assert.match(card.reply, /🏠 1-bed apartment · about [\d,]+ sq ft · guide price around AED [\d.]+[MK]/);
-  assert.doesNotMatch(card.reply, /📊|developer sales in the last 12 months/);
-  assert.match(card.reply, /For your budget.*1-bed apartment/);
+  assert.match(card.reply, /🏠 1-bed apartment · about [\d,]+ sq ft · recent sales around AED [\d.]+[MK]/);
+  assert.doesNotMatch(card.reply, /📊|developer sales in the last 12 months|guide price/i);
+  assert.match(card.reply, /✨ Recent 1-bed apartment sales here came in under your budget, so today's price is worth a check\./);
   assert.match(card.reply, /confirmed here on Instagram\?$/);
   assert.doesNotMatch(card.reply, /average AED|\/sqft|Primary off-plan|year to date|Data through/);
   assert.doesNotMatch(card.reply, SOURCES);
@@ -81,7 +83,7 @@ test("a project known from recorded sales is shown as a card with buttons, not a
   assert.match(price.reply, /reply here on Instagram/);
 });
 
-test("a project gets a card, its price follow-up is brief, and yes explores the offered home size", async () => {
+test("a project gets a card, its price follow-up is brief, and yes asks for that home's price check here", async () => {
   const { engine } = await setupConversation();
   const card = await engine.handleMessage("about", "Tell me about Merito");
   assert.equal(card.check.ok, true, JSON.stringify(card.check.violations));
@@ -92,9 +94,10 @@ test("a project gets a card, its price follow-up is brief, and yes explores the 
   assert.match(focused.reply, /2-bed apartment.*AED 1\.36M/);
   assert.doesNotMatch(focused.reply, /1-bed|3-bed/);
   const yes = await engine.handleMessage("about", "yes");
-  assert.equal(yes.stage, "soft_match", yes.reply);
-  assert.deepEqual(yes.buyer.bedrooms, [2]);
-  assert.equal(yes.followUpSubmitted, false);
+  assert.equal(yes.stage, "follow_up_requested", yes.reply);
+  assert.match(yes.reply, /for the 2-bed apartment at Merito is saved 👍 We'll reply here on Instagram/);
+  assert.doesNotMatch(yes.reply, /WhatsApp|phone|number/i);
+  assert.equal(yes.followUpSubmitted, true);
 });
 
 test("an area project search uses the same price-ranked discovery as budget searches", async () => {
@@ -106,7 +109,8 @@ test("an area project search uses the same price-ranked discovery as budget sear
     assert.equal(listedProjects(found.reply).length, 3);
     assert.match(found.reply, new RegExp(`lower-priced options in ${area}`));
     assert.doesNotMatch(found.reply, SOURCES);
-    assert.doesNotMatch(found.reply, /today's prices|busiest/);
+    assert.doesNotMatch(found.reply, /busiest|within your budget/);
+    assert.match(found.reply, /Recent sales show what homes sold for, not today's prices\./);
   }
 });
 
@@ -137,8 +141,10 @@ test("Arabic buyers get the recorded sales list and cards in Arabic", async () =
   const result = await engine.handleMessage("sold-ar", "ابي شقة غرفتين في الشامخة ميزانيتي 1.5 مليون");
   assert.equal(result.stage, "soft_match", result.reply);
   assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
-  assert.match(result.reply, /ضمن ميزانيتك/);
-  assert.match(result.reply, /شقة غرفتين · سعر استرشادي/);
+  assert.match(result.reply, /^آخر المبيعات في هذي المشاريع كانت ضمن ميزانيتك في الشامخة، وسعر اليوم يحتاج تأكيد 👇/u);
+  assert.match(result.reply, /شقة غرفتين · مبيعات حديثة بحوالي/);
+  assert.match(result.reply, /المبيعات الحديثة توضح بكم انباعت الوحدات، مو أسعار اليوم\./);
+  assert.doesNotMatch(result.reply, /استرشادي/);
   assert.match(result.reply, /مبيعات حديثة/);
   assert.doesNotMatch(result.reply, /typically|developer sales|Which one/);
   assert.doesNotMatch(result.reply, SOURCES);

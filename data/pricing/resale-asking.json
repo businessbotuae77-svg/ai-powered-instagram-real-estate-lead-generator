@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "description": "Advertised resale asking prices. Comparisons only: an asking price is not a recorded sale and not a developer offer, and it never shows that a home fits a budget. Append-only, like developer-offers.json.",
+  "records": [
+    {
+      "id": "ASK-ROTANA-S-1BR-20261014",
+      "evidenceType": "resale_asking",
+      "status": "approved",
+      "project": { "name": "Rotana Residences South", "registryName": "Rotana Residences South", "district": "Al Reem Island", "community": null, "developer": "Royal Development Holding", "phase": "South Tower", "building": "South Tower", "sheetProjectId": "AD-078" },
+      "home": { "scope": "home_type", "type": "apartment", "bedrooms": 1, "unitId": null, "sizeSqftFrom": 910, "sizeSqftTo": 910 },
+      "price": { "raw": "AED 1,690,000", "amountAed": 1690000, "amountToAed": null, "kind": "starting_price", "discount": "not_stated", "currency": "AED" },
+      "discountTerms": { "description": null, "eligibility": null },
+      "payment": { "kind": "unknown", "summary": null },
+      "availability": { "status": "unknown", "scope": null },
+      "source": { "kind": "broker_listing", "reference": "https://abudhabi.dubizzle.com/new-projects/royal-development-company/rotana-residences-south-tower/", "quote": "Starting resale listing price AED 1,690,000 (knowledge base Unit types TYPE-089)" },
+      "issuedOn": null,
+      "receivedOn": null,
+      "verifiedOn": null,
+      "listedOn": null,
+      "firstSeenOn": "2026-10-14",
+      "checkedOn": "2026-10-14",
+      "validUntil": null,
+      "supersedes": [],
+      "unresolved": [],
+      "notes": "Copied from the Abu Dhabi Brokerage Knowledge Base (Unit types, TYPE-089, marked Not verified). Advertised by a broker; the seller's price and the home's terms are unverified.",
+      "createdOn": "2026-10-16",
+      "reviewedBy": null,
+      "reviewedOn": null
+    }
+  ]
+}

@@ -63,6 +63,12 @@ export function decideConversation({ message, buyer, catalog, packs = [], intent
   }
   if (intents.includes("decline_follow_up")) return response(say("Understood. I won't arrange follow-up. You can continue getting property advice here.", "تمام، لن أرتب متابعة. يمكنك الاستمرار في الحصول على المعلومات العقارية هنا."), "permissions_updated");
   if (intents.includes("decline_viewing")) return response(say("Understood. I won't arrange a viewing.", "تمام، لن أرتب معاينة."), "permissions_updated");
+  if (intents.includes("decline_price_check")) {
+    // The buyer said no to a price check: respect it, and keep the chat useful.
+    const prompt = say("What would you like to do next?", "كيف تحب نكمل؟");
+    return { text: `${say("No problem, I won't check it.", "تمام، ما راح أتأكد منه.")}\n${prompt}`, stage: "price_check_declined",
+      nextQuestion: { field: "conciergeNext", prompt, choices: [nextChoice("more", ar), nextChoice("plans", ar)] }, pendingOffer: null, callRequest: null };
+  }
   if (intents.includes("decline_handoff") && isBareDecline(text)) {
     return response(say("No problem. I'm happy to keep helping here whenever you have more questions.", "لا مشكلة. يسعدني متابعة المساعدة هنا متى كانت لديك أسئلة."), "handoff_declined");
   }

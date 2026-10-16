@@ -29,6 +29,12 @@ function initialPayment(project, unit) {
 }
 
 // A project-level listing fits any count inside its published range ("1–3BR").
+// Its starting price, though, belongs to the project, not to that bedroom count.
+function priceTiedToRequest(unit, buyer) {
+  if (!unit.projectLevel || !(buyer.bedrooms || []).length) return true;
+  return unit.bedroomsMax !== null && unit.bedrooms === unit.bedroomsMax && (unit.propertyTypes || []).length <= 1;
+}
+
 function bedroomsFit(unit, wanted) {
   if (unit.projectLevel) return unit.bedroomsMax !== null && wanted.some(n => n >= unit.bedrooms && n <= unit.bedroomsMax);
   return wanted.includes(Number(unit.bedrooms));
@@ -123,6 +129,7 @@ function assessDimensions(candidate, buyer) {
     let status = "matched";
     if (!Number.isFinite(unit.startingPriceAed) || unit.startingPriceAed <= 0) status = "unknown";
     else if (unit.startingPriceAed > buyer.budgetAed) status = "mismatch";
+    else if (!priceTiedToRequest(unit, buyer)) status = "unknown";
     dimensions.push(
       dimension("budget", status, WEIGHTS.budget, {
         requested: buyer.budgetAed,
@@ -305,6 +312,7 @@ export function candidateConstraintFailures(candidate, buyer) {
   const stretch = flexible && Number.isFinite(budget) ? Math.min(buyer.budgetStretchAed > 0 ? buyer.budgetStretchAed : budget * allowedPct / 100, budget * allowedPct / 100, budget * 0.1) : 0;
   if (!Number.isFinite(price) || price <= 0) failures.push("price_unknown");
   else if (Number.isFinite(budget) && price > budget + stretch) failures.push("over_budget_ceiling");
+  else if (Number.isFinite(budget) && !priceTiedToRequest(unit, buyer)) failures.push("bedroom_price_unconfirmed");
   if (buyer.preferredAreas?.length && ["fixed", false].includes(buyer.areaFlexibility) && !buyer.preferredAreas.some(area => sameText(normalizeArea(project.area), normalizeArea(area)))) failures.push("fixed_area");
   if (buyer.propertyTypes?.length && ["fixed", false].includes(buyer.propertyTypeFlexibility) && !buyer.propertyTypes.some(type => typeFits(unit, type))) failures.push("fixed_property_type");
   if (buyer.bedrooms?.length && buyer.bedroomsRequired === true && !bedroomsFit(unit, buyer.bedrooms.map(Number))) failures.push("required_bedrooms");

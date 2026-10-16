@@ -149,10 +149,15 @@ test("ordinary sales replies stay short while dates and samples remain available
 test("transaction evidence can shortlist a budget fit without fabricating current inventory", () => {
   const catalog = { registeredSales: fixture() };
   const found = registeredSalesAnswer({ message: "Find a 2 bedroom apartment within my budget", buyer: { budgetAed: 400000, preferredAreas: ["Al Reem Island"] }, catalog });
-  assert.match(found.text, /^I found a project that fits your budget: Cove Test/);
-  assert.match(found.text, /Recent sales of 2-bedroom apartments are around AED 300,000/);
-  assert.equal(found.recordedSales.budgetFit, true);
+  assert.match(found.text, /^A project worth checking for your budget: Cove Test in Al Reem Island\./);
+  assert.match(found.text, /Recent sales of 2-bedroom apartments were around AED 300,000; today's price needs a check\./);
+  assert.doesNotMatch(found.text.split("\n\n")[0], /fits your budget|within your budget|available/i);
+  // Past sales shortlist the project; only a current price could show a fit.
+  assert.equal(found.recordedSales.budgetFit, false);
+  assert.equal(found.recordedSales.budgetShortlist, true);
   assert.equal(found.recordedSales.recommendedProjectName, "Cove Test");
+  assert.equal(found.nextQuestion.prompt, "Want the latest price and available units confirmed here on Instagram?");
+  assert.deepEqual(found.pendingOffer, { type: "instagram_price_offer", projectName: "Cove Test", channel: "instagram", home: "2-bed apartment", homeAr: "شقة غرفتين" });
   const allowedClaims = thesisClaims(found.investmentTheses);
   assert.equal(validateMessage(found.text, [], { allowedClaims }).ok, true);
   assert.equal(validateMessage(found.text.replace("AED 300,000", "AED 999,999"), [], { allowedClaims }).ok, false);
@@ -183,7 +188,12 @@ test("budget-first English and Gulf Arabic turns give a recommendation instead o
     assert.match(result.reply, /AED 300,000/);
     assert.doesNotMatch(result.reply, /median|rows|2026|transaction ID|غير مؤكد|غير متاح/);
     assert.equal(result.buyer.projectInterest, "Cove Test");
-    assert.equal(result.reply.split("\n").length, 2);
+    // Two lines of pitch, then one next step: the Instagram price check.
+    const [pitch, question, ...rest] = result.reply.split("\n\n");
+    assert.equal(pitch.split("\n").length, 2);
+    assert.deepEqual(rest, []);
+    assert.equal(question, id.endsWith("ar") ? "تبي نتأكد لك من السعر الحالي والوحدات المتوفرة هنا في إنستغرام؟" : "Want the latest price and available units confirmed here on Instagram?");
+    assert.match(pitch, id.endsWith("ar") ? /وسعر اليوم يحتاج تأكيد/ : /today's price needs a check/);
     const proof = await engine.handleMessage(id, id.endsWith("ar") ? "ما مصدر السعر وتاريخ المبيعات؟" : "What is the source and sample period?");
     assert.equal(proof.stage, "recorded_sales");
     assert.equal(proof.check.ok, true);
@@ -201,7 +211,9 @@ test("invest then budget explores source-backed projects before asking for a str
       for (const message of messages) result = await engine.handleMessage("invest-budget", message);
       assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
       assert.equal(result.stage, "soft_match");
-      assert.match(result.reply, /within your budget|ضمن ميزانيتك/);
+      // Recorded sales shortlist; the lead never says they fit the budget today.
+      assert.match(result.reply, /^(?:Recent sales at these projects in Abu Dhabi came in under your budget\. Today's prices still need checking|آخر المبيعات في هذي المشاريع كانت ضمن ميزانيتك في أبوظبي، وسعر اليوم يحتاج تأكيد)/);
+      assert.doesNotMatch(result.reply, /I found these projects within your budget|guide price/i);
       assert.match(result.reply, /recent sales|مبيعات حديثة/);
       assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة|💳/);
       assert.equal(result.nextQuestion.field, "conciergeNext");

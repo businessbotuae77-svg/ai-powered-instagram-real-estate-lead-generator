@@ -1,6 +1,7 @@
 import { normalizeBuyerText } from "./text.js";
 import { isAgentEducationQuestion, wantsHuman, declinesContact } from "./contact.js";
 import { OUTCOME_LABELS, contactPermissions, permittedNextAction } from "./outcomes.js";
+import { shownLines } from "../pricing/shown.js";
 /**
  * Buyer intent and call-request policy for Milestone 3.
  * Buying interest is distinct from call permission.
@@ -274,6 +275,15 @@ export function buildCallRequestSummary(buyer, { matches = [], reason = "Request
   // What the broker may do first: requested contact and restrictions come from the buyer's own words.
   lines.push(`Contact requested: ${permissions.contactRequested ? "yes" : "no"}`);
   lines.push(`Permitted next action: ${permittedNextAction(buyer)}`);
+  // A price check names every figure the buyer saw and where it came from.
+  const asked = (buyer.priceEvidenceShown || []).filter(row => row.project === buyer.projectInterest);
+  const evidence = asked.length ? asked : buyer.priceEvidenceShown || [];
+  const shown = /price/i.test(`${buyer.requestedAction || ""} ${reason}`) ? shownLines(evidence) : [];
+  if (shown.length) {
+    lines.push(`Price check: ${buyer.requestedAction || reason}`, "Figures shown to the buyer:", ...shown);
+    const traces = [...new Set(evidence.slice(-3).map(row => row.trace).filter(Boolean))];
+    if (traces.length) lines.push(`Trace: ${traces.join(" | ")}`);
+  }
   if (permissions.restrictions.length) lines.push(`Restrictions: ${permissions.restrictions.join(", ")}`);
   if (intent?.evidence) lines.push(`Buyer said: "${intent.evidence}"`);
   lines.push(`Channel: ${buyer.preferredContactChannel || (intent ? "not chosen" : "phone")}; No calls: ${buyer.noCalls ? "yes" : "no"}`);

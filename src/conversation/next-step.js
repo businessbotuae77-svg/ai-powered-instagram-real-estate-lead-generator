@@ -3,7 +3,7 @@
 // a question, or an offer of the broker for what the data cannot confirm.
 // Pauses, opt-outs, declines and natural endings ("thanks") stay as they are.
 
-const QUIET_STAGES = new Set(["paused", "paused_advice", "permissions_updated", "handoff_declined", "acknowledged",
+const QUIET_STAGES = new Set(["paused", "paused_advice", "permissions_updated", "handoff_declined", "price_check_declined", "acknowledged",
   "suggestion_declined", "identity", "conversation_repair", "call_requested", "follow_up_requested"]);
 
 function say(buyer, en, ar) {
