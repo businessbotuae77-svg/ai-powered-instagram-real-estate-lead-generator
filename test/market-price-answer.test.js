@@ -36,7 +36,8 @@ test("Arabic prices show this year's average per sqft with a plain source", () =
   assert.match(draft.text, /متوسط الأسعار لعام 2026 منذ بداية السنة/);
   assert.match(draft.text, /المتوسط AED 1,658\/قدم²/);
   assert.match(draft.text, /2,044 مبيعة/);
-  assert.match(draft.text, /المصدر: ADREC/);
+  assert.match(draft.text, /البيانات حتى 2026-10-14/);
+  assert.doesNotMatch(draft.text, /المصدر|adrec\.gov\.ae/);
   assert.doesNotMatch(draft.text, /الوسيط|تاريخية|Recorded sales/);
   assert.equal(validateMessage(draft.text, [], { allowedClaims: thesisClaims(draft.investmentTheses) }).ok, true);
   const comparison = answer("متوسط أسعار الشقق في الريم والسعديات", { buyer: { language: "ar" } });

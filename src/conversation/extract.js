@@ -253,7 +253,7 @@ function extractBudget(text) {
   if (/\bstretch\b|\b(?:extra|another)\s+(?:AED\s*)?\d/i.test(text) && !/\bbudget\s+(?:is|now|of|to)\b/i.test(text)) return null;
   const patterns = [
     new RegExp(
-      `(?:budget(?:\\s+is|\\s+of)?|up to|around|about|max(?:imum)?)\\s*(?:of\\s*)?(?:AED|Dhs|Dh)?\\s*${MONEY_TOKEN}`,
+      `(?:budget(?:\\s+is|\\s+of)?|up to|around|about|max(?:imum)?|under|below|less than|no more than|not more than|within)\\s*(?:of\\s*)?(?:AED|Dhs|Dh)?\\s*${MONEY_TOKEN}`,
       "i"
     ),
     new RegExp(`(?:AED|Dhs|Dh)\\s*${MONEY_TOKEN}\\s*(?:budget|total)?`, "i"),
@@ -267,7 +267,7 @@ function extractBudget(text) {
     if (/[Kk]\b/.test(raw) && /\b(cash|available now|ready now|down)\b/i.test(text) && !/\bbudget\b/i.test(match[0])) {
       continue;
     }
-    if (/budget|up to|around|about|max/i.test(match[0]) || /[Mm]\b/.test(raw) || /AED|Dhs|Dh/i.test(match[0])) {
+    if (/budget|up to|around|about|max|under|below|less than|more than|within/i.test(match[0]) || /[Mm]\b/.test(raw) || /AED|Dhs|Dh/i.test(match[0])) {
       const amount = parseMoney(raw);
       if (amount !== null && amount >= 200_000) return amount;
     }
@@ -290,7 +290,7 @@ function isNoCashYet(text) {
 
 function extractCash(text) {
   const maxDown = text.match(
-    /\b(?:no more than|not more than|max(?:imum)?|up to|under|less than)\s*(?:AED|Dhs|Dh)?\s*(\d[\d,]*(?:\.\d+)?\s*[MmKk]?)\s*(?:down|deposit|initial|cash)?\b/i
+    /\b(?:no more than|not more than|max(?:imum)?|up to|under|less than)\s*(?:AED|Dhs|Dh)?\s*(\d[\d,]*(?:\.\d+)?\s*[MmKk]?)\s*(?:down|deposit|initial|cash)\b/i
   ) || text.match(
     /\b(?:don'?t|do not)\s+want\s+to\s+put\s+(?:more\s+than\s+)?(?:AED|Dhs|Dh)?\s*(\d[\d,]*(?:\.\d+)?\s*[MmKk]?)\s*(?:down|deposit)?\b/i
   );

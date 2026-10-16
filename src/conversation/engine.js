@@ -42,7 +42,7 @@ import { brokerProfile, directContactLine, permittedContactDetails } from "./bro
 import { declinesOffer, isBareDecline, handoffOffer, handoffTopic, transactionAnswer, transactionMoment } from "./sales-moments.js";
 import { configuredServiceTerms, declinedServiceIds, loadServices, suggestService } from "./services.js";
 import { routeServiceTurn } from "./service-flow.js";
-import { conciergeTurn, salesAnswerNextStep, soldWithinBudgetReply } from "./concierge.js";
+import { conciergeTurn, deadEndReply, salesAnswerNextStep, salesKnowledgeReply } from "./concierge.js";
 import { loadBuyerDecisionsConfig } from "./buyer-decisions-config.js";
 import { buildBuyerDecisionTurn, decorateBuyerDecisionDraft, decisionControlKind, budgetPermissionFacts, decisionScope, inspectDecisionComparison } from "./buyer-decision-flow.js";
 import {
@@ -583,8 +583,10 @@ export class ConversationEngine {
           !market.marketPrices?.rows?.some(row => row.Reliability === "OK") : knowledge.projectKnowledge?.missingScope || knowledge.projectKnowledge?.unavailable ||
           (knowledge.projectKnowledge?.intent === "project" && !knowledge.projectKnowledge.rows?.some(row => row.reliability === "OK"));
         draft = { ...sourced, factMissing: missingPrice ? [{ topic: knowledge ? "project_sales" : "market_prices" }] : [] };
-        // A project answer ends with somewhere to go: more projects or a person, never a dead end.
-        if (knowledge) draft = salesAnswerNextStep(draft, { ar: buyer.language === "ar" });
+        // A project the buyer asks about is shown as its card; a named statistic keeps the figures.
+        // Either way the answer ends with somewhere to go: more projects or a person, never a dead end.
+        if (knowledge) draft = salesKnowledgeReply({ answer: draft, message: text, buyer, data: this.projectKnowledge, catalog }) ||
+          salesAnswerNextStep(draft, { ar: buyer.language === "ar" });
         this.memory.setPendingOffer(instagramUserId, null);
         packs = [];
         matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
@@ -741,18 +743,20 @@ export class ConversationEngine {
           nextQuestion: { field: "explorationTopic", prompt } };
       }
     }
-    // A search no listed home answers ends in a dead end ("no match", a vague
-    // follow-up). Show the projects whose recorded developer sales fit instead.
+    // A search that ends in a dead end ("no match", a vague follow-up) shows the
+    // listed homes that fit, otherwise the projects whose recorded sales fit.
     const searched = updatedFields.some(field => ["budget", "area", "bedrooms"].includes(field)) ||
       ["budgetAed", "bedrooms", "preferredAreas", "propertyTypes"].includes(lastAskedField);
     if (!contact && searched && buyer.budgetAed && !buyer.salesPathStopped && !/[?؟]/.test(text) &&
         (draft.stage === "no_match" || draft.deadEnd || (draft.stage === "qualifying" && !draft.nextQuestion)) &&
         !draft.advisoryExposure && !draft.listingMatches?.length) {
-      const sold = soldWithinBudgetReply({ buyer, data: this.projectKnowledge, catalog, message: text });
-      if (sold) {
-        draft = sold;
-        packs = [];
-        matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
+      const found = deadEndReply({ buyer, data: this.projectKnowledge, catalog, advisor, message: text });
+      if (found) {
+        draft = found;
+        // Listed homes are checked against their own fact packs; recorded sales carry their evidence.
+        packs = found.factPacks || [];
+        const matches = found.listingMatches || [];
+        matchResult = { ...matchResult, matches, matchCount: matches.length, ...(matches.length ? {} : { mode: "none", fitTier: "none", compromises: [], mismatches: [] }) };
         this.memory.setPendingOffer(instagramUserId, null);
       }
     }

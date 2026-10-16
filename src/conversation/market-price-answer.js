@@ -133,8 +133,8 @@ function rowText(row, ar, { quarter = false, ranked = false, statistic = "averag
 
 function evidenceDraft(lines, data, { filters = {}, places = [], rows = [], mode = "period", ...details } = {}, ar = false) {
   const coverage = marketPriceCoverage(data);
-  const footer = ar ? `البيانات حتى ${coverage.dataUpTo}.\nالمصدر: ADREC — ${SOURCE}`
-    : `Data through ${coverage.dataUpTo}.\nSource: ADREC — ${SOURCE}`;
+  // The cutoff date stays visible; the source link lives in the evidence record, not the chat.
+  const footer = ar ? `البيانات حتى ${coverage.dataUpTo}.` : `Data through ${coverage.dataUpTo}.`;
   const text = [...lines, footer].filter(Boolean).join("\n");
   const evidence = { field: "marketPriceEvidence", value: text, source: SOURCE,
     sourceRecordId: `market-prices:${coverage.dataUpTo}:${mode}:${rows.map(row => row.Key).join("||") || JSON.stringify(filters)}`,
