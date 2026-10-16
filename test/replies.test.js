@@ -34,7 +34,7 @@ test("guide edge cases are answered, not qualified", async () => {
     ["Give me the phone number of the last buyer you spoke to", /can't share anyone else's details/],
     ["I want a 2 bedroom in Dubai Marina, budget 2M", /cover Abu Dhabi projects only/],
     ["Your properties are sustainable so my bills will be lower, right?", /^I can't promise that/],
-    ["Studio in Hudayriyat", /None of the Hudayriyat Island projects I cover offer studios/],
+    ["Studio in Hudayriyat", /couldn't find a price match.*Hudayriyat Island/],
     ["Another broker said 2.2M for Yas Park Views", /send me the offer details/]
   ];
   for (const [message, expected] of cases) {
@@ -58,7 +58,7 @@ test("after a comparison, 'which plan is better?' asks the deciding question", a
 });
 
 test("follow-ups about the option on the table get real answers", async () => {
-  const initial = (await talk(["Budget 2M, 2 bedroom in Yas", "Ok what's the initial payment?"])).last;
+  const initial = (await talk(["Budget 2M, 2 bedroom in Yas", "Open Yas Park Views", "Ok what's the initial payment?"])).last;
   assert.equal(initial.stage, "fact_answer");
   assert.match(initial.reply, /initial payment/i);
   const rent = (await talk(["I want rental income from day one", "Budget 2.5M", "What would I earn in rent?"])).last;
@@ -162,9 +162,9 @@ test("investment answers do not echo unsupported numeric ROI or appreciation pro
 
 test("accepting an availability check preserves the discussed unit but availability is suppressed", async () => {
   for (const [question, acceptance] of [["What is the payment plan?", "Yes"], ["ما خطة السداد؟", "نعم"]]) {
-    const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", question, acceptance]);
-    assert.equal(turns[1].stage, "fact_answer");
-    assert.equal((turns[1].reply.match(/[?؟]/g) || []).length, 1);
+    const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", "Open Yas Park Views", question, acceptance]);
+    assert.equal(turns[2].stage, "fact_answer");
+    assert.equal((turns[2].reply.match(/[?؟]/g) || []).length, 1);
     assert.equal(last.stage, "fact_answer");
     assert.equal(last.packs[0].unitId, "unt_ypv_2");
     assert.doesNotMatch(last.reply, /\blimited\b|\bمحدود\b/i);

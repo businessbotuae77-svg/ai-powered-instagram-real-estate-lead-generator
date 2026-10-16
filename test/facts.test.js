@@ -19,7 +19,7 @@ test("plain current-year averages require exact typed source evidence", () => {
 });
 
 test("a shortlist quotes only confirmed figures and passes the fact check", async () => {
-  const { last } = await talk(["Budget 2M, 2 bedroom in Yas"]);
+  const { last } = await talk(["Budget 2M, 2 bedroom in Yas", "Open Yas Park Views"]);
   assert.equal(last.stage, "matched");
   assert.match(last.reply, /From AED 1,900,000/);
   assert.equal(last.check.ok, true);
@@ -65,7 +65,7 @@ test("no guaranteed return is promised", async () => {
 });
 
 test("availability is withheld in all recommendations including explicit requests", async () => {
-  const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", "Is it available?"]);
+  const { turns, last } = await talk(["Budget 2M, 2 bedroom in Yas", "Open Yas Park Views", "Is it available?"]);
   assert.doesNotMatch(turns[0].reply, /\b(limited|sold out|available now)\b/i);
   assert.doesNotMatch(last.reply, /\blimited\b/i);
   assert.doesNotMatch(last.reply, /\bavailable\s+(right now|now)\b/i);

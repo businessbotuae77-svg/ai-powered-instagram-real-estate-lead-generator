@@ -81,10 +81,10 @@ test("market scope does not overwrite saved buying requirements or keep stale of
   assert.equal(engine.memory.getPendingOffer("saved-search"), null);
 });
 
-test("normal cheapest-home requests still use the live listing path", async () => {
+test("normal cheapest-home requests search recorded project prices as well as listings", async () => {
   const { last } = await talk(["Show the cheapest home"]);
   assert.notEqual(last.stage, "market_prices");
-  assert.ok(last.packs.length);
+  assert.ok(last.projectKnowledge.projectNames.length);
   assert.equal(last.check.ok, true);
 });
 

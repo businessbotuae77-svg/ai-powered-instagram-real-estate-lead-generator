@@ -8,7 +8,7 @@ const EN = "Hi 👋 Welcome to The Sustainable Bot.\nI help you find the right o
 test("a first hello introduces the bot and offers four choices, without asking for a budget", async () => {
   const { last } = await talk(["Hi"]);
   assert.equal(last.reply, EN);
-  assert.deepEqual(last.nextQuestion.choices.map(c => c.label), ["Find a property", "Cheapest homes", "Payment plans", "Talk to an agent"]);
+  assert.deepEqual(last.nextQuestion.choices.map(c => c.label), ["Find a property", "Explore by budget", "Payment plans", "Talk to an agent"]);
   assert.equal(last.outcome, "browsing");
 });
 
@@ -24,7 +24,7 @@ test("Arabic and Gulf greetings get the Arabic welcome and Arabic buttons", asyn
     const { last } = await talk([hello]);
     assert.match(last.reply, /حياك في The Sustainable Bot/);
     assert.doesNotMatch(last.reply, /Welcome|Find a property|What can I/);
-    assert.deepEqual(last.nextQuestion.choices.map(c => c.label), ["ابحث عن عقار", "أرخص العقارات", "خطط السداد", "كلّم موظف"]);
+    assert.deepEqual(last.nextQuestion.choices.map(c => c.label), ["ابحث عن عقار", "خيارات حسب ميزانيتك", "خطط السداد", "كلّم موظف"]);
   }
 });
 
@@ -55,7 +55,7 @@ test("each button has its own useful reply, with buttons for the next step", asy
   assert.ok(plans.nextQuestion.choices.length >= 2);
 
   const cheapest = (await talk(["Hi", "Show the cheapest"])).last;
-  assert.match(cheapest.reply, /lowest-priced home I have right now/);
+  assert.match(cheapest.reply, /lower-priced options in Abu Dhabi/);
   assert.equal(cheapest.check.ok, true);
 
   const agent = (await talk(["Hi", "Talk to an agent"])).last;

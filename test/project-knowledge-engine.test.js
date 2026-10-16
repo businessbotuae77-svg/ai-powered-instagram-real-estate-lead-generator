@@ -53,7 +53,7 @@ test("project aliases answer with the project's card and preserve an explicit be
   assert.equal(first.check.ok, true);
   const second = await engine.handleMessage("bab-alias", "And the 1 BR price?");
   assert.equal(second.stage, "project_knowledge", second.reply);
-  assert.match(second.reply, /🏠 1-bed apartment · about 984 sq ft · typically about AED 1\.59M/);
+  assert.match(second.reply, /1-bed apartment — recent sales.*AED 1\.59M/);
   assert.doesNotMatch(second.reply, /2-bed|3-bed/);
   assert.equal(second.check.ok, true);
   assert.deepEqual(second.buyer.bedrooms, []);

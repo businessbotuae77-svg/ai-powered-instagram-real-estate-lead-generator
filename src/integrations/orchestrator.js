@@ -270,7 +270,7 @@ export class IntegrationOrchestrator {
         await this.events.complete(mid, { outboundMessageId: send.messageId || null, alertKey: alert.key || null });
       }
       await this.log.record({ correlationId: mid, integration: "conversation", operation: "decision", status: failed ? "pending" : "ok",
-        meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, handoffRequired: result.handoffRequired, catalogUnavailable: Boolean(result.catalogError), comparison: Boolean(result.commercialDecision?.comparisonId), selection: Boolean(result.commercialDecision?.selected) } });
+        meta: { policyVersion: POLICY_VERSION, intents: result.intents, stage: result.stage, matchCount: result.matchCount, sourceResultCount: result.projectKnowledge?.projectNames?.length || 0, handoffRequired: result.handoffRequired, catalogUnavailable: Boolean(result.catalogError), comparison: Boolean(result.commercialDecision?.comparisonId), selection: Boolean(result.commercialDecision?.selected) } });
       return { duplicate: false, mid, result, send, alert, intentAlert, pending: Boolean(failed) };
     } catch (error) {
       await this.events.fail(mid, { message: error.message });
