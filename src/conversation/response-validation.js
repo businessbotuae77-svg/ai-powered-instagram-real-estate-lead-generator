@@ -120,7 +120,7 @@ export function validateBuyerResponse(message, options = {}) {
     const field = fieldOf(question) || (questions.length === 1 ? metadata?.questionField || options.requiredQuestion?.field : null);
     // An offered next step is not a qualification question, so it cannot be "already answered".
     if ((options.offerFields || []).includes(field)) continue;
-    if (field && isFlexiblePreference(buyer, field)) violations.push({ type: "flexible_field_question", field: canonicalQuestionField(field) });
+    if (field && isFlexiblePreference(buyer, field) && !(options.revisitFields || []).includes(field)) violations.push({ type: "flexible_field_question", field: canonicalQuestionField(field) });
     if (field && knownField(buyer, field) && !(options.revisitFields || []).includes(field)) violations.push({ type: "known_field_question", field });
     if (field === "phone" && requiredQuestion?.field !== "phone" && !allowedActions.some(action => ["contact", "request_contact"].includes(actionType(action)))) violations.push({ type: "unnecessary_contact_capture" });
   }

@@ -1,3 +1,4 @@
+import { wantsBudgetSelection } from "./budget.js";
 import { projectKnowledgeAnswer } from "./project-knowledge-answer.js";
 import { loadProjectKnowledge, projectKnowledgeNames, projectKnowledgeInMessage } from "../facts/project-knowledge.js";
 import { botProjectCoverage } from "../facts/project-access.js";
@@ -743,7 +744,8 @@ export class ConversationEngine {
     }
     // Last-line protection also applies to deterministic and offline replies.
     // Rephrasing a closed qualification slot cannot restart the interview.
-    if (draft.nextQuestion && (isFlexiblePreference(buyer, draft.nextQuestion.field) || knownField(buyer, draft.nextQuestion.field) ||
+    const revisitsBudget = wantsBudgetSelection(text) && draft.nextQuestion?.field === "budgetAed";
+    if (draft.nextQuestion && !revisitsBudget && (isFlexiblePreference(buyer, draft.nextQuestion.field) || knownField(buyer, draft.nextQuestion.field) ||
         this.memory.getQuestionState?.(instagramUserId, draft.nextQuestion.field) === "flexible")) {
       const prompt = draft.nextQuestion.prompt;
       const textWithoutQuestion = prompt && draft.text.includes(prompt)
@@ -841,7 +843,7 @@ export class ConversationEngine {
     const permittedContacts = permittedContactDetails(this.broker);
     if (buyer.phone) permittedContacts.phones.push(String(buyer.phone).replace(/\D/g, ""));
     const allowedBuyerAmounts = [buyer.budgetAed, buyer.cashAvailableAed].filter(value => value != null);
-    const validationOptions = { buyer, opportunities: responseOpportunities, allowedClaims, comparisonFacts, stageAmounts: stageAmountsFor(packs), stagePercents: stagePercentsFor(packs),
+    const validationOptions = { buyer, revisitFields: revisitsBudget ? ["budgetAed"] : [], opportunities: responseOpportunities, allowedClaims, comparisonFacts, stageAmounts: stageAmountsFor(packs), stagePercents: stagePercentsFor(packs),
       configuredAmounts: serviceTerms.amounts, configuredPercents: serviceTerms.percents, permittedContacts,
       allowedBuyerAmounts,
       educationalSplit: draft.educationalSplit,

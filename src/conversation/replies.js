@@ -256,7 +256,7 @@ export function budgetRangeChoices() {
     { id: "1_5m", label: "Around AED 1.5M", value: "around 1.5M" },
     { id: "2m", label: "Around AED 2M", value: "around 2M" },
     { id: "3m", label: "Around AED 3M", value: "around 3M" },
-    { id: "5m", label: "AED 5M+", value: "budget 5M" }
+    { id: "5m", label: "AED 5M+", value: "budget 5M+" }
   ];
 }
 

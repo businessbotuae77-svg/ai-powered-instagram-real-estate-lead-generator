@@ -15,7 +15,8 @@ export function propertySearchScope({ buyer = {}, message = "", data = null, cat
   const named = [...projectKnowledgeInMessage(message, data).map(project => project.name),
     ...(catalog.projects || []).filter(project => message.toLowerCase().includes(project.name.toLowerCase())).map(project => project.name)];
   return { areas: areas.length ? areas : buyer.areaFlexibility === "open" ? [] : buyer.preferredAreas || [], bedrooms: buyer.bedrooms || [],
-    types: (buyer.propertyTypes || []).map(normalizePropertyType), budget: buyer.budgetAed || null,
+    types: (buyer.propertyTypes || []).map(normalizePropertyType), budget: buyer.budgetRange ? buyer.budgetRange.max : buyer.budgetAed || null,
+    budgetMin: buyer.budgetRange?.min || null,
     projects: [...new Set(named)], developer: buyer.developerInterest || null };
 }
 
@@ -25,6 +26,7 @@ function fits(row, scope) {
   if (scope.bedrooms.length && !scope.bedrooms.includes(row.bedrooms)) return false;
   if (scope.types.length && !scope.types.some(type => type === "studio" ? row.bedrooms === 0 : type === row.type)) return false;
   if (scope.budget && row.price > scope.budget) return false;
+  if (scope.budgetMin && row.price < scope.budgetMin) return false;
   if (scope.developer && !sameText(scope.developer, row.developer)) return false;
   return true;
 }

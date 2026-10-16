@@ -36,7 +36,7 @@ export function mergeBuyer(existing, patch) {
       if (value === null || (typeof value === "string" && value.trim())) next[key] = value;
       continue;
     }
-    if (["decisionComparison", "decisionPendingOffer", "selectedListing", "serviceRequest"].includes(key)) {
+    if (["decisionComparison", "decisionPendingOffer", "selectedListing", "serviceRequest", "budgetRange"].includes(key)) {
       if (value === null || (value && typeof value === "object" && !Array.isArray(value))) next[key] = value;
       continue;
     }
@@ -159,7 +159,10 @@ function uniqueNumbers(values) {
 
 export function buyerFromKnownFacts(instagramUserId, facts = {}) {
   const patch = { instagramUserId };
-  if (facts.budget !== undefined) patch.budgetAed = parseMoney(facts.budget);
+  if (facts.budget !== undefined) {
+    patch.budgetAed = parseMoney(facts.budget);
+    patch.budgetRange = facts.budgetRange || null;
+  }
   if (facts.cash !== undefined) {
     patch.cashAvailableAed = facts.cash === null ? null : parseMoney(facts.cash);
   }
