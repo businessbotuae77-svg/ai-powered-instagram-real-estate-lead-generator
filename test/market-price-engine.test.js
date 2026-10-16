@@ -101,7 +101,7 @@ test("Reserve inside a project name cannot accept a handoff", async () => {
   const { engine } = await setupConversation();
   engine.memory.setPendingOffer("project-name", { type: "handoff_offer", reason: "buying" });
   const last = await engine.handleMessage("project-name", "Average villa price in Saadiyat Reserve - The Dunes?");
-  assert.equal(last.stage, "market_prices", last.reply);
+  assert.equal(last.stage, "project_knowledge", last.reply);
   assert.equal(last.followUpSubmitted, false);
   assert.equal(last.callRequestSubmitted, false);
   assert.equal(last.intentAlert, null);

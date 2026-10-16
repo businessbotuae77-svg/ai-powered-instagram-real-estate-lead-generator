@@ -1,3 +1,4 @@
+import { isProjectFollowup } from "./project-knowledge-answer.js";
 import { buildFactPack, buildProjectKnowledgePack } from "../facts/retrieval.js";
 import { answerFactQuestion } from "./fact-answers.js";
 import { advisorBudgetPolicy } from "./advisor-opportunities.js";
@@ -15,6 +16,10 @@ export function selectKnowledgeProjects({ buyer = {}, catalog = {}, message = ""
   const named = projects.filter(project => project.name && (text.includes(project.name.toLowerCase()) ||
     (project.sheetProjectId && text.includes(String(project.sheetProjectId).toLowerCase()))));
   if (named.length) return named.slice(0, 2);
+  // A new comparison cannot silently reuse the last project as its subject.
+  if (/\b(?:vs\.?|versus|compare|comparison|between)\b|\u0642\u0627\u0631\u0646|\u0645\u0642\u0627\u0631\u0646|\u0645\u0642\u0627\u0628\u0644/i.test(text)) return [];
+  const subject = text.match(/^(?:tell me (?:more )?about|what about|how about|\u062d\u062f\u062b\u0646\u064a \u0639\u0646|\u0623\u062e\u0628\u0631\u0646\u064a \u0639\u0646|\u0627\u062e\u0628\u0631\u0646\u064a \u0639\u0646)\s+(.+)/i)?.[1];
+  if (subject && !isProjectFollowup(subject)) return [];
   if (buyer.projectInterest) return projects.filter(project => project.name?.toLowerCase() === buyer.projectInterest.toLowerCase()).slice(0, 1);
   return includeActiveRecommendation ? projects.filter(project => project.id === buyer.activeRecommendationProjectId).slice(0, 1) : [];
 }
@@ -73,8 +78,8 @@ export function knowledgeAdvice({ buyer, catalog, message = "", advisor }) {
       pendingOffer: { type: "advisory_next_action", action: "payment_details", projectId: selected[0].id }, callRequest: null,
       factPacks: [...unitPacks, ...packs], investmentTheses: theses };
   }
-  rows.push(ar ? "لا أملك وحدة بشروط تجارية حالية لهذا المشروع. يمكننا مناقشة توجهه ومخاطر الاستثمار دون تخمين سعر أو توفر."
-    : "Pricing for this project isn't released yet, so I won't guess a number, but I can walk you through how it fits your plans.");
+  rows.push(ar ? "ما عندي سعر وحدة مؤكد لهذا المشروع حالياً. أقدر أشارك تفاصيل المشروع المتوفرة عندي."
+    : "I don't have a confirmed unit price for this project right now. I can share the project details I have.");
   return { text: rows.join(" "), stage: "knowledge_answer", nextQuestion: null, pendingOffer: null, callRequest: null, unpriced: true,
     factPacks: packs, investmentTheses: theses };
 }

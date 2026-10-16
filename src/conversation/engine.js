@@ -1,7 +1,10 @@
+import { projectKnowledgeAnswer } from "./project-knowledge-answer.js";
+import { loadProjectKnowledge, projectKnowledgeNames, projectKnowledgeInMessage } from "../facts/project-knowledge.js";
+import { botProjectCoverage } from "../facts/project-access.js";
 import { marketPriceAnswer, isMarketPriceQuestion } from "./market-price-answer.js";
 import { loadMarketPrices } from "../facts/market-prices.js";
 import { registeredSalesAnswer } from "./registered-sales-answer.js";
-import { registeredProjectNames } from "../facts/registered-sales.js";
+import { registeredProjectNames, registeredProjectsInMessage } from "../facts/registered-sales.js";
 import { localizeDraft } from "./localize.js";
 import { asksAvailability, isListingRequest, acceptsListingComparison } from "./listing-answers.js";
 import { KeyedQueue } from "./keyed-queue.js";
@@ -70,12 +73,13 @@ function leadStatusFor(buyer, intents, signals, matchCount, callRequestSubmitted
  * Matching, memory, and commercial facts stay in code / Airtable.
  */
 export class ConversationEngine {
-  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null, buyerDecisions = null, marketPrices = undefined } = {}) {
+  constructor({ buyers, properties, memory, advisorOptions = {}, logger = null, broker = null, services = null, buyerDecisions = null, marketPrices = undefined, projectKnowledge = undefined } = {}) {
     if (!buyers || !properties) throw new Error("ConversationEngine requires buyers and properties");
     this.buyers = buyers;
     this.properties = properties;
     // Bundled statistics are indexed once at startup, before any buyer waits.
     this.marketPrices = marketPrices === undefined ? loadMarketPrices() : marketPrices;
+    this.projectKnowledge = projectKnowledge === undefined ? loadProjectKnowledge() : projectKnowledge;
     this.memory = memory || new ConversationMemory();
     // Advisor options affect deterministic ranking, never model/API calls.
     this.advisorOptions = advisorOptions;
@@ -99,15 +103,40 @@ export class ConversationEngine {
     let recentTurns = this.memory.recentContext(instagramUserId, 6);
 
     const initialCatalog = this.properties.catalog();
+    const priorTurns = this.memory.getTurns(instagramUserId);
+    const previousAssistant = [...priorTurns].reverse().find(turn => turn.role === "assistant");
+    const previousUser = [...priorTurns].reverse().find(turn => turn.role === "user");
+    // Recover a price scope even from turns saved before scoped replies existed.
+    const comparisonContext = previousAssistant?.marketScope || (previousUser
+      ? marketPriceAnswer({ message: previousUser.text, buyer: existingBuyer, catalog: initialCatalog, data: this.marketPrices })?.marketPrices
+      : null);
+    const projectContext = previousAssistant?.projectScope || null;
+    const coverage = botProjectCoverage({ catalog: initialCatalog, marketPrices: this.marketPrices, projectKnowledge: this.projectKnowledge });
+    const projectQuestion = Boolean(projectKnowledgeAnswer({ message: text, buyer: existingBuyer, catalog: initialCatalog,
+      data: this.projectKnowledge, coverage, context: projectContext }));
     // Words inside an exact project name (for example Saadiyat Reserve) are
     // identities, not permission to reserve or accept a pending handoff.
-    const withoutProjectNames = (this.marketPrices?.places || []).filter(place => place.level === "Project")
-      .sort((a, b) => b.name.length - a.name.length).reduce((message, place) => message.replace(
-        new RegExp(`(^|[^\\p{L}\\p{N}])${place.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\p{L}\\p{N}])`, "giu"), "$1 "), text);
-    const marketQuestion = isMarketPriceQuestion(withoutProjectNames, this.marketPrices);
-    const permissionText = marketQuestion ? withoutProjectNames : text;
-    const projectNames = [...initialCatalog.projects.map(project => project.name), ...registeredProjectNames(initialCatalog.registeredSales)];
+    const nameList = [...new Set([...initialCatalog.projects.map(project => project.name), ...registeredProjectNames(initialCatalog.registeredSales), ...(this.marketPrices?.places || []).filter(place => place.level === "Project").map(place => place.name),
+      ...projectKnowledgeNames(this.projectKnowledge)].filter(name => typeof name === "string" && name.trim()))];
+    const withoutProjectNames = nameList.sort((a, b) => b.length - a.length).reduce((message, name) => message.replace(
+      new RegExp(`(^|[^\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\p{L}\\p{N}])`, "giu"), "$1 "), text);
+    const marketQuestion = isMarketPriceQuestion(withoutProjectNames, this.marketPrices, comparisonContext);
+    const permissionText = withoutProjectNames;
+    const mentionedSalesProjects = projectKnowledgeInMessage(text, this.projectKnowledge);
+    const mentionedRegisteredProjects = registeredProjectsInMessage(text, initialCatalog.registeredSales);
+    const explicitProjectNames = new Set([
+      ...initialCatalog.projects.filter(project => text.toLowerCase().includes(project.name.toLowerCase())).map(project => project.name.toLowerCase()),
+      ...mentionedSalesProjects.map(project => project.name.toLowerCase()),
+      ...mentionedRegisteredProjects.flatMap(project => [project.name, project.catalogName].filter(Boolean).map(name => name.toLowerCase()))
+    ]);
+    const explicitCatalogProjects = initialCatalog.projects.filter(project => explicitProjectNames.has(project.name.toLowerCase()));
+    const projectNames = [...initialCatalog.projects.map(project => project.name), ...registeredProjectNames(initialCatalog.registeredSales), ...projectKnowledgeNames(this.projectKnowledge)].filter(name => typeof name === "string" && name.trim());
     let base = extractFactsFromMessage(permissionText, { buyer: existingBuyer, lastAskedField, projectNames });
+    if (!marketQuestion && !projectQuestion) {
+      if (explicitCatalogProjects.length === 1) base.facts.project = explicitCatalogProjects[0].name;
+      else if (mentionedSalesProjects.length === 1) base.facts.project = mentionedSalesProjects[0].name;
+      else if (mentionedRegisteredProjects.length === 1) base.facts.project = mentionedRegisteredProjects[0].name;
+    }
     const scope = conversationalScope(text);
 
     const localUnderstanding = understandMessageLocally(permissionText, {
@@ -376,7 +405,7 @@ export class ConversationEngine {
     }
 
     // A statistical comparison describes its own scope, not a new home search.
-    if (marketQuestion && !intents.some(intent => protectedIntents.has(intent))) {
+    if ((marketQuestion || projectQuestion) && !intents.some(intent => protectedIntents.has(intent))) {
       const controls = new Set(["language", "name", "phone", "noCalls", "salesPathStopped", "preferredContactChannel", "contactDeclined", "requestedAction"]);
       facts = Object.fromEntries(Object.entries(facts).filter(([field]) => controls.has(field)));
       unsure = [];
@@ -436,8 +465,8 @@ export class ConversationEngine {
     }
     const catalog = catalogError ? { developers: [], projects: [], units: [] } : this.properties.catalog({
       suppressAvailability: true });
-    const namedProjects = catalog.projects.filter(p => text.toLowerCase().includes(p.name.toLowerCase()));
-    if (!marketQuestion && !decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
+    const namedProjects = catalog.projects.filter(p => explicitProjectNames.has(p.name.toLowerCase()));
+    if (!marketQuestion && !projectQuestion && !decisionKind && namedProjects.length === 1 && !/\bcompare\b/i.test(text) && !/\b(?:don'?t|do not|not|reject|skip)\b/i.test(text) &&
         /\b(?:prefer|pick|choose|focus|interested|reserve|eoi|viewing|want|show|review)\b/i.test(text)) {
       facts.project = namedProjects[0].name;
       buyer = await this.buyers.remember(instagramUserId, { project: facts.project });
@@ -508,7 +537,7 @@ export class ConversationEngine {
     const newCriteria = ["budget", "cash", "area", "areas", "bedrooms", "propertyType", "propertyTypes"].some(field => facts[field] !== undefined);
     if (factTopic && asksQuestion && !newCriteria && !/\bcompare\b/i.test(text)) {
       const subject = namedProjects.length === 1 ? namedProjects[0]
-        : !namedProjects.length && !packs.length ? recentlyDiscussedProject(catalog, this.memory.getTurns(instagramUserId)) : null;
+        : !namedProjects.length && !mentionedSalesProjects.length && !packs.length ? recentlyDiscussedProject(catalog, this.memory.getTurns(instagramUserId)) : null;
       if (subject && !packs.some(pack => pack.projectId === subject.id)) {
         const units = catalog.units.filter(unit => unit.projectId === subject.id && unit.active !== false);
         packs = units.length ? units.slice(0, 3).map(unit => buildFactPack({ project: subject, unit,
@@ -545,11 +574,15 @@ export class ConversationEngine {
     // Permission changes and handoffs retain priority over informational answers.
     if (!contact && !serviceDraft && !buyer.salesPathStopped && !intents.includes("start_fresh") &&
         !["paused", "permissions_updated", "welcome_back", "handoff_declined"].includes(draft?.stage)) {
-      const market = marketPriceAnswer({ message: text, buyer, catalog, data: this.marketPrices });
-      if (market) {
-        const missingPrice = market.marketPrices?.unavailable || market.marketPrices?.missingScope ||
-          !market.marketPrices?.rows?.some(row => row.Reliability === "OK");
-        draft = { ...market, factMissing: missingPrice ? [{ topic: "market_prices" }] : [] };
+      const knowledge = projectKnowledgeAnswer({ message: text, buyer, catalog, data: this.projectKnowledge,
+        coverage: botProjectCoverage({ catalog, marketPrices: this.marketPrices, projectKnowledge: this.projectKnowledge }), context: projectContext });
+      const market = knowledge ? null : marketPriceAnswer({ message: text, buyer, catalog, data: this.marketPrices, comparisonContext });
+      const sourced = knowledge || market;
+      if (sourced) {
+        const missingPrice = market ? market.marketPrices?.unavailable || market.marketPrices?.missingScope ||
+          !market.marketPrices?.rows?.some(row => row.Reliability === "OK") : knowledge.projectKnowledge?.missingScope || knowledge.projectKnowledge?.unavailable ||
+          (knowledge.projectKnowledge?.intent === "project" && !knowledge.projectKnowledge.rows?.some(row => row.reliability === "OK"));
+        draft = { ...sourced, factMissing: missingPrice ? [{ topic: knowledge ? "project_sales" : "market_prices" }] : [] };
         this.memory.setPendingOffer(instagramUserId, null);
         packs = [];
         matchResult = { ...matchResult, matches: [], matchCount: 0, mode: "none", fitTier: "none", compromises: [], mismatches: [] };
@@ -959,18 +992,20 @@ export class ConversationEngine {
       stage: draft.stage,
       matchCount: matchResult.matchCount,
       factCheckOk: check.ok,
+      marketScope: check.ok && draft.marketPrices ? { filters: draft.marketPrices.filters || {} } : null,
+      projectScope: check.ok && draft.projectKnowledge ? { projects: (draft.projectKnowledge.projects || []).map(project => ({ name: project.name })), filters: draft.projectKnowledge.filters || {} } : null,
       pendingOffer: this.memory.getPendingOffer(instagramUserId),
       questionField: draft.nextQuestion?.field || null,
       serviceId: serviceSuggestion && check.ok && draft.stage !== "fact_check_fallback" ? serviceSuggestion.id : null
     });
 
     if (this.memory.flush) await this.memory.flush();
-    this.logger?.({ event: "advisor_turn", conversationStrategy: state, investmentStrategy: investmentProfile.strategy,
+    this.logger?.({ event: "advisor_turn", conversationStrategy: state, replyStage: draft.stage, lookupStatus: draft.marketPrices?.missingScope || draft.projectKnowledge?.missingScope ? "scope_missing" : draft.marketPrices?.unavailable || draft.projectKnowledge?.unavailable ? "unavailable" : draft.marketPrices || draft.projectKnowledge ? "answered" : null, investmentStrategy: investmentProfile.strategy,
       primaryRecommendation: draft.advisoryExposure ? draft.advisoryExposure.primaryProjectId || advisor.primary?.projectId || null : null,
       challenger: draft.advisoryExposure ? advisor.challenger?.projectId || null : null,
       opportunityType: draft.advisoryExposure ? advisor.opportunities.map(o => o.type) : [],
       objectionCategory: strategy?.objection || null,
-      factSourceCategory: [...new Set(packs.map(p => p.knowledgeOnly ? "project_knowledge" : p.offerId ? "commercial_offer" : "legacy_unit"))],
+      factSourceCategory: [...new Set([...(draft.marketPrices ? ["market_prices"] : []), ...(draft.projectKnowledge ? ["recent_project_sales"] : []), ...packs.map(p => p.knowledgeOnly ? "project_knowledge" : p.offerId ? "commercial_offer" : "legacy_unit")])],
       commercialGateRejection: [...new Set((catalog.intelligence?.offers || []).flatMap(o => commercialOfferGate(o).reasons))],
       nextAction: strategy?.nextAction || draft.pendingOffer?.action || null });
     return {
@@ -1008,6 +1043,8 @@ export class ConversationEngine {
         ...(draft.serviceRequest || (followUpSubmitted && buyer.serviceRequest) ? { serviceRequest: draft.serviceRequest || buyer.serviceRequest } : {})
       } : null,
       conversationState: state, investmentProfile, investmentTheses, comparison: comparisonFacts,
+      marketPrices: draft.marketPrices ? { mode: draft.marketPrices.mode, filters: draft.marketPrices.filters, missingScope: draft.marketPrices.missingScope, unavailable: draft.marketPrices.unavailable } : null,
+      projectKnowledge: draft.projectKnowledge ? { intent: draft.projectKnowledge.intent, filters: draft.projectKnowledge.filters, coverage: draft.projectKnowledge.coverage, projectNames: (draft.projectKnowledge.projects || []).map(project => project.name) } : null,
       researchClaims: draft.researchClaims || [], projectRelations: draft.projectRelations || null,
       knowledgeOnly: draft.knowledgeOnly === true, commercialQuote: draft.commercialQuote ?? null,
       check,
