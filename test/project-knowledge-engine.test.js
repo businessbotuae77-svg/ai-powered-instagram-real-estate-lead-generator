@@ -47,13 +47,13 @@ test("project aliases answer with the project's card and preserve an explicit be
   const first = await engine.handleMessage("bab-alias", "Tell me about bab alqasr25");
   assert.equal(first.stage, "project_knowledge", first.reply);
   assert.match(first.reply, /^🏙️ Bab Al Qasr Residence 25\n📍 Yas Island/u);
-  assert.match(first.reply, /🏠 1-bed apartment · about 984 sq ft · typically about AED 1\.59M/);
-  assert.match(first.reply, /📊 51 developer sales in the last 12 months/);
+  assert.match(first.reply, /🏠 1-bed apartment · about 984 sq ft · guide price around AED 1\.59M/);
+  assert.doesNotMatch(first.reply, /📊|latest 18 Aug/);
   assert.doesNotMatch(first.reply, /isn't released|not released|per unit|handover|adrec\.gov\.ae|Source:/i);
   assert.equal(first.check.ok, true);
   const second = await engine.handleMessage("bab-alias", "And the 1 BR price?");
   assert.equal(second.stage, "project_knowledge", second.reply);
-  assert.match(second.reply, /1-bed apartment — recent sales.*AED 1\.59M/);
+  assert.match(second.reply, /1-bed apartment — guide price.*AED 1\.59M/);
   assert.doesNotMatch(second.reply, /2-bed|3-bed/);
   assert.equal(second.check.ok, true);
   assert.deepEqual(second.buyer.bedrooms, []);

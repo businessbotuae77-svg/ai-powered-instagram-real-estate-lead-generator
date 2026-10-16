@@ -1,5 +1,6 @@
 import { normalizeBuyerText } from "./text.js";
 import { isAffirmation } from "./affirmation.js";
+import { requestedPriceInquiry, priceInquirySaved } from "./price-inquiry.js";
 import { brokerLabel, brokerProfile, brokerShortName, directContactLine } from "./broker-profile.js";
 import { isIdentityQuestion, transactionMoment } from "./sales-moments.js";
 
@@ -47,11 +48,19 @@ export function agentEducationReply(message, buyer = {}) {
   stage: "education", nextQuestion: null, pendingOffer: null, callRequest: null, suppressCommercial: true };
 }
 
-export function contactDecision({ message, buyer, pending, explicitCall = false, highIntent = false, phoneSubmitted = false, broker = brokerProfile() }) {
+export function contactDecision({ message, buyer, pending, explicitCall = false, highIntent = false, phoneSubmitted = false, broker = brokerProfile(), quoteProject = null }) {
   const text = normalizeBuyerText(message);
   if (isAgentEducationQuestion(text) && !explicitCall && !phoneSubmitted) return null;
   if (declinesContact(text) || buyer.salesPathStopped) return null;
   if (/\b(?:do not|don'?t|stop)\s+(?:want\s+(?:any\s+|a\s+)?|(?:to |please )?)(?:follow[ -]?up|contact(?:ing)?|messag(?:e|ing))\b|\bno\s+(?:unsolicited\s+)?follow[ -]?up\b/i.test(text)) return null;
+  const inquiry = requestedPriceInquiry(text, { buyer, pending, quoteProject });
+  if (inquiry && !explicitCall && !phoneSubmitted) return {
+    text: priceInquirySaved(inquiry.projectName, buyer.language === "ar"), stage: "follow_up_requested",
+    nextQuestion: null, pendingOffer: null, callRequest: null, submitted: true, channel: "instagram", contactRequested: true,
+    instagramPriceRequest: inquiry, suppressCommercial: true,
+    handoffTopic: inquiry.topic,
+    buyerPatch: { requestedAction: inquiry.topic, projectInterest: inquiry.projectName, priceInquiryContext: { projectName: inquiry.projectName }, contactDeclined: false }
+  };
   const follow = /follow[ -]?up|contact me|whatsapp me|message me on whatsapp|متابعة|واتساب/i.test(text);
   const human = wantsHuman(text);
   // "Yes", a time, or "I want to reserve it" all accept an open offer to connect.

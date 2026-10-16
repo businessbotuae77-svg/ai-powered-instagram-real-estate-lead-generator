@@ -25,7 +25,7 @@ test("a budget search shows the lowest-priced matching projects from recorded de
   assert.equal(first.stage, "soft_match", first.reply);
   assert.equal(first.check.ok, true, JSON.stringify(first.check.violations));
   assert.match(first.reply, /projects within your budget in Al Shamkhah/);
-  assert.match(first.reply, /1️⃣ PUD Residence 1 · Al Shamkhah\n2-bed apartment · Recent sales \(12 months\): about AED [\d.]+[MK]/u);
+  assert.match(first.reply, /1️⃣ PUD Residence 1 · Al Shamkhah\n2-bed apartment · Guide price around AED [\d.]+[MK]/u);
   assert.doesNotMatch(first.reply, /not today's asking price|payment plan|handover/i);
   assert.doesNotMatch(first.reply, SOURCES);
   const names = listedProjects(first.reply);
@@ -62,23 +62,23 @@ test("a project known from recorded sales is shown as a card with buttons, not a
   assert.equal(card.stage, "project_knowledge", card.reply);
   assert.equal(card.check.ok, true, JSON.stringify(card.check.violations));
   assert.match(card.reply, new RegExp(`^🏙️ ${name}\\n📍 Al Reem Island`, "u"));
-  assert.match(card.reply, /🏠 1-bed apartment · about [\d,]+ sq ft · typically about AED [\d.]+[MK]/);
-  assert.match(card.reply, /📊 [\d,]+ developer sales in the last 12 months · latest \d+ \w{3} 2026/);
-  assert.match(card.reply, /✨ Why it fits: 1-bed apartments here typically sold for/);
-  assert.match(card.reply, /What would you like to do next\?$/);
+  assert.match(card.reply, /🏠 1-bed apartment · about [\d,]+ sq ft · guide price around AED [\d.]+[MK]/);
+  assert.doesNotMatch(card.reply, /📊|developer sales in the last 12 months/);
+  assert.match(card.reply, /For your budget.*1-bed apartment/);
+  assert.match(card.reply, /confirmed here on Instagram\?$/);
   assert.doesNotMatch(card.reply, /average AED|\/sqft|Primary off-plan|year to date|Data through/);
   assert.doesNotMatch(card.reply, SOURCES);
-  assert.deepEqual(card.nextQuestion.choices.map(choice => choice.label), ["Payment plan", "More options", "About the area"]);
-  assert.deepEqual(card.pendingOffer, { type: "concierge_card", projectName: name });
+  assert.deepEqual(card.nextQuestion.choices.map(choice => choice.label), ["Check price & units", "More options", "About the area"]);
+  assert.deepEqual(card.pendingOffer, { type: "instagram_price_offer", projectName: name, channel: "instagram" });
 
   const area = await engine.handleMessage("tap", "About the area");
   assert.equal(area.stage, "area_guide", area.reply);
   assert.match(area.reply, /^📍 Al Reem Island/);
 
   const price = await engine.handleMessage("tap", card.nextQuestion.choices[0].value);
-  assert.equal(price.stage, "fact_answer", price.reply);
-  assert.equal(price.followUpSubmitted, false);
-  assert.match(price.reply, /no confirmed payment plan/);
+  assert.equal(price.stage, "follow_up_requested", price.reply);
+  assert.equal(price.followUpSubmitted, true);
+  assert.match(price.reply, /reply here on Instagram/);
 });
 
 test("a project gets a card, its price follow-up is brief, and yes explores the offered home size", async () => {
@@ -138,16 +138,16 @@ test("Arabic buyers get the recorded sales list and cards in Arabic", async () =
   assert.equal(result.stage, "soft_match", result.reply);
   assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
   assert.match(result.reply, /ضمن ميزانيتك/);
-  assert.match(result.reply, /شقة غرفتين · مبيعات مسجلة/);
-  assert.match(result.reply, /مبيعات مسجلة \(12 شهر\)/);
+  assert.match(result.reply, /شقة غرفتين · سعر استرشادي/);
+  assert.match(result.reply, /مبيعات حديثة/);
   assert.doesNotMatch(result.reply, /typically|developer sales|Which one/);
   assert.doesNotMatch(result.reply, SOURCES);
 
   const card = await engine.handleMessage("sold-ar-2", "حدثني عن Merito");
   assert.equal(card.check.ok, true, JSON.stringify(card.check.violations));
   assert.match(card.reply, /^🏙️ Merito\n📍 الشامخة\n/u);
-  assert.match(card.reply, /عملية بيع من المطور خلال آخر 12 شهراً/);
-  assert.deepEqual(card.nextQuestion.choices.map(choice => choice.label), ["خطة السداد", "خيارات أكثر"]);
+  assert.doesNotMatch(card.reply, /عملية بيع من المطور خلال آخر 12 شهراً/);
+  assert.deepEqual(card.nextQuestion.choices.map(choice => choice.label), ["السعر والتوفر", "خيارات أكثر"]);
 });
 
 test("other-project wording is recognised however it is typed", async () => {
