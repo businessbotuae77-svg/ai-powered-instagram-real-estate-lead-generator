@@ -282,6 +282,12 @@ export class ConversationEngine {
       delete facts.contactDeclined;
     }
     const humanRequest = wantsHuman(permissionText);
+    // "No thanks" to a price check declines that check only; the conversation goes on.
+    if (pendingAtStart?.type === "instagram_price_offer" && pendingAtStart.projectName && isBareDecline(text) && !humanRequest) {
+      intents = [...intents.filter(i => !["stop", "decline_call", "decline_contact"].includes(i)), "decline_price_check"];
+      delete facts.salesPathStopped;
+      facts.declinedSuggestions = [...(facts.declinedSuggestions || []), `price_check:${pendingAtStart.projectName}`];
+    }
     if (pendingAtStart?.type === "handoff_offer" && declinesOffer(text) && !humanRequest && !declinedServiceIds(text, this.services).length) {
       intents = [...intents.filter(i => !["stop", "decline_call", "decline_contact"].includes(i)), "decline_handoff"];
       delete facts.salesPathStopped;
@@ -560,7 +566,8 @@ export class ConversationEngine {
       highIntent: highIntent && !intents.includes("eoi_info"),
       phoneSubmitted: callRequestSubmitted,
       broker: this.broker,
-      quoteProject: mentionedSalesProjects.length === 1 ? mentionedSalesProjects[0].name : explicitCatalogProjects.length === 1 ? explicitCatalogProjects[0].name : null
+      quoteProject: mentionedSalesProjects.length === 1 ? mentionedSalesProjects[0].name : explicitCatalogProjects.length === 1 ? explicitCatalogProjects[0].name : null,
+      offered: pendingAtStart?.type === "instagram_price_offer" ? pendingAtStart : null
     });
     const followUpSubmitted = Boolean(contact?.submitted);
     callRequestSubmitted = followUpSubmitted && contact.channel === "phone";
@@ -686,7 +693,7 @@ export class ConversationEngine {
         !["paused", "paused_advice", "permissions_updated", "education", "conversation_repair", "welcome_back", "identity", "handoff_declined", "transaction_next_step"].includes(draft?.stage)) {
       const recorded = registeredSalesAnswer({ message: text, buyer, catalog, draft, commercialRecommendation: Boolean(advisor.primary) });
       // A budget search gets project cards (listed homes first, then recorded sales), not one line about one project.
-      const cards = recorded?.recordedSales?.budgetFit ? deadEndReply({ buyer, data: this.projectKnowledge, catalog, advisor, message: text }) : null;
+      const cards = recorded?.recordedSales?.budgetShortlist ? deadEndReply({ buyer, data: this.projectKnowledge, catalog, advisor, message: text }) : null;
       if (cards) {
         draft = cards;
         packs = cards.factPacks || [];
@@ -924,6 +931,10 @@ export class ConversationEngine {
     }
     this.memory.setLastAskedField(instagramUserId, draft.nextQuestion?.field || null);
     if (check.ok && draft.stage !== "fact_check_fallback" && draft.buyerPatch) buyer = await this.buyers.patchBuyer(instagramUserId, draft.buyerPatch);
+    // The figures this buyer saw and their sources, for the owner's price-check alert.
+    if (check.ok && draft.stage !== "fact_check_fallback" && draft.priceEvidence?.length) {
+      buyer = await this.buyers.patchBuyer(instagramUserId, { priceEvidenceShown: [...(buyer.priceEvidenceShown || []), ...draft.priceEvidence].slice(-8) });
+    }
     if (check.ok && draft.stage !== "fact_check_fallback" && draft.buyerDecision) {
       buyer = await this.buyers.patchBuyer(instagramUserId, { decisionPendingOffer: draft.pendingOffer || null });
       this.memory.setPendingOffer(instagramUserId, draft.pendingOffer || null);

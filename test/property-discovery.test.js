@@ -146,20 +146,25 @@ test("a selected recorded-sales project retains its subject for missing commerci
   }
 });
 
-test("a bedroom-price follow-up answers directly and yes keeps that bedroom scope", async () => {
+test("a bedroom-price follow-up answers directly, yes requests that home's check here, and More options keeps the size", async () => {
   const { turns, last } = await talk(["Merito", "And the 2 BR price?", "Yes"]);
   assert.ok(turns[1].reply.length < 200);
-  assert.match(turns[1].reply, /2-bed apartment.*AED 1\.36M/);
-  assert.doesNotMatch(turns[1].reply, /1-bed|3-bed/);
-  assert.deepEqual(last.buyer.bedrooms, [2]);
-  assert.equal(last.stage, "soft_match");
-  assert.equal(last.followUpSubmitted, false);
+  assert.match(turns[1].reply, /^Merito: 2-bed apartment — recent developer sales around AED 1\.36M \(last 12 months\)\./);
+  assert.doesNotMatch(turns[1].reply, /1-bed|3-bed|guide price/);
+  assert.equal(last.stage, "follow_up_requested");
+  assert.equal(last.reply, "Your price and availability request for the 2-bed apartment at Merito is saved 👍 We'll reply here on Instagram once the details are checked.");
+  assert.equal(last.instagramPriceRequest.topic, "Confirm current price and availability for Merito (2-bed apartment); reply here on Instagram");
+  const more = await talk(["Merito", "And the 2 BR price?", "More options"], "buyer-more");
+  assert.deepEqual(more.last.buyer.bedrooms, [2]);
+  assert.equal(more.last.stage, "soft_match");
+  assert.equal(more.last.followUpSubmitted, false);
+  assert.doesNotMatch(more.last.reply, /Merito|1-bed|3-bed/);
 });
 
 test("a bare amount after discovery updates the budget, and a fresh start clears the search cursor", async () => {
   const { turns, last } = await talk(["Cheapest", "1M", "Start fresh"]);
   assert.equal(turns[1].buyer.budgetAed, 1000000);
-  assert.match(turns[1].reply, /within your budget/);
+  assert.match(turns[1].reply, /^Recent sales at these projects in Abu Dhabi came in under your budget\. Today's prices still need checking/);
   assert.equal(last.buyer.discoverySearch, undefined);
   assert.equal(last.buyer.budgetAed, null);
 });

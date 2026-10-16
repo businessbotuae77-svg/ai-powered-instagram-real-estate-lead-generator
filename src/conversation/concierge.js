@@ -18,8 +18,14 @@ import { askedSubject, looksLikeProjectName, projectFamilyIn, projectsNamed, sim
 import { searchProperties, propertySearchScope } from "./property-search.js";
 import { projectCommunity, searchAreasIn } from "../facts/project-geography.js";
 import { registeredSalesAnswer } from "./registered-sales-answer.js";
-import { BUDGET_CHOICES, priceWithinBudget, wantsBudgetSelection } from "./budget.js";
-import { GUIDE_PRICE_NOTE, priceInquiryOffer } from "./price-inquiry.js";
+import { BUDGET_CHOICES, wantsBudgetSelection } from "./budget.js";
+import { GUIDE_PRICE_NOTE, SHORTLIST_NOTE, priceInquiryOffer } from "./price-inquiry.js";
+import { DECISIONS, assessHome, budgetPosition, projectPriceEvidence } from "../pricing/assess.js";
+import { pricingKey, recordState } from "../pricing/ledger.js";
+import { catalogueKeys, catalogueProjectFor } from "../pricing/catalogue.js";
+import { offerLine, offerPack } from "../pricing/offer-pack.js";
+import { sourceLabel } from "../pricing/policy.js";
+import { shownListing, shownOffer, shownRecorded } from "../pricing/shown.js";
 
 const fmt = amount => Number(amount).toLocaleString("en-US");
 export const aed = (amount, ar = false) => ar ? `${fmt(amount)} درهم` : `AED ${fmt(amount)}`;
@@ -493,6 +499,28 @@ function salesCount(count, kind, ar) {
   return `${fmt(count)} ${count <= 10 ? "عمليات" : "عملية"} ${noun}`;
 }
 
+const SOLD_TYPE = { Apartment: "apartment", Villa: "villa", Townhouse: "townhouse", Duplex: "duplex", Penthouse: "penthouse" };
+const soldHome = row => ({ type: SOLD_TYPE[row.type] || null, bedrooms: row.bedrooms === "Studio" ? 0 : /^[1-4] BR$/.test(row.bedrooms) ? Number(row.bedrooms[0]) : null });
+
+/** Every name the price evidence may use for a sold project, including its catalogue listing. */
+function soldKeys(project, catalog = {}) {
+  const key = pricingKey(project.name, project.area);
+  const listed = catalogueProjectFor(catalog, key);
+  return [...new Set([key, ...(listed ? catalogueKeys(listed) : [])])];
+}
+
+/** Current developer offers for a sold project: approved, current, priced and for one home type. */
+function currentOffers(project, catalog = {}, focus = {}) {
+  const keys = new Set(soldKeys(project, catalog));
+  const live = offer => { const state = recordState(offer); return state.usable && state.priced; };
+  return (catalog.pricing?.offers || []).filter(offer => offer.projectKeys.some(key => keys.has(key)) &&
+    ["home_type", "exact_unit"].includes(offer.home?.scope) && live(offer) &&
+    (focus.bedrooms == null || offer.home.bedrooms === focus.bedrooms) && (!focus.type || offer.home.type === focus.type))
+    .sort((a, b) => (a.home.bedrooms ?? 9) - (b.home.bedrooms ?? 9) || a.price.amountAed - b.price.amountAed);
+}
+
+const priceCheckDeclined = (buyer, name) => (buyer.declinedSuggestions || []).some(item => item.startsWith("price_check:") && areaKey(item.slice(12)) === areaKey(name));
+
 /** What a project card shows: developer sales first, otherwise resales, then ready developer sales. */
 function projectCardRows(data, project, { resale = false } = {}) {
   const rows = lookupProjectSales(data, { project: project.name, period: "Last 12 months" }).filter(row => row.area === project.area);
@@ -524,7 +552,12 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
   const weight = row => (wanted.includes(row.bedrooms) ? 0 : 2) + (!types.length || types.includes(row.type) ? 0 : 1);
   // "And the 1 BR price?": only that size when it sold here.
   const focused = focus.bedrooms ? rows.filter(row => row.bedrooms === focus.bedrooms) : [];
-  const inBudget = buyer.budgetAed && !wanted.length && limit <= 3 ? rows.filter(row => priceWithinBudget(row.medianPriceAed, buyer)) : [];
+  // Recorded sales can only put a home on the shortlist; a current price above
+  // the budget, or a project that starts above it, takes it off again.
+  const evidence = projectPriceEvidence({ keys: soldKeys(project, catalog), catalog });
+  const assessed = new Map(rows.map(row => [row, assessHome({ buyer, home: soldHome(row), evidence, recorded: row })]));
+  const shortlisted = row => assessed.get(row)?.decision === DECISIONS.HISTORY_WITHIN;
+  const inBudget = buyer.budgetAed && !wanted.length && limit <= 3 ? rows.filter(shortlisted) : [];
   const shown = [...(focused.length ? focused : inBudget.length ? inBudget : rows)].sort((a, b) => weight(a) - weight(b) || b.sales - a.sales).slice(0, limit)
     .sort((a, b) => weight(a) - weight(b) || BED_ORDER.indexOf(a.bedrooms) - BED_ORDER.indexOf(b.bedrooms));
   const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
@@ -532,30 +565,41 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
   const community = projectCommunity(project.name, project.area);
   const display = AREA_DISPLAY[areaId(community)] || community;
   const tagline = areaTagline(display, ar);
+  const focusHome = { bedrooms: focus.bedrooms ? soldHome({ bedrooms: focus.bedrooms }).bedrooms : wanted.length === 1 ? soldHome({ bedrooms: wanted[0] }).bedrooms : null,
+    type: focus.type ? SOLD_TYPE[focus.type] : types.length === 1 ? SOLD_TYPE[types[0]] : null };
+  const offers = currentOffers(project, catalog, focusHome).slice(0, 2);
+  const kindLabel = { resale: ["recent resales", "إعادة بيع حديثة"] }[kind] || ["recent sales", "مبيعات حديثة"];
   const lines = [
     `🏙️ ${project.name}${developer ? (ar ? ` · من ${developer}` : ` · by ${developer}`) : ""}`,
     `📍 ${areaLabel(display, ar)}${tagline ? ` — ${tagline}` : ""}`,
+    // A current developer price leads, with its payment terms; recorded sales follow as history.
+    ...offers.map(offer => `💰 ${ar ? "السعر الحالي" : "Current price"}: ${offerLine(offer, { ar })}`),
     // The size the buyer asked about and nothing sold: say so rather than answer another size silently.
     ...(focus.bedrooms && !rows.some(row => row.bedrooms === focus.bedrooms) ? [ar ? `ℹ️ ما انباعت ${bedPhrase(focus.bedrooms, true)} هنا خلال آخر 12 شهراً.`
       : `ℹ️ No ${bedPhrase(focus.bedrooms)} sales here in the last 12 months.`] : []),
     ...shown.map(row => {
       const size = row.averageSizeSqft ? (ar ? ` · حوالي ${fmt(row.averageSizeSqft)} قدم²` : ` · about ${fmt(row.averageSizeSqft)} sq ft`) : "";
       // Fewer than five sales is not a "typical" price: give the count with it.
-      if (row.reliability === "Low sample") return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · ${approx(row.medianPriceAed, true)} (${salesCount(row.sales, kind, true)} فقط)`
-        : `🏠 ${soldHomeLabel(row)}${size} · ${approx(row.medianPriceAed)} (only ${salesCount(row.sales, kind)})`;
-      return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · سعر استرشادي ${approx(row.medianPriceAed, true)}` : `🏠 ${soldHomeLabel(row)}${size} · guide price ${approx(row.medianPriceAed).replace(/^about /, "around ")}`;
+      if (row.reliability === "Low sample") return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · انباعت ب${approx(row.medianPriceAed, true)} (${salesCount(row.sales, kind, true)} فقط)`
+        : `🏠 ${soldHomeLabel(row)}${size} · sold for ${approx(row.medianPriceAed)} (only ${salesCount(row.sales, kind)})`;
+      return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · ${kindLabel[1]} ب${approx(row.medianPriceAed, true)}` : `🏠 ${soldHomeLabel(row)}${size} · ${kindLabel[0]} ${approx(row.medianPriceAed).replace(/^about /, "around ")}`;
     })
   ];
   const lead = shown[0];
-  if (buyer.budgetAed && lead.reliability === "OK" && priceWithinBudget(lead.medianPriceAed, buyer) && (!wanted.length || wanted.includes(lead.bedrooms))) {
-    const fitting = shown.filter(row => row.reliability === "OK" && priceWithinBudget(row.medianPriceAed, buyer) &&
+  if (buyer.budgetAed && lead.reliability === "OK" && shortlisted(lead) && (!wanted.length || wanted.includes(lead.bedrooms))) {
+    const fitting = shown.filter(row => row.reliability === "OK" && shortlisted(row) &&
       (!wanted.length || wanted.includes(row.bedrooms)) && (!types.length || types.includes(row.type)));
     const labels = fitting.map(row => soldHomeLabel(row, ar).toLowerCase());
-    lines.push(ar ? `✨ حسب الأسعار الاسترشادية، ${labels.join(" و")} ضمن ميزانيتك وتستاهل نطالع تفاصيلها.`
-      : `✨ For your budget, I'd take a closer look at ${labels.length > 1 ? `the ${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : `the ${labels[0]}`}.`);
+    const list = labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : labels[0];
+    lines.push(ar ? `✨ آخر مبيعات ${labels.join(" و")} هنا كانت ضمن ميزانيتك، يستاهل نتأكد لك من سعر اليوم.`
+      : `✨ Recent ${list} sales here came in under your budget, so today's price is worth a check.`);
   }
-  return { lines, rows: shown, kind, hasGuide: Boolean(tagline) };
+  const shownFigures = [...offers.map(offer => shownOffer(offer, { home: offerHomeLabel(offer) })),
+    ...shown.filter(row => row.reliability === "OK").map(row => shownRecorded(row, { data, home: soldHomeLabel(row), decision: assessed.get(row)?.decision || null }))];
+  return { lines, rows: shown, kind, hasGuide: Boolean(tagline), offers, shownFigures };
 }
+
+const offerHomeLabel = offer => `${offer.home.bedrooms === 0 ? "studio" : `${offer.home.bedrooms}-bed`} ${offer.home.type}`;
 
 const TYPE_PLURAL = { Apartment: ["Apartments", "شقق"], Villa: ["Villas", "فلل"], Townhouse: ["Townhouses", "تاون هاوس"], Duplex: ["Duplexes", "دوبلكس"],
   Penthouse: ["Penthouses", "بنتهاوس"], "Villa plot": ["Villa plots", "أراضي فلل"], Office: ["Offices", "مكاتب"], Retail: ["Shops", "محلات"] };
@@ -619,7 +663,7 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
     // Older approved imports may cover a project outside the precomputed index.
     // Keep that source's own evidence and wording instead of declaring no match.
     const recorded = !buyer.budgetRange && !more && !priceBelow ? registeredSalesAnswer({ message: message || "Find a project within my budget", buyer, catalog }) : null;
-    if (recorded?.recordedSales?.budgetFit) return { ...recorded, buyerPatch: { projectInterest: recorded.recordedSales.recommendedProjectName } };
+    if (recorded?.recordedSales?.budgetShortlist) return { ...recorded, buyerPatch: { projectInterest: recorded.recordedSales.recommendedProjectName } };
     const body = more && seen.length
       ? (ar ? "هذي كل الخيارات المسعّرة اللي تطابق طلبك حالياً." : "You've seen all the priced projects matching this search.")
       : priceBelow ? (ar ? `ما لقيت خيار بسعر أقل يطابق طلبك في ${where}.` : `I couldn't find a lower-priced project matching your requirements in ${where}.`)
@@ -630,22 +674,33 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
   }
   const blocks = picks.map((row, index) => {
     const heading = `${["1️⃣", "2️⃣", "3️⃣"][index]} ${row.name} · ${areaLabel(row.area, ar)}`;
+    const planToConfirm = row.terms?.some(reason => ["needs_full_payment", "discount_needs_full_payment"].includes(reason))
+      ? (ar ? " · سعر خطة السداد يحتاج تأكيد" : " · payment-plan price to confirm")
+      : row.terms?.includes("plan_unconfirmed") ? (ar ? " · خطة السداد تحتاج تأكيد" : " · payment plan to confirm") : "";
     const details = row.kind === "listing"
-      ? `${homeLabel(row.pack, ar)} · ${ar ? "يبدأ من" : "From"} ${aed(row.price, ar)}`
-      : `${soldHomeLabel(row.sale, ar)} · ${ar ? "سعر استرشادي" : "Guide price"} ${approx(row.price, ar).replace(/^about /, "around ")}`;
+      ? `${homeLabel(row.pack, ar)} · ${ar ? "يبدأ من" : "From"} ${aed(row.price, ar)}${planToConfirm}`
+      : row.kind === "offer" ? `${offerLine(row.offer, { ar })}${planToConfirm}`
+        : `${soldHomeLabel(row.sale, ar)} · ${ar ? `مبيعات حديثة ب${approx(row.price, true)}` : `recent sales ${approx(row.price).replace(/^about /, "around ")}`}`;
     return `${heading}\n${details}`;
   });
-  const lead = more && seen.length ? (ar ? `خيارات ثانية في ${where} 👇` : `More options in ${where} 👇`)
-    : scope.budget || scope.budgetMin ? (ar ? `لقيت لك هذي المشاريع ضمن ميزانيتك في ${where} 👇` : `I found these projects within your budget in ${where} 👇`)
-      : (ar ? `هذي خيارات بأسعار أقل في ${where} 👇` : `Here are lower-priced options in ${where} 👇`);
   const sales = picks.filter(row => row.kind === "recorded_sale");
+  // Only a current price on the buyer's own terms is "within your budget".
+  const firm = picks.filter(row => row.kind !== "recorded_sale" && !row.termsUnconfirmed);
+  const ranged = Boolean(scope.budgetMin);
+  // Recorded sales never make a home "within your budget": they say what sold, and today's price follows.
+  const lead = more && seen.length ? (ar ? `خيارات ثانية في ${where} 👇` : `More options in ${where} 👇`)
+    : !(scope.budget || scope.budgetMin) ? (ar ? `هذي خيارات بأسعار أقل في ${where} 👇` : `Here are lower-priced options in ${where} 👇`)
+      : firm.length === picks.length ? (ar ? `لقيت لك هذي المشاريع ضمن ميزانيتك في ${where} 👇` : `I found these projects within your budget in ${where} 👇`)
+        : sales.length === picks.length ? (ar ? `آخر المبيعات في هذي المشاريع كانت ضمن ميزانيتك في ${where}، وسعر اليوم يحتاج تأكيد 👇`
+          : `Recent sales at these projects in ${where} came in ${ranged ? "within your price range" : "under your budget"}. Today's prices still need checking 👇`)
+          : (ar ? `هذا اللي لقيته لك في ${where} 👇` : `Here's what I found in ${where} 👇`);
   const evidence = picks.flatMap((row, index) => row.sale ? [salesEvidence(blocks[index], data, [row.sale], [{ name: row.name, area: row.district }])] : []);
   const choices = picks.map(row => ({ id: `search_${areaKey(row.name).replace(/[^a-z0-9]+/g, "_")}`.slice(0, 60), label: buttonLabel(row.name),
     value: row.kind === "listing" ? `${ar ? "افتح" : "Open"} ${row.name}` : row.name }));
   if (result.remaining > picks.length) choices.push(nextChoice("more", ar));
   state.choices = choices;
   const named = searchAreasIn(message, data);
-  return draft(`${lead}\n\n${blocks.join("\n\n")}${sales.length ? `\n\n${ar ? SALES_NOTE.ar : SALES_NOTE.en}` : ""}`, "soft_match", {
+  return draft(`${lead}\n\n${blocks.join("\n\n")}${sales.length ? `\n\n${ar ? SHORTLIST_NOTE.ar : SHORTLIST_NOTE.en}` : ""}`, "soft_match", {
     question: ar ? "أي مشروع تبي نبدأ فيه؟" : "Which project would you like to explore?", choices,
     packs: picks.filter(row => row.pack).map(row => row.pack),
     advisoryExposure: { projectIds: picks.map(row => row.project?.id || `sales:${row.name}`), primaryProjectId: null, primaryUnitId: null },
@@ -653,8 +708,11 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
     extra: { propertySearch: true, areaGuideAreas: [...new Set(picks.map(row => row.area))],
       buyerPatch: { discoverySearch: state, activeRecommendationProjectId: null, activeRecommendationUnitId: null,
         ...(named.length ? { preferredAreas: named } : {}) },
-      listingMatches: picks.filter(row => row.pack).map(listingMatch),
+      listingMatches: picks.filter(row => row.kind === "listing").map(listingMatch),
       investmentTheses: [{ projectId: "property-search", evidenceRegistry: evidence }],
+      priceEvidence: picks.flatMap(row => row.kind === "recorded_sale" ? [shownRecorded(row.sale, { data, home: soldHomeLabel(row.sale), decision: row.assessment?.decision || null })]
+        : row.kind === "offer" ? [shownOffer(row.offer, { home: offerHomeLabel(row.offer), decision: row.termsUnconfirmed ? DECISIONS.QUOTED_TERMS_UNCONFIRMED : DECISIONS.QUOTED_WITHIN })]
+          : [shownListing(row, { decision: row.termsUnconfirmed ? DECISIONS.QUOTED_TERMS_UNCONFIRMED : DECISIONS.QUOTED_WITHIN })]),
       ...(sales.length ? { projectKnowledge: { intent: "search_options", rows: sales.map(row => row.sale),
         projects: sales.map(row => ({ name: row.name, area: row.district })) } } : {}) } });
 }
@@ -664,10 +722,11 @@ export function salesProjectCardDraft({ project, data, buyer = {}, catalog = {},
   const card = salesProjectCard({ project, data, buyer, catalog, ar, focus, limit }) || soldIdentityCard({ project, catalog, ar });
   if (!card) return null;
   const block = [...card.lines, "", card.note || (ar ? SALES_NOTE.ar : SALES_NOTE.en)].join("\n");
-  const offer = priceInquiryOffer(project.name, ar);
+  const declined = priceCheckDeclined(buyer, project.name);
+  const offer = declined ? { prompt: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices: [], pending: null } : priceInquiryOffer(project.name, ar);
   const choices = [...offer.choices,
     nextChoice("more", ar), ...(card.hasGuide ? [nextChoice("area", ar)] : [])];
-  return draft(block, "project_knowledge", { question: offer.prompt, choices,
+  return draft(block, "project_knowledge", { question: offer.prompt, choices, packs: (card.offers || []).map(row => offerPack(row)),
     pendingOffer: offer.pending,
     advisoryExposure: { projectIds: [`sales:${project.name}`], primaryProjectId: null, primaryUnitId: null, upgradeProjectId: null, upgradeUnitId: null },
     extra: { areaGuideAreas: [projectCommunity(project.name, project.area)],
@@ -675,6 +734,7 @@ export function salesProjectCardDraft({ project, data, buyer = {}, catalog = {},
         ...(card.rows[0] ? { discoverySearch: { ...buyer.discoverySearch, lastPrices: [card.rows[0].medianPriceAed] } } : {}) },
       investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, card.rows, [project])] }],
       projectKnowledge: { intent: "project_card", rows: card.rows, projects: [{ name: project.name, area: project.area }] },
+      priceEvidence: card.shownFigures || [],
       handoffTopic: `Today's price and payment plan for ${project.name}` } });
 }
 
@@ -700,8 +760,8 @@ function recordedProjectDetail({ text, buyer, catalog, data, pendingOffer, ar })
 function soldLine(row, mark, ar, { area = true } = {}) {
   const where = area ? ` · ${salesArea(row.area, ar)}` : "";
   const kind = row.saleSequence === "Secondary" ? "resale" : "primary";
-  return ar ? `${mark} ${row.project}${where} — ${homePhrase(row, true)}، ${approx(row.medianPriceAed, true)} عادةً (${salesCount(row.sales, kind, true)})`
-    : `${mark} ${row.project}${where} — ${homePhrase(row)}, typically ${approx(row.medianPriceAed)} (${salesCount(row.sales, kind)})`;
+  return ar ? `${mark} ${row.project}${where} — ${homePhrase(row, true)}، انباعت مؤخراً ب${approx(row.medianPriceAed, true)} (${salesCount(row.sales, kind, true)})`
+    : `${mark} ${row.project}${where} — ${homePhrase(row)}, recent sales ${approx(row.medianPriceAed).replace(/^about /, "around ")} (${salesCount(row.sales, kind)})`;
 }
 
 // A named statistic (average, per sqft, resale, a period) keeps the detailed figures; anything else about a project gets its card.
@@ -786,13 +846,32 @@ export function salesKnowledgeReply({ answer, message = "", buyer = {}, data, ca
     const matching = rows.filter(row => row.bedrooms === focus.bedrooms && (!focus.type || row.type === focus.type));
     if (matching.length === 1 && matching[0].reliability === "OK") {
       const row = matching[0];
-      const block = ar ? `${project.name}: ${soldHomeLabel(row, true)} — سعر استرشادي ${approx(row.medianPriceAed, true)} من مبيعات حديثة.`
-        : `${project.name}: ${soldHomeLabel(row)} — guide price ${approx(row.medianPriceAed).replace(/^about /, "around ")}, based on recent sales.`;
-      return draft(block, "project_knowledge", { question: ar ? "تبي نطالع خيارات ثانية بنفس الحجم؟" : "Would you like more options of the same size?",
-        choices: [nextChoice("more", ar), nextChoice("area", ar)],
-        pendingOffer: { type: "more_like_project", projectName: project.name, bedrooms: [row.bedrooms === "Studio" ? 0 : Number(row.bedrooms[0])], propertyTypes: [row.type.toLowerCase()] },
-        extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, [row], [project])] }],
+      const home = soldHome(row);
+      const offers = currentOffers(project, catalog, home).slice(0, 1);
+      const offer = offers[0] || null;
+      const history = ar ? `${project.name}: ${soldHomeLabel(row, true)} — انباعت مؤخراً ب${approx(row.medianPriceAed, true)} (مبيعات المطور خلال آخر 12 شهراً).`
+        : `${project.name}: ${soldHomeLabel(row)} — recent developer sales ${approx(row.medianPriceAed).replace(/^about /, "around ")} (last 12 months).`;
+      // A current price leads, with its own terms and date; recorded sales follow as history.
+      const position = offer ? budgetPosition(offer.price, buyer) : null;
+      const pastSales = offer ? (ar ? `مبيعات المطور خلال آخر 12 شهراً كانت ${approx(row.medianPriceAed, true)}.`
+        : `Recent developer sales were ${approx(row.medianPriceAed).replace(/^about /, "around ")} (last 12 months).`) : history;
+      const block = offer ? [`${project.name} · ${soldHomeLabel(row, ar)}`,
+        `💰 ${ar ? "السعر الحالي" : "Current price"}: ${offerLine(offer, { ar, withHome: false })}`, pastSales,
+        ...(position === "above" ? [ar ? "هذا السعر أعلى من ميزانيتك." : "That's above your budget."]
+          : position === "below" ? [ar ? "هذا السعر أقل من النطاق اللي حددته." : "That's below the range you set."] : [])].join("\n") : history;
+      const checked = { home: soldHomeLabel(row), homeAr: soldHomeLabel(row, true) };
+      // One next step: today's price, the units at a price that fits, or homes of the same size.
+      const check = priceCheckDeclined(buyer, project.name) || position === "above" || position === "below" ? null
+        : priceInquiryOffer(project.name, ar, { ...checked, priced: Boolean(offer) });
+      const more = { type: "more_like_project", projectName: project.name, bedrooms: [row.bedrooms === "Studio" ? 0 : Number(row.bedrooms[0])], propertyTypes: [row.type.toLowerCase()] };
+      return draft(block, "project_knowledge", {
+        question: check ? check.prompt : ar ? "تبي نطالع خيارات ثانية بنفس الحجم؟" : "Would you like more options of the same size?",
+        choices: [...(check ? check.choices : []), nextChoice("more", ar), ...(check ? [] : [nextChoice("area", ar)])],
+        packs: offers.map(offer => offerPack(offer)),
+        pendingOffer: check ? { ...check.pending, more } : more,
+        extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(pastSales, data, [row], [project])] }],
           buyerPatch: { priceInquiryContext: { projectName: project.name }, discoverySearch: { ...buyer.discoverySearch, lastPrices: [row.medianPriceAed] } },
+          priceEvidence: [...offers.map(offer => shownOffer(offer, { home: soldHomeLabel(row) })), shownRecorded(row, { data, home: soldHomeLabel(row) })],
           projectKnowledge: { ...knowledge, rows: [row], filters } } });
     }
   }
@@ -849,8 +928,11 @@ function statCardDraft({ knowledge, project, data, buyer, catalog, message, ar }
   const first = rows.reduce((min, row) => !min || row.firstSale < min ? row.firstSale : min, ""), last = rows.reduce((max, row) => row.lastSale > max ? row.lastSale : max, "");
   lines.push(`🗓️ ${dayLabel(first, ar)} – ${dayLabel(last, ar)} · ${ar ? "البيانات حتى" : "data through"} ${dayLabel(data.source?.dataUpTo || last, ar)}`);
   const block = lines.join("\n");
-  const choices = [{ id: "todays_price", label: ar ? "سعر اليوم" : "Get today's price", value: ar ? "كلم موظف" : "Talk to an agent" }, nextChoice("more", ar)];
-  return draft(block, "project_knowledge", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices,
+  // Today's price is checked here on Instagram when asked, never by moving the buyer to an agent.
+  const check = priceCheckDeclined(buyer, project.name) ? null : priceInquiryOffer(project.name, ar);
+  const choices = [...(check ? check.choices : []), nextChoice("more", ar)];
+  return draft(block, "project_knowledge", { question: check ? check.prompt : ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices,
+    pendingOffer: check?.pending || null,
     extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, rows, [project])] }],
       projectKnowledge: { ...knowledge, intent: "project_stats" }, factMissing: rows.some(row => row.reliability === "OK") ? [] : [{ topic: "project_sales" }],
       handoffTopic: `Today's price and payment plan for ${project.name}` } });
@@ -1157,6 +1239,32 @@ export function openEndedReply(buyer = {}) {
 const QUALIFYING_FIELDS = new Set(["budgetAed", "bedrooms", "propertyTypes", "preferredAreas", "useType", "cashAvailableAed", "financing",
   "investmentObjective", "exitHorizon", "investmentRoute", "budgetFlexibility", "riskTolerance", "cashDeploymentPreference"]);
 
+const PRICE_SOURCE = /\b(?:where (?:do|does|did) (?:these|those|the|this|that|your) (?:prices?|figures?|numbers?|sales?) come from|(?:price|prices|data) sources?\b|source of (?:the |these |this |your )?(?:prices?|data|figures?|sales?)|what(?:'s| is) (?:the|your) source)|(?:^|\s)(?:ما |وش |شو )?مصدر\s*(?:السعر|الأسعار|الاسعار|البيانات|المعلومات|هالأسعار)|من وين (?:الأسعار|الاسعار|السعر|هالأسعار|جبت)/i;
+
+/** "Where do these prices come from?" answered in plain words for the figures this buyer saw. */
+function priceSourceReply({ buyer, data, ar }) {
+  const shown = (buyer.priceEvidenceShown || []).slice(-3);
+  const lines = [];
+  if (shown.some(entry => entry.evidenceType === "recorded_transaction")) {
+    const upTo = data?.source?.dataUpTo;
+    lines.push(ar ? `أرقام المبيعات الحديثة هي مبيعات المطور المسجلة لدى مركز أبوظبي العقاري خلال آخر 12 شهراً${upTo ? ` حتى ${dayLabel(upTo, true)}` : ""}. توضح بكم انباعت الوحدات، مو سعر اليوم.`
+      : `The recent-sales figures are developer sales recorded by the Abu Dhabi Real Estate Centre over the last 12 months${upTo ? `, up to ${dayLabel(upTo)}` : ""}. They show what homes sold for, not today's price.`);
+  }
+  const offer = shown.filter(entry => entry.evidenceType === "developer_offer" && entry.sourceKind).at(-1);
+  if (offer) lines.push(ar ? `السعر الحالي من ${sourceLabel(offer.sourceKind, true)}${offer.basisDate ? ` بتاريخ ${dayLabel(offer.basisDate, true)}` : ""}.`
+    : `The current price comes from a ${sourceLabel(offer.sourceKind)}${offer.basisDate ? ` dated ${dayLabel(offer.basisDate)}` : ""}.`);
+  if (shown.some(entry => entry.evidenceType === "catalogue_listing")) lines.push(ar ? "الأسعار المكتوب عندها «يبدأ من» من قوائمنا الحالية اللي يتابعها فريقنا."
+    : "Prices marked \"From\" are our current listings, which our team keeps up to date.");
+  if (!lines.length) return null;
+  // One project shown: offer its check. A list of several: the buyer picks one first.
+  const projects = [...new Set(shown.map(entry => entry.project))];
+  const check = projects.length === 1 && !priceCheckDeclined(buyer, projects[0]) ? priceInquiryOffer(projects[0], ar) : null;
+  const body = lines.join("\n");
+  return draft(body, "fact_answer", { question: check ? check.prompt : ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en,
+    choices: [...(check ? check.choices : []), nextChoice("more", ar)], pendingOffer: check?.pending || null,
+    extra: { factTopic: "price_source", investmentTheses: data ? [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(body, data, [], [])] }] : [] } });
+}
+
 /**
  * The concierge's own turns. Returns a draft, or null so the engine carries on.
  * A stopped conversation, a pending contact step or a search update never
@@ -1165,10 +1273,16 @@ const QUALIFYING_FIELDS = new Set(["budgetAed", "bedrooms", "propertyTypes", "pr
 export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = null, pendingOffer = null, lastAskedField = null, intents = [],
   projectKnowledge = null, updatedFields = [], propertyDiscovery = true } = {}) {
   const text = normalizeBuyerText(message).trim();
-  if (!text || buyer.salesPathStopped || intents.includes("stop")) return null;
+  if (!text || buyer.salesPathStopped || intents.includes("stop") || intents.includes("decline_price_check")) return null;
   const ar = isArabic(buyer, message);
+  // A single-home price answer keeps "more like this" alongside its price-check offer.
+  const moreLike = pendingOffer?.type === "more_like_project" ? pendingOffer : pendingOffer?.more?.type === "more_like_project" ? pendingOffer.more : null;
   if (/\bdubai\b|دبي/i.test(text)) return null;
   if (asksWhy(text) && lastAskedField !== "nationality" && (QUALIFYING_FIELDS.has(lastAskedField) || lastAskedField === "conciergeNext" || !lastAskedField)) return whyReply({ buyer, lastAskedField, ar });
+  if (PRICE_SOURCE.test(text) && buyer.priceEvidenceShown?.length) {
+    const source = priceSourceReply({ buyer, data: projectKnowledge, ar });
+    if (source) return source;
+  }
   // "Yes" or "I like it" right after a card is interest in that home.
   if (pendingOffer?.type === "concierge_card" && INTEREST.test(text)) return interestReply({ buyer, catalog, pendingOffer, ar });
   if (["concierge_find", "concierge_area"].includes(pendingOffer?.type) && isAffirmation(text)) {
@@ -1183,14 +1297,14 @@ export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = nul
     return draft(ar ? "أكيد، خلنا نحدد الميزانية." : "Sure, let's find the right price range.", "qualifying", { question: budgetPrompt(ar), field: "budgetAed", choices: budgetChoices(ar) });
   }
   if (propertyDiscovery && wantsCheapest(text)) return propertySearchReply({ message: text, buyer, catalog, data: projectKnowledge, ar });
-  if (propertyDiscovery && wantsMoreOptions(text) && pendingOffer?.type !== "more_like_project") return moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge });
-  if (propertyDiscovery && pendingOffer?.type === "more_like_project" && (isAffirmation(text) || wantsMoreOptions(text))) {
-    const patch = { bedrooms: pendingOffer.bedrooms, propertyTypes: pendingOffer.propertyTypes };
+  if (propertyDiscovery && wantsMoreOptions(text) && !moreLike) return moreOptionsReply({ buyer, catalog, advisor, ar, projectKnowledge });
+  if (propertyDiscovery && moreLike && (wantsMoreOptions(text) || (pendingOffer?.type === "more_like_project" && isAffirmation(text)))) {
+    const patch = { bedrooms: moreLike.bedrooms, propertyTypes: moreLike.propertyTypes };
     const answer = propertySearchReply({ buyer: { ...buyer, ...patch }, catalog, data: projectKnowledge, ar });
     return { ...answer, buyerPatch: { ...answer.buyerPatch, ...patch } };
   }
   if (propertyDiscovery && buyer.discoverySearch?.lastPrices?.length && /\b(?:too expensive|too pricey|overpriced|out of my budget)\b|غالي|غالية|غاليه/i.test(text)) {
-    const patch = pendingOffer?.type === "more_like_project" ? { bedrooms: pendingOffer.bedrooms, propertyTypes: pendingOffer.propertyTypes } : {};
+    const patch = moreLike ? { bedrooms: moreLike.bedrooms, propertyTypes: moreLike.propertyTypes } : {};
     const answer = propertySearchReply({ buyer: { ...buyer, ...patch }, catalog, data: projectKnowledge, ar, priceBelow: Math.min(...buyer.discoverySearch.lastPrices) });
     return { ...answer, buyerPatch: { ...answer.buyerPatch, ...patch } };
   }
@@ -1227,8 +1341,11 @@ export function conciergeTurn({ message, buyer = {}, catalog = {}, advisor = nul
   const areaSearch = namedAreas.length && (/\b(?:projects?|homes?|options?|apartments?|studios?)\b|مشاريع|عقارات|شقق|استوديو/i.test(text) ||
     (!AREA_QUESTION.test(text) && text.split(/\s+/).length <= 4));
   const adviceOrFact = /\b(?:why|how|payment|plans?|handover|completion|deposit|cash|mortgage|growth|appreciation|roi|yields?|rental|strategy|best|recommend|compare)\b|سداد|تسليم|دفعة|تمويل|عائد|نمو|قارن|افضل|أفضل/i.test(text);
+  // "And the 1 BR price?" right after a project card asks about that project, not for a new search.
+  const projectFollowUp = ["instagram_price_offer", "more_like_project"].includes(pendingOffer?.type) && Boolean(pendingOffer.projectName) &&
+    /\b(?:price|cost|how much)\b|سعر|بكم/i.test(text) && !namedAreas.length;
   if (propertyDiscovery && projectKnowledge?.projects?.length && !namesKnownProject && !STATISTIC_QUESTION.test(text) && !adviceOrFact &&
-      ((changedSearch && buyer.budgetAed) || areaSearch)) {
+      !projectFollowUp && ((changedSearch && buyer.budgetAed) || areaSearch)) {
     return propertySearchReply({ message: text, buyer, catalog, data: projectKnowledge, ar });
   }
   if (/^(?:open|show(?: me)?|details? (?:of|for|on)|افتح|وريني|ورني|تفاصيل)(?:\s|$)/i.test(text) || pendingOffer?.type === "concierge_options" || aboutListedProject(text, catalog)) {

@@ -16,6 +16,8 @@ Node 18+ (CI uses 22). ES modules. **No npm dependencies**: do not add any witho
 npm test                     # the full suite, about 1 s
 npm run chat                 # CLI chat against seed data (no keys needed)
 npm run chat:web             # web test chat at http://127.0.0.1:8787/
+npm run pricing:trace -- "Vista 3" --bedrooms 2 [--budget 1.2M]   # a quoted figure back to its export rows, offers and decision
+npm run pricing:offers -- review                                 # developer offers: add, review, clarify, approve, withdraw
 ```
 
 `npm test` runs the suite (about 1 s, no network); GitHub runs it on every push. It was rewritten on 11 October 2026 for the current bot: `welcome`, `replies` (brand-guide cases), `outcomes`, `handoff-alerts`, `facts`, `data-store` and `report`. Add a test to the matching file when you change behaviour.
@@ -29,11 +31,12 @@ npm run chat:web             # web test chat at http://127.0.0.1:8787/
 | `src/conversation/*.js` (rest) | Deterministic logic: qualification, intents, contact rules, advisor strategy, replies, localisation. |
 | `src/facts/` | The fact checker (`checker.js`), fact packs, freshness gates, payment stages, area guide. |
 | `src/matching/` | Inventory matching and normalisation (areas, money, bedrooms). |
+| `src/pricing/` | Price evidence: recorded sales, developer offers and resale asking prices kept apart; the per-home budget decision (`assess.js`); the owner's trace and intake. See `docs/PRICING-EVIDENCE.md`. |
 | `src/store/` | Airtable store (production) and local JSON store (local development). |
 | `src/integrations/` | Meta webhook, Instagram send, WhatsApp alerts, durable JSON state on the Railway volume. |
 | `scripts/chat-web.js` | The production server (`npm start`): webhook, health, test chat. |
 | `prompts/conversation-policy.md` | The written conversation policy. No longer sent to a model; its hash is the `policyVersion` in `/api/health`. |
-| `data/` | `area-guide.json` (12 areas, EN/AR), `qualification-choices.json` (quick replies), `services.json`, `seed/` (demo stock for local runs). |
+| `data/` | `area-guide.json` (12 areas, EN/AR), `qualification-choices.json` (quick replies), `services.json`, `seed/` (demo stock for local runs), `pricing/` (the append-only offer and asking-price ledger), `market-prices/` (the ADREC export, its summaries and the exclusion/flag archives). |
 | `docs/` | Milestone, handover and design notes. `docs/test-results/` is archived output: don't read it. |
 
 ## Rules that must not break
@@ -47,7 +50,8 @@ npm run chat:web             # web test chat at http://127.0.0.1:8787/
 7. **One Railway replica.** Conversation state is JSON on the `/data` volume; a second replica would corrupt it.
 8. **Airtable holds Projects, Units, Price History and Market Snapshot only.** Each project has a few Units rows (one per home type and bedroom count) that the broker keeps current; the bot quotes those unit prices. A priced project with no unit rows becomes one project-level listing (`src/facts/project-listings.js`). Developers live in `data/developers.json` (Projects name their developer) and area guides/research in `data/areas.json` and `data/area-guide.json`.
 9. **Per-buyer ordering.** A buyer's messages are processed in order; different buyers run in parallel (`KeyedQueue`). Anything that writes a shared file must serialise its writes.
-10. **Outcomes are recorded, not inferred.** Stage, lead status, contact permissions, handoff status and conversation outcome are separate (`src/conversation/outcomes.js`, `docs/CONVERSATION-OUTCOMES.md`). An alert never grants permission to contact; only the buyer's confirmed request does.
+10. **Recorded sales never price a home.** ADREC medians may shortlist a home as "recent sales", never as within the budget, available or on a payment plan. Only an approved, current offer for the same home type, bedrooms and payment terms prices a home (`src/pricing/assess.js`). Never edit `recent_sales.csv`; exclusions are archived with their rule.
+11. **Outcomes are recorded, not inferred.** Stage, lead status, contact permissions, handoff status and conversation outcome are separate (`src/conversation/outcomes.js`, `docs/CONVERSATION-OUTCOMES.md`). An alert never grants permission to contact; only the buyer's confirmed request does.
 
 ## Conventions
 

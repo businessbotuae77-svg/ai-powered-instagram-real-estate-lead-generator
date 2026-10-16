@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "source": {
+    "file": "recent_sales.csv",
+    "sha256": "a00fa4473c2df91be39c26192aabd0b861ce1970ab810dcc1ab89a7435018329",
+    "rows": 124526,
+    "dataUpTo": "2026-10-14"
+  },
+  "excludedRows": 17369,
+  "excludedByReason": {
+    "aed_per_sqft_above_p99": 1382,
+    "aed_per_sqft_below_p01": 1309,
+    "missing_or_zero_area": 3715,
+    "missing_or_zero_price": 116,
+    "not_ready_or_off_plan": 621,
+    "partial_share": 1647,
+    "unsupported_property_type": 8579
+  },
+  "rowsInPriceFigures": 107157,
+  "flaggedRows": 16819,
+  "flagsByType": {
+    "area_far_from_layout_median": 525,
+    "identical_row": 10088,
+    "resale_at_earlier_primary_price": 6391
+  },
+  "exclusionRules": {
+    "partial_share": "Property Sold Share must equal 1",
+    "missing_or_zero_area": "Property Sold Area (SQM) must be > 0",
+    "missing_or_zero_price": "Property Sale Price (AED) must be > 0",
+    "not_ready_or_off_plan": "Sale Application Type must be off-plan or ready (court-mandated sales excluded)",
+    "unsupported_property_type": "Property Type outside apartment, villa, townhouse, duplex, penthouse, villa plot, office, retail",
+    "aed_per_sqft_below_p01": "AED/sqft below the 1st percentile of all sales with the same district, type and bedrooms",
+    "aed_per_sqft_above_p99": "AED/sqft above the 99th percentile of all sales with the same district, type and bedrooms"
+  },
+  "flagMeanings": {
+    "identical_row": "All 14 exported fields match another row (group_key); kept as separate sales because the export has no transaction ID",
+    "resale_at_earlier_primary_price": "Resale with the same project, layout, area and price as an earlier primary sale (detail = that date); possibly the same home transferred at its original price, which the export cannot confirm",
+    "area_far_from_layout_median": "Sold area more than twice or less than half the median for this project and layout (detail = median sqm and row count); the layout or home type may be mislabelled"
+  },
+  "note": "Exclusions mirror build_market_tables.py and build_project_knowledge.py; flags never exclude a row. The source export is not modified."
+}

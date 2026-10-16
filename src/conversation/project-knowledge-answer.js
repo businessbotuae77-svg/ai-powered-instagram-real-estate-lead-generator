@@ -64,8 +64,9 @@ export function isProjectFollowup(message) {
     .replace(/\b\d+\s*\+?\s*(?:[- ]?bed(?:room)?s?|br|bhk)\b|\d+\s*\+?\s*غرف(?:ة|ه)?/gi, " ")
     .replace(/\b(?:and|what|which|how|is|are|it|its|there|in|about|can|could|you|tell|me|show|the|a|an|of|for|does|have|has|please|home|homes|property|unit|units|price|prices|pricing|cost|costs|average|avg|mean|median|per|sqft|sq|ft|square|foot|feet|aed|psf|ppsf|type|types|layout|layouts|bedroom|bedrooms|bed|beds|studio|studios|apartment|apartments|flat|flats|villa|villas|plot|plots|land|townhouse|townhouses|townhome|townhomes|duplex|duplexes|penthouse|penthouses|office|offices|retail|shop|shops|one|two|three|four|five|primary|secondary|resale|off|plan|ready|developer|sales|total|all)\b/gi, " ")
     .replace(/(?:آخر|اخر|خلال)\s*(?:3\s*(?:أشهر|اشهر|شهور)|12\s*(?:شهر|شهراً))|هذا العام|هذه السنة|منذ بداية السنة|منذ بداية العام/g, " ")
-    .replace(/ما هي|ما هو|ماهي|ماهو|أخبرني|اخبرني|حدثني|أعطني|اعطني|اعرض|أعرض|أنواع|انواع|متوسط|وسيط|الأسعار|الاسعار|أسعار|اسعار|السعر|سعر|الوحدة|الوحدات|شقق|شقة|فلل|فيلا|تاونهاوس|استوديو|ستوديو|غرفتين|غرفتان|غرفة نوم واحدة|غرف نوم|الغرف|غرف|غرفة|للقدم|القدم|المربع|المربعة|مبيعات المطور|على الخارطة|إعادة البيع|اعادة البيع/g, " ")
-    .replace(/(?:^|\s)(?:و|شو|وش|كم|ما|هل|عن|في|هي|هو|من|كل|جميع|لكل|قدم)(?=\s|$)/g, " ")
+    .replace(/الغرفتين|الغرفتان|ما هي|ما هو|ماهي|ماهو|أخبرني|اخبرني|حدثني|أعطني|اعطني|اعرض|أعرض|أنواع|انواع|متوسط|وسيط|الأسعار|الاسعار|أسعار|اسعار|السعر|سعر|الوحدة|الوحدات|شقق|شقة|فلل|فيلا|تاونهاوس|استوديو|ستوديو|غرفتين|غرفتان|غرفة نوم واحدة|غرف نوم|الغرف|غرفة|غرفه|غرف|نوم|صالة|للقدم|القدم|المربع|المربعة|مبيعات المطور|على الخارطة|إعادة البيع|اعادة البيع/g, " ")
+    // What a removed word leaves behind: "و" and "ال" prefixes ("وسعر الغرفتين").
+    .replace(/(?:^|\s)(?:و|و?(?:ال|بال|لل|شو|وش|كم|ما|هل|عن|في|هي|هو|من|كل|جميع|لكل|قدم))(?=[\s?؟!.,]|$)/g, " ")
     .replace(/[\s?؟!.,;:/²+()\-–—]/g, "");
   return !remainder;
 }
@@ -96,7 +97,8 @@ function homeFilters(message) {
     if (beds > 5 || (beds >= 5 && !plus) || (plus && beds < 5)) return { unsupported: true };
     bedrooms.push(beds === 0 ? "Studio" : beds === 5 ? "5+ BR" : `${beds} BR`);
   }
-  if (/\bone[- ]bed(?:room)?\b|غرفة(?: نوم)? واحدة/i.test(message)) bedrooms.push("1 BR");
+  // "غرفة وصالة" and a bare "غرفة نوم" are how Gulf buyers say one bedroom.
+  if (/\bone[- ]bed(?:room)?\b|غرفة(?: نوم)? واحدة|غرفة\s*و\s*صالة|(?:^|[\s،,])(?:ال)?غرفة\s+(?:ال)?نوم(?=[\s؟?!.,]|$)/i.test(message)) bedrooms.push("1 BR");
   if (/\btwo[- ]bed(?:room)?\b|غرفتين|غرفتان/i.test(message)) bedrooms.push("2 BR");
   if (/\bthree[- ]bed(?:room)?\b|ثلاث غرف/i.test(message)) bedrooms.push("3 BR");
   if (/\bfour[- ]bed(?:room)?\b|أربع غرف|اربع غرف/i.test(message)) bedrooms.push("4 BR");

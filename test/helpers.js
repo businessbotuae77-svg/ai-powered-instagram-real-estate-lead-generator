@@ -9,23 +9,23 @@ import { ConversationEngine } from "../src/conversation/engine.js";
 import { ConversationMemory } from "../src/conversation/memory.js";
 import { IntegrationOrchestrator } from "../src/integrations/orchestrator.js";
 
-export async function setupServices() {
+export async function setupServices({ priceLedger } = {}) {
   const runtimeDir = await mkdtemp(path.join(os.tmpdir(), "bot-test-"));
   const store = await createLocalStore({ runtimeDir });
   // Demo facts count as checked today, so freshness rules don't hide them.
   store.projects = store.projects.map(p => ({ ...p, lastVerified: new Date().toISOString() }));
-  return { store, buyers: new BuyerService(store), properties: new PropertyService(store) };
+  return { store, buyers: new BuyerService(store), properties: new PropertyService(store, { priceLedger }) };
 }
 
-export async function setupConversation() {
-  const services = await setupServices();
+export async function setupConversation(options = {}) {
+  const services = await setupServices(options);
   const engine = new ConversationEngine({ buyers: services.buyers, properties: services.properties, memory: new ConversationMemory() });
   return { ...services, engine };
 }
 
 /** Plays messages from one buyer; returns every turn and the last. */
-export async function talk(messages, id = "buyer") {
-  const services = await setupConversation();
+export async function talk(messages, id = "buyer", options = {}) {
+  const services = await setupConversation(options);
   const turns = [];
   for (const message of messages) turns.push(await services.engine.handleMessage(id, message, { useLlm: false }));
   return { ...services, turns, last: turns.at(-1) };
@@ -47,8 +47,8 @@ export function fakeTransport(calls, state = {}) {
 }
 
 /** Engine + orchestrator wired to the fake transport, as in production. */
-export async function setupOrchestrator({ env = ALERT_ENV, state = {} } = {}) {
-  const services = await setupConversation();
+export async function setupOrchestrator({ env = ALERT_ENV, state = {}, priceLedger } = {}) {
+  const services = await setupConversation({ priceLedger });
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "bot-orchestrator-"));
   const calls = [];
   const orchestrator = new IntegrationOrchestrator({ engine: services.engine, buyers: services.buyers, rootDir, env,

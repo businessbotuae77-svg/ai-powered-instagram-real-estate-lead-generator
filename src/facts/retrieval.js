@@ -152,6 +152,11 @@ export function collectAllowedClaims(packs, evidenceClaims = []) {
       }
       phrases.add(text.toLowerCase());
     }
+    // A developer offer may show the date its own price was issued or received ("13 Oct 2026").
+    if (pack.ledgerOffer && pack.offerDate?.confirmed) {
+      const [year, month] = String(pack.offerDate.value).split("-").map(Number);
+      dates.add(`${["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][month - 1]} ${year}`);
+    }
     if (pack.availability.confirmed) availability.add(String(pack.availability.value).toLowerCase());
     if (pack.availabilityNotes.confirmed) phrases.add(String(pack.availabilityNotes.value).toLowerCase());
     if (pack.startingPriceText.confirmed) phrases.add(String(pack.startingPriceText.value).toLowerCase());

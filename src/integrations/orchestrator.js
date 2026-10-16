@@ -247,7 +247,7 @@ export class IntegrationOrchestrator {
       }
       if (!send && (!needsAlert || alertOk || priceRequestSaved)) {
         const reply = revoked ? "Your contact preferences changed, so the earlier follow-up request was cancelled." : priceRequestSaved
-          ? priceInquirySaved(result.instagramPriceRequest.projectName, result.buyer.language === "ar") : needsAlert
+          ? priceInquirySaved(result.instagramPriceRequest.projectName, result.buyer.language === "ar", result.instagramPriceRequest) : needsAlert
           ? handoffConfirmation(result.buyer, this.engine.broker)
           : result.reply;
         send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(
@@ -312,7 +312,7 @@ export class IntegrationOrchestrator {
       const service = result.commercialDecision?.serviceRequest || result.buyer?.serviceRequest;
       if (service?.status === "requested" && service.serviceId) await this.#recordCommercial(result, event, "service_request_delivered", { serviceId: service.serviceId, deliveryKey: alert.key, at: alert.deliveredAt || undefined });
     }
-    const reply = priceRequestSaved ? priceInquirySaved(result.instagramPriceRequest.projectName, result.buyer.language === "ar")
+    const reply = priceRequestSaved ? priceInquirySaved(result.instagramPriceRequest.projectName, result.buyer.language === "ar", result.instagramPriceRequest)
       : ok ? handoffConfirmation(result.buyer, this.engine.broker)
       : handoffFailureNotice(result.buyer, this.engine.broker, { unconfigured: /env incomplete/i.test(alert.reason || "") });
     return { alert, ok: ok || priceRequestSaved, reply };
