@@ -15,8 +15,9 @@ both sources. Each project appears once, ordered by price. It does not silently
 relax an area or bedroom requirement to manufacture a result.
 
 A fresh quote supersedes the recorded median for the same project, area, home
-type and bedroom count. Quote lines say **From**; median lines say **Recent sales
-(12 months)**. Historical medians never authorize availability, handover dates,
+type and bedroom count. Quote lines say **From**; median lines say **Guide price
+around**. A single note explains that guide prices reflect recent sales and that
+exact prices and available units are confirmed on request. Historical medians never authorize availability, handover dates,
 booking amounts or a payment plan. Mixed-bedroom totals, thin samples and 5+
 bedroom buckets are excluded from this exact-home ranking. Those observations
 remain available in explicit statistical answers. Older approved CSV imports
@@ -62,6 +63,31 @@ These links establish location only. They do not import new commercial figures.
   subject and names the missing fact. Verification is offered, never claimed.
 - Arabic **مصدر السعر** means the source of the price and must not move the
   buyer's search to Masdar.
+
+## Price and availability requests on Instagram
+
+Normal project cards present home types, approximate sizes and guide prices.
+Sales counts and transaction dates are reserved for explicit statistics questions.
+When no bedroom count was specified, the initial card prioritizes the home types
+within the buyer's guide budget rather than advertising a larger, over-budget home.
+
+The next step offers **Check price & units**. Accepting that offer or explicitly
+requesting a current-price check saves the named project for a human answer in
+the same Instagram conversation. It never asks for a phone number or opens a
+channel chooser, even if another contact channel was previously saved. Browsing,
+interest alone and declining the offer do not create a request.
+
+The bot does not fetch or fabricate a confirmed quote. The account owner supplies
+the actual price and availability manually on Instagram after the buyer requests
+them. The acknowledgement says only that the request is saved and that the reply
+will be here once checked; it gives no turnaround promise.
+
+The durable request ledger and buyer summary retain the project and requested
+action. Existing internal broker alerts are optional for this flow. A failed or
+unconfigured alert cannot block a successfully saved Instagram request, and a
+saved request is not recorded as a delivered broker alert. A request-store write
+failure remains retryable. Other contact and call workflows keep their existing
+delivery requirements.
 
 ## Verification
 

@@ -202,7 +202,7 @@ test("invest then budget explores source-backed projects before asking for a str
       assert.equal(result.check.ok, true, JSON.stringify(result.check.violations));
       assert.equal(result.stage, "soft_match");
       assert.match(result.reply, /within your budget|ضمن ميزانيتك/);
-      assert.match(result.reply, /Recent sales|مبيعات مسجلة/);
+      assert.match(result.reply, /recent sales|مبيعات حديثة/);
       assert.doesNotMatch(result.reply, /balanced shortlist|growth potential|easier resale|فرص النمو|قائمة متوازنة|💳/);
       assert.equal(result.nextQuestion.field, "conciergeNext");
       assert.ok(result.nextQuestion.choices.length >= 3);

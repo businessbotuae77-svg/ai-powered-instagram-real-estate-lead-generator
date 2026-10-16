@@ -558,7 +558,8 @@ export class ConversationEngine {
       explicitCall: intents.includes("request_call"),
       highIntent: highIntent && !intents.includes("eoi_info"),
       phoneSubmitted: callRequestSubmitted,
-      broker: this.broker
+      broker: this.broker,
+      quoteProject: mentionedSalesProjects.length === 1 ? mentionedSalesProjects[0].name : explicitCatalogProjects.length === 1 ? explicitCatalogProjects[0].name : null
     });
     const followUpSubmitted = Boolean(contact?.submitted);
     callRequestSubmitted = followUpSubmitted && contact.channel === "phone";
@@ -1014,7 +1015,7 @@ export class ConversationEngine {
 
     const activeProject = catalog.projects.find(p => p.id === buyer.activeRecommendationProjectId);
     const activeUnit = catalog.units.find(u => u.id === buyer.activeRecommendationUnitId && u.projectId === activeProject?.id);
-    const handoffMatches = draft.selectionUnconfirmed ? [] : activeProject && activeUnit ? [{ project: activeProject, unit: activeUnit,
+    const handoffMatches = contact?.instagramPriceRequest || draft.selectionUnconfirmed ? [] : activeProject && activeUnit ? [{ project: activeProject, unit: activeUnit,
       downPaymentAed: activeUnit.initialPaymentAed ?? activeProject.initialPaymentAed }] : matchResult.matches;
     const callSummary = followUpSubmitted
       ? buildCallRequestSummary(buyer, {
@@ -1072,6 +1073,7 @@ export class ConversationEngine {
       callRequest: draft.callRequest || null,
       callRequestSubmitted,
       followUpSubmitted,
+      instagramPriceRequest: contact?.instagramPriceRequest || null,
       catalogError,
       callSummary,
       intentAlert,

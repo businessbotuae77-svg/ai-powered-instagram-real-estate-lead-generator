@@ -18,6 +18,7 @@ import { askedSubject, looksLikeProjectName, projectFamilyIn, projectsNamed, sim
 import { searchProperties, propertySearchScope } from "./property-search.js";
 import { projectCommunity, searchAreasIn } from "../facts/project-geography.js";
 import { registeredSalesAnswer } from "./registered-sales-answer.js";
+import { GUIDE_PRICE_NOTE, priceInquiryOffer } from "./price-inquiry.js";
 
 const fmt = amount => Number(amount).toLocaleString("en-US");
 export const aed = (amount, ar = false) => ar ? `${fmt(amount)} درهم` : `AED ${fmt(amount)}`;
@@ -529,15 +530,14 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
   const weight = row => (wanted.includes(row.bedrooms) ? 0 : 2) + (!types.length || types.includes(row.type) ? 0 : 1);
   // "And the 1 BR price?": only that size when it sold here.
   const focused = focus.bedrooms ? rows.filter(row => row.bedrooms === focus.bedrooms) : [];
-  const shown = [...(focused.length ? focused : rows)].sort((a, b) => weight(a) - weight(b) || b.sales - a.sales).slice(0, limit)
+  const inBudget = buyer.budgetAed && !wanted.length && limit <= 3 ? rows.filter(row => row.medianPriceAed <= buyer.budgetAed) : [];
+  const shown = [...(focused.length ? focused : inBudget.length ? inBudget : rows)].sort((a, b) => weight(a) - weight(b) || b.sales - a.sales).slice(0, limit)
     .sort((a, b) => weight(a) - weight(b) || BED_ORDER.indexOf(a.bedrooms) - BED_ORDER.indexOf(b.bedrooms));
   const listed = (catalog.projects || []).find(row => areaKey(row.name) === areaKey(project.name));
   const developer = listed?.developerName || null;
   const community = projectCommunity(project.name, project.area);
   const display = AREA_DISPLAY[areaId(community)] || community;
   const tagline = areaTagline(display, ar);
-  const count = kind === "primary" ? project.primaryOffPlanSales : kind === "resale" ? project.secondarySales : project.primaryReadySales;
-  const latest = rows.reduce((max, row) => row.lastSale > max ? row.lastSale : max, "");
   const lines = [
     `🏙️ ${project.name}${developer ? (ar ? ` · من ${developer}` : ` · by ${developer}`) : ""}`,
     `📍 ${areaLabel(display, ar)}${tagline ? ` — ${tagline}` : ""}`,
@@ -549,14 +549,16 @@ function salesProjectCard({ project, data, buyer = {}, catalog = {}, ar = false,
       // Fewer than five sales is not a "typical" price: give the count with it.
       if (row.reliability === "Low sample") return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · ${approx(row.medianPriceAed, true)} (${salesCount(row.sales, kind, true)} فقط)`
         : `🏠 ${soldHomeLabel(row)}${size} · ${approx(row.medianPriceAed)} (only ${salesCount(row.sales, kind)})`;
-      return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · ${approx(row.medianPriceAed, true)} عادةً` : `🏠 ${soldHomeLabel(row)}${size} · typically ${approx(row.medianPriceAed)}`;
-    }),
-    ar ? `📊 ${salesCount(count, kind, true)} خلال آخر 12 شهراً · آخرها ${dayLabel(latest, true)}` : `📊 ${salesCount(count, kind)} in the last 12 months · latest ${dayLabel(latest)}`
+      return ar ? `🏠 ${soldHomeLabel(row, true)}${size} · سعر استرشادي ${approx(row.medianPriceAed, true)}` : `🏠 ${soldHomeLabel(row)}${size} · guide price ${approx(row.medianPriceAed).replace(/^about /, "around ")}`;
+    })
   ];
   const lead = shown[0];
   if (buyer.budgetAed && lead.reliability === "OK" && lead.medianPriceAed <= buyer.budgetAed && (!wanted.length || wanted.includes(lead.bedrooms))) {
-    lines.push(ar ? `✨ ليش يناسبك: ${homePhrase(lead, true)} هنا انباعت عادةً بـ${approx(lead.medianPriceAed, true)}، ضمن ميزانيتك.`
-      : `✨ Why it fits: ${homePhrase(lead)} here typically sold for ${approx(lead.medianPriceAed)}, within your budget.`);
+    const fitting = shown.filter(row => row.reliability === "OK" && row.medianPriceAed <= buyer.budgetAed &&
+      (!wanted.length || wanted.includes(row.bedrooms)) && (!types.length || types.includes(row.type)));
+    const labels = fitting.map(row => soldHomeLabel(row, ar).toLowerCase());
+    lines.push(ar ? `✨ حسب الأسعار الاسترشادية، ${labels.join(" و")} ضمن ميزانيتك وتستاهل نطالع تفاصيلها.`
+      : `✨ For your budget, I'd take a closer look at ${labels.length > 1 ? `the ${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : `the ${labels[0]}`}.`);
   }
   return { lines, rows: shown, kind, hasGuide: Boolean(tagline) };
 }
@@ -593,8 +595,7 @@ function soldIdentityCard({ project, catalog = {}, ar = false, resale = false })
   return { lines, rows: [], kind, hasGuide: Boolean(tagline), note };
 }
 
-const SALES_NOTE = { en: "Prices shown are recorded sales over the last 12 months.",
-  ar: "الأسعار من المبيعات المسجلة خلال آخر 12 شهر." };
+const SALES_NOTE = GUIDE_PRICE_NOTE;
 
 function salesEvidence(block, data, rows, projects) {
   const source = data.source || {}, dataUpTo = source.dataUpTo || projectKnowledgeCoverage(data).dataUpTo;
@@ -637,7 +638,7 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
     const heading = `${["1️⃣", "2️⃣", "3️⃣"][index]} ${row.name} · ${areaLabel(row.area, ar)}`;
     const details = row.kind === "listing"
       ? `${homeLabel(row.pack, ar)} · ${ar ? "يبدأ من" : "From"} ${aed(row.price, ar)}`
-      : `${soldHomeLabel(row.sale, ar)} · ${ar ? "مبيعات مسجلة (12 شهر):" : "Recent sales (12 months):"} ${approx(row.price, ar)}`;
+      : `${soldHomeLabel(row.sale, ar)} · ${ar ? "سعر استرشادي" : "Guide price"} ${approx(row.price, ar).replace(/^about /, "around ")}`;
     return `${heading}\n${details}`;
   });
   const lead = more && seen.length ? (ar ? `خيارات ثانية في ${where} 👇` : `More options in ${where} 👇`)
@@ -650,7 +651,7 @@ export function propertySearchReply({ message = "", buyer = {}, catalog = {}, da
   if (result.remaining > picks.length) choices.push(nextChoice("more", ar));
   state.choices = choices;
   const named = searchAreasIn(message, data);
-  return draft(`${lead}\n\n${blocks.join("\n\n")}`, "soft_match", {
+  return draft(`${lead}\n\n${blocks.join("\n\n")}${sales.length ? `\n\n${ar ? SALES_NOTE.ar : SALES_NOTE.en}` : ""}`, "soft_match", {
     question: ar ? "أي مشروع تبي نبدأ فيه؟" : "Which project would you like to explore?", choices,
     packs: picks.filter(row => row.pack).map(row => row.pack),
     advisoryExposure: { projectIds: picks.map(row => row.project?.id || `sales:${row.name}`), primaryProjectId: null, primaryUnitId: null },
@@ -669,13 +670,15 @@ export function salesProjectCardDraft({ project, data, buyer = {}, catalog = {},
   const card = salesProjectCard({ project, data, buyer, catalog, ar, focus, limit }) || soldIdentityCard({ project, catalog, ar });
   if (!card) return null;
   const block = [...card.lines, "", card.note || (ar ? SALES_NOTE.ar : SALES_NOTE.en)].join("\n");
-  const choices = [{ id: "project_plan", label: ar ? "خطة السداد" : "Payment plan", value: ar ? `شو خطة السداد في ${project.name}؟` : `What's the payment plan for ${project.name}?` },
+  const offer = priceInquiryOffer(project.name, ar);
+  const choices = [...offer.choices,
     nextChoice("more", ar), ...(card.hasGuide ? [nextChoice("area", ar)] : [])];
-  return draft(block, "project_knowledge", { question: ar ? NEXT_PROMPT.ar : NEXT_PROMPT.en, choices,
-    pendingOffer: { type: "concierge_card", projectName: project.name },
+  return draft(block, "project_knowledge", { question: offer.prompt, choices,
+    pendingOffer: offer.pending,
     advisoryExposure: { projectIds: [`sales:${project.name}`], primaryProjectId: null, primaryUnitId: null, upgradeProjectId: null, upgradeUnitId: null },
     extra: { areaGuideAreas: [projectCommunity(project.name, project.area)],
-      buyerPatch: card.rows[0] ? { discoverySearch: { ...buyer.discoverySearch, lastPrices: [card.rows[0].medianPriceAed] } } : {},
+      buyerPatch: { priceInquiryContext: { projectName: project.name },
+        ...(card.rows[0] ? { discoverySearch: { ...buyer.discoverySearch, lastPrices: [card.rows[0].medianPriceAed] } } : {}) },
       investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, card.rows, [project])] }],
       projectKnowledge: { intent: "project_card", rows: card.rows, projects: [{ name: project.name, area: project.area }] },
       handoffTopic: `Today's price and payment plan for ${project.name}` } });
@@ -691,12 +694,13 @@ function recordedProjectDetail({ text, buyer, catalog, data, pendingOffer, ar })
       : /\b(?:availability|available|units? left)\b|متوفر|متاح|التوفر/i.test(text) ? "availability" : null;
   if (!topic) return null;
   const label = { paymentPlan: ["payment plan", "خطة السداد"], handover: ["handover date", "موعد التسليم"], availability: ["current availability", "التوفر الحالي"] }[topic][ar ? 1 : 0];
-  const body = ar ? `عندي أسعار المبيعات المسجلة في ${project.name}، بس ${label} مو مؤكدة عندي.`
-    : `I have recorded sale prices for ${project.name}, but no confirmed ${label}.`;
-  return draft(body, "fact_answer", { question: ar ? "تبي فريقنا يشيك لك عليها؟" : "Would you like our team to check it?", field: "handoffOffer",
-    choices: [nextChoice("connect", ar), nextChoice("more", ar), nextChoice("notNow", ar)],
-    pendingOffer: { type: "handoff_offer", reason: "missing_fact", projectName: project.name },
-    extra: { factTopic: topic, factMissing: [{ topic, project: project.name }], handoffTopic: `${label} for ${project.name}` } });
+  const body = ar ? `${label} في ${project.name} تحتاج تأكيد حديث. نقدر نراجع لك التفاصيل ونرد عليك هنا.`
+    : `The ${label} for ${project.name} needs a fresh check. We can confirm the details for you here.`;
+  const offer = priceInquiryOffer(project.name, ar);
+  return draft(body, "fact_answer", { question: offer.prompt,
+    choices: [...offer.choices, nextChoice("more", ar), nextChoice("notNow", ar)], pendingOffer: offer.pending,
+    extra: { factTopic: topic, factMissing: [{ topic, project: project.name }], handoffTopic: `${label} for ${project.name}`,
+      buyerPatch: { priceInquiryContext: { projectName: project.name } } } });
 }
 
 function soldLine(row, mark, ar, { area = true } = {}) {
@@ -788,13 +792,13 @@ export function salesKnowledgeReply({ answer, message = "", buyer = {}, data, ca
     const matching = rows.filter(row => row.bedrooms === focus.bedrooms && (!focus.type || row.type === focus.type));
     if (matching.length === 1 && matching[0].reliability === "OK") {
       const row = matching[0];
-      const block = ar ? `${project.name}: ${soldHomeLabel(row, true)} — المبيعات المسجلة خلال آخر 12 شهر ${approx(row.medianPriceAed, true)}.`
-        : `${project.name}: ${soldHomeLabel(row)} — recent sales over the last 12 months were ${approx(row.medianPriceAed)}.`;
+      const block = ar ? `${project.name}: ${soldHomeLabel(row, true)} — سعر استرشادي ${approx(row.medianPriceAed, true)} من مبيعات حديثة.`
+        : `${project.name}: ${soldHomeLabel(row)} — guide price ${approx(row.medianPriceAed).replace(/^about /, "around ")}, based on recent sales.`;
       return draft(block, "project_knowledge", { question: ar ? "تبي نطالع خيارات ثانية بنفس الحجم؟" : "Would you like more options of the same size?",
         choices: [nextChoice("more", ar), nextChoice("area", ar)],
         pendingOffer: { type: "more_like_project", projectName: project.name, bedrooms: [row.bedrooms === "Studio" ? 0 : Number(row.bedrooms[0])], propertyTypes: [row.type.toLowerCase()] },
         extra: { investmentTheses: [{ projectId: "project-knowledge", evidenceRegistry: [salesEvidence(block, data, [row], [project])] }],
-          buyerPatch: { discoverySearch: { ...buyer.discoverySearch, lastPrices: [row.medianPriceAed] } },
+          buyerPatch: { priceInquiryContext: { projectName: project.name }, discoverySearch: { ...buyer.discoverySearch, lastPrices: [row.medianPriceAed] } },
           projectKnowledge: { ...knowledge, rows: [row], filters } } });
     }
   }

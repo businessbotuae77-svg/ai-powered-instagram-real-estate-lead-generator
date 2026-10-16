@@ -140,7 +140,7 @@ test("a selected recorded-sales project retains its subject for missing commerci
     assert.equal(last.stage, "fact_answer");
     assert.equal(last.check.ok, true);
     assert.match(last.reply, /Plaza 1/);
-    assert.match(last.reply, /no confirmed payment plan|مو مؤكدة/);
+    assert.match(last.reply, /needs a fresh check|تحتاج تأكيد حديث/);
     assert.doesNotMatch(last.reply, /Which project|أي مشروع|60\/40|80\/20|AED \d/);
     assert.equal(last.followUpSubmitted, false);
   }

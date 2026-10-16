@@ -10,6 +10,7 @@ import { firstNameFrom } from "../conversation/names.js";
 import { runtimeRoot } from "./json-store.js";
 import { KeyedQueue } from "../conversation/keyed-queue.js";
 import { handoffConfirmation, handoffFailureNotice } from "../conversation/contact.js";
+import { priceInquirySaved } from "../conversation/price-inquiry.js";
 
 export function messageEventAgeMs(event, now = Date.now()) {
   const raw = Number(event?.timestamp);
@@ -25,6 +26,7 @@ export function retryResult(result) {
   return { reply, stage, intents, buyer: buyer ? { ...buyer, commercialEvents: undefined } : buyer, alertReason, alertRecommended, callRequest, callRequestSubmitted,
     followUpSubmitted, callSummary, catalogError, matchCount, handoffRequired, intentAlert: intentAlert || null, outcome: outcome || null, compact: true,
     commercialDecision: result.commercialDecision || null,
+    instagramPriceRequest: result.instagramPriceRequest || null,
     // Quick-reply buttons are re-sent on a retry, so keep the question.
     nextQuestion: result.nextQuestion ? { field: result.nextQuestion.field, prompt: result.nextQuestion.prompt, choices: result.nextQuestion.choices || null } : null,
     matches: (result.matches || []).map(m => ({ project: { id: m.project?.id, name: m.project?.name }, unit: { id: m.unit?.id } })) };
@@ -221,8 +223,9 @@ export class IntegrationOrchestrator {
       const needsAlert = result.alertRecommended;
       const revoked = alert.reason === "permission_revoked";
       const alertOk = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert" || revoked);
+      const priceRequestSaved = Boolean(result.instagramPriceRequest && alert.recorded && !revoked);
       if (alertOk || !needsAlert) await this.events.save(mid, { alert });
-      if (needsAlert) await this.#recordHandoff(result, alertOk && !revoked ? "delivered" : revoked ? "cancelled" : "failed");
+      if (needsAlert) await this.#recordHandoff(result, alertOk && !revoked ? "delivered" : revoked ? "cancelled" : priceRequestSaved ? "requested" : "failed");
       if (needsAlert && alertOk && !revoked) {
         await this.#recordCommercial(result, event, "broker_request_delivered", { deliveryKey: alert.key, at: alert.deliveredAt || undefined });
         const serviceRequest = result.commercialDecision?.serviceRequest || result.buyer?.serviceRequest;
@@ -236,14 +239,15 @@ export class IntegrationOrchestrator {
       // Never leave the buyer in silence: if the alert failed, say so once and
       // keep retrying. A confirmation is sent only after delivery succeeds.
       let notice = previous.notice;
-      if (needsAlert && !alertOk && !notice) {
+      if (needsAlert && !alertOk && !priceRequestSaved && !notice) {
         const text = handoffFailureNotice(result.buyer, this.engine.broker, { unconfigured: /env incomplete/i.test(alert.reason || "") });
         notice = event.callRequest ? { uiOnly: true, text } : await this.#safeInstagramSend(event.senderId, text, mid);
         if (!notice.error && !notice.skipped) await this.events.save(mid, { notice: { ...notice, text } });
         if (event.callRequest) result.reply = text;
       }
-      if (!send && (!needsAlert || alertOk)) {
-        const reply = revoked ? "Your contact preferences changed, so the earlier follow-up request was cancelled." : needsAlert
+      if (!send && (!needsAlert || alertOk || priceRequestSaved)) {
+        const reply = revoked ? "Your contact preferences changed, so the earlier follow-up request was cancelled." : priceRequestSaved
+          ? priceInquirySaved(result.instagramPriceRequest.projectName, result.buyer.language === "ar") : needsAlert
           ? handoffConfirmation(result.buyer, this.engine.broker)
           : result.reply;
         send = event.callRequest ? { skipped: false, uiOnly: true } : await this.#safeInstagramSend(
@@ -251,14 +255,14 @@ export class IntegrationOrchestrator {
           !needsAlert && !revoked ? result.nextQuestion?.choices : null, previous.sendProgress
         );
         if (!send.error && !send.skipped) await this.events.save(mid, { send });
-        if (needsAlert && alertOk) result.reply = reply;
+        if (needsAlert && (alertOk || priceRequestSaved)) result.reply = reply;
       }
       // The internal lead alert goes after the buyer's reply, so a slow email or
       // WhatsApp provider never delays it. It is retried like any delivery and
       // never changes the reply.
       const intentAlert = previous.intentAlert?.ok ? previous.intentAlert : await this.#safeIntentAlert(result, event);
       if (intentAlert.ok) await this.events.save(mid, { intentAlert });
-      const failed = (needsAlert && !alertOk) || Boolean(intentAlert.error) || !send || send.error || send.skipped;
+      const failed = (needsAlert && !alertOk && !priceRequestSaved) || Boolean(intentAlert.error) || !send || send.error || send.skipped;
       if (send && !send.error && !send.skipped && !send.uiOnly && result.commercialDecision?.comparisonId) {
         await this.#recordCommercial(result, event, "comparison_delivered", {
           comparisonId: result.commercialDecision.comparisonId, pair: result.commercialDecision.pair, at: send.confirmedAt || undefined
@@ -300,16 +304,18 @@ export class IntegrationOrchestrator {
     if (!result.followUpSubmitted || !result.alertRecommended) return { alert: { skipped: true, reason: "not_a_submitted_call_request" }, reply: result.reply };
     const alert = await this.#safeCallRequestAlert(result, { mid: requestKey, senderId });
     const ok = !alert.error && (!alert.skipped || alert.reason === "duplicate_alert");
-    await this.#recordHandoff(result, ok ? "delivered" : "failed");
+    const priceRequestSaved = Boolean(result.instagramPriceRequest && alert.recorded && alert.reason !== "permission_revoked");
+    await this.#recordHandoff(result, ok ? "delivered" : priceRequestSaved ? "requested" : "failed");
     if (ok) {
       const event = { mid: requestKey, senderId };
       await this.#recordCommercial(result, event, "broker_request_delivered", { deliveryKey: alert.key, at: alert.deliveredAt || undefined });
       const service = result.commercialDecision?.serviceRequest || result.buyer?.serviceRequest;
       if (service?.status === "requested" && service.serviceId) await this.#recordCommercial(result, event, "service_request_delivered", { serviceId: service.serviceId, deliveryKey: alert.key, at: alert.deliveredAt || undefined });
     }
-    const reply = ok ? handoffConfirmation(result.buyer, this.engine.broker)
+    const reply = priceRequestSaved ? priceInquirySaved(result.instagramPriceRequest.projectName, result.buyer.language === "ar")
+      : ok ? handoffConfirmation(result.buyer, this.engine.broker)
       : handoffFailureNotice(result.buyer, this.engine.broker, { unconfigured: /env incomplete/i.test(alert.reason || "") });
-    return { alert, ok, reply };
+    return { alert, ok: ok || priceRequestSaved, reply };
   }
 
   async processCallRequest({ userId, phone, messageId = null } = {}) {
@@ -396,7 +402,7 @@ export class IntegrationOrchestrator {
     const latest = await this.buyers.getOrCreate?.(result.buyer.instagramUserId);
     const at = new Date().toISOString();
     await this.buyers.patchBuyer(result.buyer.instagramUserId, { handoff: { ...(latest?.handoff || result.buyer.handoff || {}), status,
-      ...(status === "delivered" ? { deliveredAt: at } : { failedAt: at }) } });
+      ...(status === "delivered" ? { deliveredAt: at } : status === "failed" ? { failedAt: at } : {}) } });
   }
 
   /**
@@ -432,6 +438,7 @@ export class IntegrationOrchestrator {
       return { skipped: true, reason: "not_a_submitted_call_request" };
     }
 
+    let recorded = false;
     try {
       const latest = await this.buyers?.getOrCreate?.(result.buyer.instagramUserId);
       if (latest?.salesPathStopped || (latest?.preferredContactChannel && latest.preferredContactChannel !== result.buyer.preferredContactChannel) || (result.buyer.preferredContactChannel === "phone" && latest?.noCalls)) return { skipped: true, reason: "permission_revoked" };
@@ -443,6 +450,7 @@ export class IntegrationOrchestrator {
         match: result.matches?.[0]?.project?.name || null
       });
 
+      recorded = true;
       const alert = await sendAdvisorAlert({
         buyer: result.buyer,
         reason: result.alertReason || "call_request",
@@ -470,7 +478,7 @@ export class IntegrationOrchestrator {
         retryable: Boolean(error.retryable),
         meta: { senderId: result.buyer.instagramUserId }
       });
-      return { skipped: true, error: error.message, recorded: true };
+      return { skipped: true, error: error.message, recorded };
     }
   }
 }
