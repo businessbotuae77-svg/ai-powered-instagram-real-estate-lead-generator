@@ -19,6 +19,7 @@ import { InstagramConversationPoller } from "../src/integrations/instagram-polle
 import { runtimeRoot } from "../src/integrations/json-store.js";
 import { getInstagramAccountIdentity, subscribeInstagramMessaging } from "../src/integrations/meta.js";
 import { webhookResponse } from "../src/integrations/webhook-response.js";
+import { WhatsappDocumentIntake, whatsappIntakeResponse } from "../src/integrations/whatsapp-document-intake.js";
 import { brokerProfileStatus } from "../src/conversation/broker-profile.js";
 import { loadServices } from "../src/conversation/services.js";
 import { buildDailyReport, formatDailyReport, reportDeliveryConfig, yesterdayInDubai, dubaiDay } from "../src/reporting/outcome-report.js";
@@ -26,6 +27,8 @@ import { alertChannels, sendDailyReport } from "../src/integrations/alerts.js";
 import { emailConfigured } from "../src/integrations/email.js";
 
 loadEnv();
+const whatsappIntake = new WhatsappDocumentIntake();
+whatsappIntake.start();
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -125,6 +128,12 @@ function serveStatic(urlPath, res) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
+  const intakeResponse = await whatsappIntakeResponse({ req, url, intake: whatsappIntake });
+  if (intakeResponse) {
+    if (intakeResponse.body) return sendJson(res, intakeResponse.status, intakeResponse.body);
+    return sendText(res, intakeResponse.status, intakeResponse.text);
+  }
+
   if (req.method === "OPTIONS") {
     return sendJson(res, 204, {});
   }
@@ -142,6 +151,7 @@ const server = http.createServer(async (req, res) => {
       projectAccess: botProjectCoverage({ catalog: properties.catalog(), marketPrices: engine.marketPrices, projectKnowledge: engine.projectKnowledge }),
       integrations: {
         metaConfigured: Boolean(process.env.META_PAGE_ACCESS_TOKEN && process.env.META_APP_SECRET),
+        whatsappDocumentIntake: whatsappIntake.status(),
         instagramPoller:
           String(process.env.INSTAGRAM_POLLER_ENABLED || "true").toLowerCase() !== "false",
         whatsappConfigured: Boolean(
